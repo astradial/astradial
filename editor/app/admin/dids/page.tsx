@@ -83,40 +83,39 @@ export default function AdminDidsPage() {
     setBulkSaving(false);
   }
 
-  async function handleApprove(id: string) {
-    try { await didAdmin.approve(id); showToast("Approved", "success"); loadAll(); }
-    catch (e: unknown) { showToast((e as Error).message, "error"); }
+  async function adminAction(action: string, did_id: string, extra?: Record<string, unknown>) {
+    try {
+      const res = await fetch(`/api/admin/dids/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ did_id, ...extra }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed"); }
+      showToast(action.charAt(0).toUpperCase() + action.slice(1) + "d", "success");
+      loadAll();
+    } catch (e: unknown) { showToast((e as Error).message, "error"); }
   }
 
-  async function handleReject(id: string) {
-    try { await didAdmin.reject(id); showToast("Rejected", "success"); loadAll(); }
-    catch (e: unknown) { showToast((e as Error).message, "error"); }
-  }
+  async function handleApprove(id: string) { adminAction("approve", id); }
+  async function handleReject(id: string) { adminAction("reject", id); }
 
   async function handleAssign() {
     if (!assignDid || !assignOrgId) return;
-    try { await didAdmin.assign(assignDid.id, assignOrgId); showToast("Assigned", "success"); setAssignOpen(false); loadAll(); }
-    catch (e: unknown) { showToast((e as Error).message, "error"); }
+    adminAction("assign", assignDid.id, { org_id: assignOrgId });
+    setAssignOpen(false);
   }
 
-  async function handleRelease(id: string) {
-    try { await didAdmin.release(id); showToast("Released to pool", "success"); loadAll(); }
-    catch (e: unknown) { showToast((e as Error).message, "error"); }
-  }
+  async function handleRelease(id: string) { adminAction("release", id); }
 
   async function handleEditSave() {
     if (!editDid) return;
-    try {
-      await didAdmin.update(editDid.id, {
-        description: editForm.description || null,
-        region: editForm.region || null,
-        provider: editForm.provider || null,
-        monthly_price: editForm.monthly_price ? parseFloat(editForm.monthly_price) as unknown as number : null,
-      } as Partial<PoolDid>);
-      showToast("Updated", "success");
-      setEditOpen(false);
-      loadAll();
-    } catch (e: unknown) { showToast((e as Error).message, "error"); }
+    adminAction("update", editDid.id, {
+      description: editForm.description || null,
+      region: editForm.region || null,
+      provider: editForm.provider || null,
+      monthly_price: editForm.monthly_price || null,
+    });
+    setEditOpen(false);
   }
 
   function openAssign(did: PoolDid) { setAssignDid(did); setAssignOrgId(""); setAssignOpen(true); }
