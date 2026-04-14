@@ -182,7 +182,7 @@ const authenticateOrg = async (req, res, next) => {
   const apiKey = req.headers['x-api-key'];
   const authHeader = req.headers['authorization'];
 
-  // Also accept internal key + org_id (for workflow engine server-to-server calls)
+  // Also accept internal key (for server-to-server calls)
   const internalKey = req.headers['x-internal-key'];
   if (internalKey && internalKey === process.env.INTERNAL_API_KEY) {
     const orgId = req.body?.org_id || req.query?.org_id;
@@ -194,6 +194,11 @@ const authenticateOrg = async (req, res, next) => {
         return next();
       }
     }
+    // Internal key without org_id — allow for admin/cross-org operations
+    req.orgId = null;
+    req.organization = null;
+    req.isInternalAdmin = true;
+    return next();
   }
 
   if (!apiKey && !authHeader) {
