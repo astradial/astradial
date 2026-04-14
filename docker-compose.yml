@@ -111,6 +111,9 @@ services:
       - NEXT_PUBLIC_WORKFLOW_URL=http://workflow-engine:3002
       - NEXT_PUBLIC_ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - GATEWAY_ADMIN_KEY=${INTERNAL_API_KEY:-internal-dev-key}
     depends_on:
       - api
     networks:
