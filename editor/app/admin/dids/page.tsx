@@ -47,8 +47,10 @@ export default function AdminDidsPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      const params = filter !== "all" ? { pool_status: filter } : undefined;
-      const res = await didAdmin.all(params);
+      // Use server-side bridge route (avoids org token requirement)
+      const fetchRes = await fetch("/api/admin/dids");
+      if (!fetchRes.ok) throw new Error("Failed to load DIDs");
+      const res = await fetchRes.json() as AdminDidsResponse;
       setData(res);
       // Extract unique orgs
       const orgMap = new Map<string, string>();

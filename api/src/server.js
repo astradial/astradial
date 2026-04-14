@@ -1509,8 +1509,8 @@ app.post('/api/v1/dids', authenticateOrg, async (req, res) => {
   try {
     const { number, trunk_id, description, routing_type, routing_destination, recording_enabled = false } = req.body;
 
-    if (!number || !trunk_id || !routing_type || !routing_destination) {
-      return res.status(400).json({ error: 'Required fields missing' });
+    if (!number) {
+      return res.status(400).json({ error: 'Number is required' });
     }
 
     // Check DID limit
@@ -1544,7 +1544,8 @@ app.post('/api/v1/dids', authenticateOrg, async (req, res) => {
       routing_type,
       routing_destination,
       recording_enabled,
-      status: 'active'
+      status: 'active',
+      pool_status: 'assigned',
     });
 
     res.status(201).json(did);
