@@ -28,7 +28,8 @@ export async function GET() {
     const res = await fetch(`${PBX_URL}/api/v1/organizations`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const orgs = await res.json();
+    const data = await res.json();
+    const orgs = data.organizations || data || [];
 
     // Map to gateway format
     const mapped = (Array.isArray(orgs) ? orgs : []).map((o: Record<string, unknown>) => ({
