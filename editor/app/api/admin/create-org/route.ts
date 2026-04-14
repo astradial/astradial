@@ -20,6 +20,31 @@ export async function POST(req: NextRequest) {
     });
 
     const data = await res.json();
+
+    // Auto-link admin email as org owner
+    if (res.ok && data.id) {
+      const adminEmail = process.env.ADMIN_EMAIL || "";
+      if (adminEmail) {
+        try {
+          const INTERNAL_KEY = process.env.INTERNAL_API_KEY || "";
+          await fetch(`${PBX_URL}/api/v1/org-users/invite`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-API-Key": data.api_key,
+            },
+            body: JSON.stringify({ email: adminEmail, name: "Admin", role: "owner", extension: "1001" }),
+          });
+          // Also link in org_users if admin exists without org
+          await fetch(`${PBX_URL}/api/v1/auth/link-admin-org`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Internal-Key": INTERNAL_KEY },
+            body: JSON.stringify({ email: adminEmail, org_id: data.id }),
+          }).catch(() => {});
+        } catch {}
+      }
+    }
+
     return NextResponse.json(data, { status: res.status });
   } catch (e) {
     return NextResponse.json(

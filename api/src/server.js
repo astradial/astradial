@@ -4372,6 +4372,24 @@ app.get('/api/v1/calls/stats', authenticateOrg, async (req, res) => {
 // ========================================
 
 // Internal endpoint: get JWT for an org (called by editor's admin-org-token)
+// Link an existing org_users entry (with null org_id) to an org
+app.post('/api/v1/auth/link-admin-org', async (req, res) => {
+  try {
+    const internalKey = req.headers['x-internal-key'];
+    if (!internalKey || internalKey !== process.env.INTERNAL_API_KEY) {
+      return res.status(401).json({ error: 'Invalid internal key' });
+    }
+    const { email, org_id } = req.body;
+    if (!email || !org_id) return res.status(400).json({ error: 'email and org_id required' });
+
+    await sequelize.query(
+      'UPDATE org_users SET org_id = ?, role = "owner", extension = "1001" WHERE email = ? AND org_id IS NULL',
+      { replacements: [org_id, email] }
+    );
+    res.json({ message: 'Linked' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/v1/auth/admin-token', async (req, res) => {
   try {
     const internalKey = req.headers['x-internal-key'];
