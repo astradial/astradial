@@ -43,7 +43,7 @@ export default function TrunksPage() {
 
   async function handleCreate() {
     try {
-      await trunks.create({ name: form.name, host: form.host, port: parseInt(form.port), username: form.username, transport: form.transport as PbxTrunk["transport"], trunk_type: form.trunk_type as PbxTrunk["trunk_type"], max_channels: parseInt(form.max_channels) });
+      await trunks.create({ name: form.name, host: form.host, port: parseInt(form.port), username: form.username, password: form.password, transport: form.transport as PbxTrunk["transport"], trunk_type: form.trunk_type as PbxTrunk["trunk_type"], max_channels: parseInt(form.max_channels) } as Partial<PbxTrunk>);
       showToast("Trunk created", "success");
       setCreateOpen(false);
       setForm({ name: "", host: "", port: "5060", username: "", password: "", transport: "udp", trunk_type: "outbound", max_channels: "10" });
