@@ -29,7 +29,7 @@ export default function TrunksPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editingTrunk, setEditingTrunk] = useState<PbxTrunk | null>(null);
-  const isAdmin = typeof window !== "undefined" && !!localStorage.getItem("gateway_admin_key");
+  const isAdmin = typeof window !== "undefined" && (!!localStorage.getItem("gateway_admin_key") || localStorage.getItem("user_role") === "owner" || localStorage.getItem("user_role") === "admin");
   const [form, setForm] = useState({ name: "", host: "", port: "5060", username: "", password: "", transport: "udp", trunk_type: "outbound", max_channels: "10" });
   const [editForm, setEditForm] = useState({ name: "", host: "", port: "5060", username: "", password: "", transport: "udp", trunk_type: "outbound", max_channels: "10", status: "active" });
 
