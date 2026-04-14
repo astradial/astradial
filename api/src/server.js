@@ -343,6 +343,26 @@ const triggerWebhooks = async (orgId, event, data) => {
 // ========================================
 
 // Health check
+app.get('/api/v1/server-info', (req, res) => {
+  const os = require('os');
+  const nets = os.networkInterfaces();
+  let lanIp = null;
+  for (const iface of Object.values(nets)) {
+    for (const cfg of iface) {
+      if (cfg.family === 'IPv4' && !cfg.internal && !cfg.address.startsWith('172.')) {
+        lanIp = cfg.address;
+        break;
+      }
+    }
+    if (lanIp) break;
+  }
+  res.json({
+    sip_host: process.env.SIP_HOST || lanIp || 'localhost',
+    sip_port: 5060,
+    hostname: os.hostname(),
+  });
+});
+
 app.get('/health', (req, res) => {
   const eventStatus = eventListenerService.getStatus();
 
