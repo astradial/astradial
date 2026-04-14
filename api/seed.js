@@ -68,7 +68,7 @@ async function seed() {
     await conn.query(
       `INSERT INTO users (id, org_id, username, email, full_name, extension, role, status, password_hash, sip_password, asterisk_endpoint, recording_enabled, created_at, updated_at)
        VALUES (?, ?, 'admin', ?, ?, '1001', 'admin', 'active', ?, ?, ?, 0, NOW(), NOW())`,
-      [uuid(), orgId, adminEmail, adminName, sipPass, sipPass, `PJSIP/1001`]
+      [uuid(), orgId, adminEmail, adminName, sipPass, sipPass, 'PJSIP/default_1001']
     );
 
     console.log('');
