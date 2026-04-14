@@ -123,8 +123,8 @@ else
   PBX_URL=${PBX_URL:-https://open.astradial.com}
   read -p "  SIP host [opensip.astradial.com]: " SIP_HOST
   SIP_HOST=${SIP_HOST:-opensip.astradial.com}
-  read -p "  SIP port [5080]: " SIP_PORT
-  SIP_PORT=${SIP_PORT:-5080}
+  read -p "  SIP port [5060]: " SIP_PORT
+  SIP_PORT=${SIP_PORT:-5060}
 
   # ── Write .env ──
   cat > .env << EOF
