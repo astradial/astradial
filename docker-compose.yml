@@ -8,7 +8,7 @@ services:
       MARIADB_USER: ${DB_USER:-astradial}
       MARIADB_PASSWORD: ${DB_PASSWORD:-changeme}
     ports:
-      - "3306:3306"
+      - "${DB_EXTERNAL_PORT:-3307}:3306"
     volumes:
       - mariadb_data:/var/lib/mysql
     healthcheck:
@@ -60,11 +60,16 @@ services:
       - DB_NAME=${DB_NAME:-astradial}
       - DB_USER=${DB_USER:-astradial}
       - DB_PASSWORD=${DB_PASSWORD:-changeme}
+      - DB_DIALECT=mariadb
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET:-change-this-secret}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - ASTERISK_HOST=asterisk
+      - AMI_HOST=asterisk
+      - AMI_PORT=5038
+      - AMI_USERNAME=astradial
+      - AMI_SECRET=${ASTERISK_AMI_SECRET:-astradial}
       - ASTERISK_AMI_PORT=5038
       - ASTERISK_AMI_USER=astradial
       - ASTERISK_AMI_SECRET=${ASTERISK_AMI_SECRET:-astradial}

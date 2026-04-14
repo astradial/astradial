@@ -1,21 +1,10 @@
-FROM debian:bookworm-slim
+FROM andrius/asterisk:latest
 
-ENV DEBIAN_FRONTEND=noninteractive
+USER root
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    asterisk \
-    asterisk-modules \
-    asterisk-core-sounds-en \
-    asterisk-moh-opsound-wav \
-    curl \
-    mariadb-client \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create required directories
+# Create directories
 RUN mkdir -p /var/spool/asterisk/monitor \
-    && mkdir -p /var/lib/asterisk/sounds/en \
-    && chown -R asterisk:asterisk /var/spool/asterisk \
-    && chown -R asterisk:asterisk /etc/asterisk
+    && mkdir -p /var/lib/asterisk/sounds/en
 
 # Copy base configs
 COPY configs/ /etc/asterisk/
