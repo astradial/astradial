@@ -32,26 +32,30 @@ export default function OrgLayout({ children }: { children: React.ReactNode }) {
 
       if (!getAdminKey()) return;
       try {
-        const org = await orgs.get(orgId);
-        setOrgName(org.name);
+        // Get full org JWT via admin impersonation
         const tokenRes = await fetch("/api/auth/admin-org-token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ org_id: orgId }),
         });
         if (tokenRes.ok) {
-          const { token } = await tokenRes.json();
+          const data = await tokenRes.json();
+          const token = data.token;
+          const name = data.org_name || orgId;
+          setOrgName(name);
           setOrgToken(token);
-          // Persist admin impersonation so child pages don't lose auth
+          // Persist fully — same as org user login
           if (typeof window !== "undefined") {
             localStorage.setItem("org_access", JSON.stringify({
               org_id: orgId,
-              org_name: org.name,
+              org_name: name,
               api_key: token,
               role: "owner",
               email: "admin",
             }));
             localStorage.setItem("pbx_org_token", token);
+            localStorage.setItem("user_role", "owner");
+            localStorage.setItem("user_permissions", JSON.stringify([]));
           }
         }
       } catch {

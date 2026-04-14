@@ -4404,13 +4404,17 @@ app.post('/api/v1/auth/admin-token', async (req, res) => {
       return res.status(404).json({ error: 'Organization not found or inactive' });
     }
 
-    const jwt = require('jsonwebtoken');
-    const token = jwt.sign(
-      { orgId: org.id, orgName: org.name, apiKey: org.api_key },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-    res.json({ token });
+    const token = jwt.sign({
+      orgId: org.id,
+      orgName: org.name,
+      apiKey: org.api_key,
+      userId: 'admin',
+      email: 'admin',
+      name: 'Admin',
+      role: 'owner',
+      permissions: getPermissions('owner'),
+    }, JWT_SECRET, { expiresIn: '24h' });
+    res.json({ token, org_name: org.name });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
