@@ -1,0 +1,162 @@
+{
+  "$schema": "https://flows.pipecat.ai/schema/flow.json",
+  "meta": {
+    "name": "grand_estancia_ticketing",
+    "version": "0.4.0",
+    "description": "Single-node ticketing bot — Gemini Live optimized, idle detection handles hangup"
+  },
+  "idle_config": {
+    "timeout_secs": 8,
+    "max_retries": 2,
+    "prompt_message": "Are you still there? I'm here to help.",
+    "goodbye_message": "I haven't heard from you. Thank you for calling Grand Estancia. Goodbye."
+  },
+  "value_maps": {
+    "category_labels": {
+      "housekeeping": "Housekeeping",
+      "maintenance": "Maintenance",
+      "billing": "Billing",
+      "room_service": "Room Service",
+      "noise_complaint": "Noise Complaint",
+      "other": "Other"
+    },
+    "priority_map": {
+      "housekeeping": "normal",
+      "maintenance": "high",
+      "billing": "normal",
+      "room_service": "normal",
+      "noise_complaint": "high",
+      "other": "low"
+    },
+    "faq_answers": {
+      "checkout_time": "Check-out time is 11 AM. Late check-out until 1 PM is available on request.",
+      "checkin_time": "Check-in time is 2 PM. Early check-in is subject to availability.",
+      "wifi_password": "The Wi-Fi network is GrandEstancia-Guest. The password is on the card in your room.",
+      "pool_hours": "The pool is open from 7 AM to 10 PM daily.",
+      "parking": "Complimentary valet parking is available. Self-parking is in basement level B1.",
+      "breakfast_hours": "Breakfast is served from 7 AM to 10:30 AM at the Garden Restaurant."
+    }
+  },
+  "nodes": [
+    {
+      "id": "main",
+      "type": "initial",
+      "position": { "x": 200, "y": 100 },
+      "data": {
+        "label": "Main",
+        "role_messages": [
+          {
+            "role": "system",
+            "content": "You are the Grand Estancia AI hotel assistant. Be warm, professional, and brief. Speak naturally. No emojis.\n\nRULES:\n1. When the caller describes a problem, ask for their name first. Then ask for their room number. Ask one at a time.\n2. Once you have the caller's name, room number, and issue description, IMMEDIATELY call submit_ticket. Do NOT ask more questions. Just call the function.\n3. If the caller gives all info at once, call submit_ticket immediately.\n4. After submit_ticket is called, tell the caller their ticket has been created and ask if there is anything else.\n5. When the caller says goodbye or is done, IMMEDIATELY call end_call. The call will disconnect automatically.\n6. For hotel questions (checkout, checkin, wifi, pool, parking, breakfast), call answer_faq.\n7. NEVER keep chatting when you have enough information to call a function."
+          }
+        ],
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "Greet the caller. Say: Thank you for calling Grand Estancia. I apologize, our team is currently assisting other guests. I am the hotel's AI assistant and I am here to help you. How may I assist you today?"
+          }
+        ],
+        "functions": [
+          {
+            "name": "answer_faq",
+            "description": "Answer a common hotel question about checkout time, checkin time, wifi password, pool hours, parking, or breakfast hours.",
+            "properties": {
+              "faq_key": {
+                "type": "string",
+                "enum": ["checkout_time", "checkin_time", "wifi_password", "pool_hours", "parking", "breakfast_hours"],
+                "description": "The FAQ topic"
+              }
+            },
+            "required": ["faq_key"],
+            "state_mappings": {
+              "faq_key": "{args.faq_key}",
+              "faq_answer": "{value_map.faq_answers.{args.faq_key}}"
+            },
+            "next_node_id": "main"
+          },
+          {
+            "name": "end_call",
+            "description": "Hang up the call. Call this IMMEDIATELY when the caller says goodbye, bye, thanks that's all, done, or wants to end the call.",
+            "next_node_id": "main"
+          },
+          {
+            "name": "submit_ticket",
+            "description": "Submit a support ticket. Call this IMMEDIATELY when you have the guest's name, room number, and issue.",
+            "properties": {
+              "guest_name": {
+                "type": "string",
+                "description": "The guest's name"
+              },
+              "room_number": {
+                "type": "string",
+                "description": "The guest's room number"
+              },
+              "category": {
+                "type": "string",
+                "enum": ["housekeeping", "maintenance", "billing", "room_service", "noise_complaint", "other"],
+                "description": "The issue category"
+              },
+              "summary": {
+                "type": "string",
+                "description": "Brief summary of the issue"
+              },
+              "details": {
+                "type": "string",
+                "description": "Full details including everything the guest mentioned"
+              }
+            },
+            "required": ["guest_name", "room_number", "category", "summary", "details"],
+            "state_mappings": {
+              "guest_name": "{args.guest_name}",
+              "room_number": "{args.room_number}",
+              "category": "{args.category}",
+              "summary": "{args.summary}",
+              "details": "{args.details}",
+              "category_label": "{value_map.category_labels.{args.category}}",
+              "priority": "{value_map.priority_map.{args.category}}"
+            },
+            "next_node_id": "main",
+            "post_actions": [
+              {
+                "type": "webhook",
+                "url": "https://events.astradial.com/bot-bridge",
+                "body": {
+                  "action": "create_ticket",
+                  "org_id": "{call.org_id}",
+                  "caller_number": "{call.endpoint}",
+                  "channel_id": "{call.channel_id}",
+                  "category": "{state.category}",
+                  "summary": "{state.summary}",
+                  "details": "{state.details}",
+                  "guest_name": "{state.guest_name}",
+                  "room_number": "{state.room_number}",
+                  "priority": "{state.priority}"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_main_self_faq",
+      "source": "main",
+      "target": "main",
+      "label": "answer_faq"
+    },
+    {
+      "id": "e_main_self_ticket",
+      "source": "main",
+      "target": "main",
+      "label": "submit_ticket"
+    },
+    {
+      "id": "e_main_self_end",
+      "source": "main",
+      "target": "main",
+      "label": "end_call"
+    }
+  ]
+}

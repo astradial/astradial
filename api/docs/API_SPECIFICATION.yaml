@@ -1,0 +1,5575 @@
+openapi: 3.0.3
+info:
+  title: AstraPBX API
+  description: |
+    AstraPBX is a multi-tenant cloud PBX platform built on Asterisk. This API provides complete control over telephony infrastructure — from provisioning SIP trunks and DIDs to managing call queues, users, greetings, and hold music.
+
+    ## Authentication
+
+    AstraPBX supports two authentication methods. Set your credentials once using the **Authorize** button above — they persist across all requests in this session.
+
+    ### Option 1: API Key (Recommended)
+    Pass your organization's API key and secret as headers. No login step required.
+    ```
+    X-API-Key: org_xxxxxxxxxxxx
+    X-API-Secret: your-api-secret
+    ```
+
+    ### Option 2: Bearer Token (JWT)
+    Authenticate via `POST /auth/login` with your API key and secret to receive a JWT token. Pass it as a Bearer token in subsequent requests.
+    ```
+    Authorization: Bearer eyJhbGciOi...
+    ```
+
+    ### Admin Endpoints
+    Endpoints under `/admin/*` require admin credentials and are used only for initial organization setup. Do not use admin tokens for regular API operations.
+
+    ## Auto-Deployment
+
+    Most write operations (creating users, updating queues, changing routing) automatically deploy configuration changes to Asterisk and reload. No manual deployment step is needed unless you want to force a full redeploy via `/config/deploy`.
+
+    ## Quick Start
+
+    1. **Authenticate** — Use the Authorize button with your API Key + Secret
+    2. **Create a SIP Trunk** — `POST /trunks` to connect your SIP provider
+    3. **Add a DID** — `POST /dids` to register your phone number
+    4. **Create Users** — `POST /users` to provision extensions
+    5. **Create a Queue** — `POST /queues` and add members
+    6. **Route the DID** — `PUT /dids/{id}/routing` to point the DID at your queue
+    7. **Test** — Call your DID number
+
+  version: 1.0.0
+  contact:
+    name: Astradial Support
+    email: support@astradial.com
+    url: https://astradial.com
+
+servers:
+  - url: https://devpbx.astradial.com/api/v1
+    description: Production API
+
+security:
+  - ApiKeyAuth: []
+    ApiSecretAuth: []
+  - BearerAuth: []
+
+tags:
+  - name: Admin Authentication
+    description: |
+      **What:** Admin-level authentication for platform management.
+      **Why:** Required to create and manage organizations (tenants) on the platform.
+      **How:** POST admin credentials to `/admin/auth` to receive a JWT token. Use this token only for `/admin/*` endpoints.
+  - name: Admin - Global Settings
+    description: |
+      **What:** Global PBX configuration that applies across all organizations.
+      **Why:** Controls system-wide defaults like codec preferences, security policies, and feature flags.
+      **How:** Authenticate as admin, then GET/PUT `/admin/settings`.
+  - name: Authentication
+    description: |
+      **What:** Organization-level authentication for all PBX operations.
+      **Why:** Every API call requires org-scoped authentication to ensure multi-tenant isolation.
+      **How:** POST your `api_key` and `api_secret` to `/auth/login` to get a JWT, or pass them directly as `X-API-Key` / `X-API-Secret` headers.
+  - name: Organization Management
+    description: |
+      **What:** Create and manage tenant organizations on the platform.
+      **Why:** Each organization is an isolated PBX tenant with its own users, trunks, DIDs, and call routing.
+      **How:** Admin creates orgs via `POST /organizations`. Org-level users can view and update their own org settings.
+  - name: SIP Trunks
+    description: |
+      **What:** SIP trunk connections to telephony providers (PSTN, VoIP).
+      **Why:** Trunks carry voice traffic between AstraPBX and the outside world. Without a trunk, no external calls are possible.
+      **How:** Create a trunk with provider details (host, credentials, codecs), then associate DIDs to it.
+  - name: DID Numbers
+    description: |
+      **What:** Direct Inward Dialing numbers — the phone numbers customers call.
+      **Why:** DIDs are the entry point for inbound calls. Each DID routes to a queue, extension, IVR, or AI agent.
+      **How:** Register a DID via `POST /dids`, assign it to a trunk, then configure routing via `PUT /dids/{id}/routing`.
+  - name: Users
+    description: |
+      **What:** User accounts and SIP extensions for agents and staff.
+      **Why:** Users are the people who answer calls. Each user gets a SIP extension and can be added to queues.
+      **How:** Create users with `POST /users`, specifying extension number, credentials, and ring target (SIP device or phone number).
+  - name: Queues
+    description: |
+      **What:** Call queues (departments) that distribute incoming calls to groups of agents.
+      **Why:** Queues enable organized call distribution with strategies like round-robin, ring-all, or least-recent. They support hold music, announcements, timeouts, and failover routing.
+      **How:** Create a queue with `POST /queues`, add members via `POST /queues/{id}/members`, then route a DID to the queue.
+  - name: Greetings
+    description: |
+      **What:** Text-to-Speech greetings that play to callers before they enter a queue or reach an extension.
+      **Why:** Greetings provide a professional first impression (e.g., "Welcome to Grand Estancia"). Audio is generated once via Google TTS and stored — not synthesized on every call.
+      **How:** Create a greeting with `POST /greetings` (provide text, language, voice), enable it via `PUT /settings/greeting`, and optionally override per-queue via `PUT /queues/{id}`.
+  - name: Music on Hold
+    description: |
+      **What:** Upload and manage hold music that callers hear while waiting in a queue.
+      **Why:** Replaces the default ringing with custom audio (music, announcements, branding). Each queue can have its own MOH class.
+      **How:** Upload audio via `POST /moh/upload` (accepts mp3, wav, ogg, flac, m4a, aac — auto-converts to Asterisk format). Assign to a queue with `PUT /queues/{id}/moh`.
+  - name: IVR
+    description: |
+      **What:** Interactive Voice Response menus (Coming Soon).
+      **Why:** IVR enables automated call routing via DTMF keypress menus.
+      **How:** Not yet implemented via API. The IVR model exists in the database for future use.
+  - name: Outbound Routes
+    description: |
+      **What:** Rules that determine which SIP trunk handles outgoing calls based on dialed number patterns.
+      **Why:** Enables cost optimization (route local calls via one provider, international via another) and failover.
+      **How:** Create routes with `POST /outbound-routes`, specifying pattern, trunk, and priority.
+  - name: Call Management
+    description: |
+      **What:** Real-time control over active calls — view, hangup, hold, transfer.
+      **Why:** Enables supervisors and applications to monitor and manage live calls.
+      **How:** List active calls with `GET /calls/active`, perform actions like `POST /calls/{id}/hangup`.
+  - name: Call Routing
+    description: |
+      **What:** Click-to-call and programmatic call origination.
+      **Why:** Enables applications to initiate outbound calls, connect two parties, or route calls dynamically.
+      **How:** Use `POST /routing/click-to-call` to originate a call between an extension and an external number.
+  - name: Webhooks
+    description: |
+      **What:** HTTP callbacks that notify your application when call events occur.
+      **Why:** Enables real-time integrations — update CRM on call start, log call recordings, trigger workflows on hangup.
+      **How:** Register a webhook URL via `POST /webhooks` and specify which events to subscribe to.
+  - name: Configuration Management
+    description: |
+      **What:** Manual Asterisk configuration deployment and verification.
+      **Why:** Most operations auto-deploy, but this provides manual control for troubleshooting or bulk changes.
+      **How:** Trigger a full deploy with `POST /config/deploy`, verify with `GET /config/verify`.
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Organization API key (e.g., `org_1938b72364514e389ca31473a59efc00`)
+    ApiSecretAuth:
+      type: apiKey
+      in: header
+      name: X-API-Secret
+      description: Organization API secret
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from `POST /auth/login`
+  schemas:
+    Greeting:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        text:
+          type: string
+          description: TTS text content
+        language:
+          type: string
+          default: en-IN
+        voice:
+          type: string
+          default: en-IN-Wavenet-D
+        audio_file:
+          type: string
+          description: Generated audio filename
+        status:
+          type: string
+          enum: [active, inactive]
+
+    GreetingSettings:
+      type: object
+      properties:
+        greeting_enabled:
+          type: boolean
+          description: Enable/disable greeting playback
+        greeting_id:
+          type: string
+          format: uuid
+          description: Default greeting for the org
+        play_on_queue:
+          type: boolean
+          default: true
+          description: Play greeting on calls routed to queues
+        play_on_extension:
+          type: boolean
+          default: false
+          description: Play greeting on calls routed to extensions
+        play_on_ivr:
+          type: boolean
+          default: false
+          description: Play greeting on calls routed to IVR
+        play_on_transfer:
+          type: boolean
+          default: false
+          description: Play greeting on call transfers
+
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: |
+            Organization name - used to generate context prefix for multi-tenant isolation.
+
+            **Validation Rules:**
+            - Must be 3-50 characters long
+            - Cannot contain spaces
+            - Cannot start or end with special characters
+            - Only alphanumeric characters and hyphens allowed
+            - Must start and end with alphanumeric characters
+
+            **Examples:**
+            - Valid: "MyCompany", "ACME-Corp", "TestOrg123"
+            - Invalid: "My Company" (spaces), "-ACME" (starts with special char), "Test!" (special char)
+          pattern: '^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$'
+          minLength: 3
+          maxLength: 50
+          example: "TestOrg"
+        domain:
+          type: string
+          description: Organization domain
+          example: "testorg.local"
+        context_prefix:
+          type: string
+          description: Auto-generated context prefix based on organization name (lowercase)
+          example: "testorg_"
+        api_key:
+          type: string
+          description: Organization API key
+          example: "YOUR_ORG_API_KEY"
+        status:
+          type: string
+          enum: [active, suspended, deleted]
+          example: "active"
+        settings:
+          type: object
+          properties:
+            max_trunks:
+              type: integer
+              example: 5
+            max_dids:
+              type: integer
+              example: 10
+            max_users:
+              type: integer
+              example: 50
+            max_queues:
+              type: integer
+              example: 10
+            recording_enabled:
+              type: boolean
+              example: false
+            webhook_enabled:
+              type: boolean
+              example: true
+            features:
+              type: object
+              properties:
+                call_transfer:
+                  type: boolean
+                  example: true
+                call_recording:
+                  type: boolean
+                  example: true
+                voicemail:
+                  type: boolean
+                  example: true
+                conference:
+                  type: boolean
+                  example: true
+                ivr:
+                  type: boolean
+                  example: true
+                ai_agent:
+                  type: boolean
+                  example: false
+        limits:
+          type: object
+          properties:
+            concurrent_calls:
+              type: integer
+              example: 10
+            monthly_minutes:
+              type: integer
+              example: 10000
+            storage_gb:
+              type: integer
+              example: 10
+        contact_info:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+              example: "admin@company.com"
+            phone:
+              type: string
+              example: "+1-555-0123"
+            address:
+              type: string
+              example: "123 Main St, City, State"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    SipTrunk:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        org_id:
+          type: string
+          format: uuid
+          example: "2c662bff-8f80-483a-8235-74fd48965a9c"
+        name:
+          type: string
+          example: "Main SIP Provider"
+        host:
+          type: string
+          example: "sip.provider.com"
+          description: "SIP host/IP address. Required for outbound and peer2peer types. NOT required for inbound (dynamic registration)."
+        username:
+          type: string
+          example: "myaccount"
+          description: "Required for inbound and outbound trunks, optional for peer2peer"
+        password:
+          type: string
+          description: "SIP password (write-only, not returned in responses). Required for inbound and outbound trunks, optional for peer2peer"
+        port:
+          type: integer
+          example: 5060
+        transport:
+          type: string
+          enum: [udp, tcp, tls]
+          example: "udp"
+        trunk_type:
+          type: string
+          enum: [inbound, outbound, peer2peer]
+          default: outbound
+          example: "outbound"
+          description: |
+            Type of SIP trunk:
+            - **inbound**: Remote provider REGISTERS TO our server (dynamic registration). No host/IP required - they register to us using username/password. Requires username/password only.
+            - **outbound**: We REGISTER TO remote provider (we initiate registration). Requires host, username, password.
+            - **peer2peer**: No registration - uses SIP OPTIONS keepalive packets only. Requires host. No authentication required.
+        retry_interval:
+          type: integer
+          example: 60
+          description: "Registration retry interval in seconds (only for outbound type - when we register to them)"
+        expiration:
+          type: integer
+          example: 3600
+          description: "Registration expiration time in seconds (only for outbound type - when we register to them)"
+        contact_user:
+          type: string
+          example: "myusername"
+          description: "Contact user for registration (defaults to username if not set, only for outbound type)"
+        status:
+          type: string
+          enum: [active, inactive, maintenance]
+          example: "active"
+        max_channels:
+          type: integer
+          example: 10
+        asterisk_peer_name:
+          type: string
+          example: "testorg_trunk1234567890"
+          description: "Auto-generated Asterisk peer name"
+        registration_status:
+          type: string
+          enum: [registered, unregistered, failed, unknown]
+          example: "registered"
+          description: "Registration status (only relevant for outbound type - when we register to them)"
+        last_registration:
+          type: string
+          format: date-time
+          description: "Last successful registration timestamp (only for outbound type)"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    DidNumber:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "d1e2f3a4-b5c6-7890-abcd-ef1234567890"
+        org_id:
+          type: string
+          format: uuid
+          example: "2c662bff-8f80-483a-8235-74fd48965a9c"
+        trunk_id:
+          type: string
+          format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        number:
+          type: string
+          example: "+15550123456"
+        description:
+          type: string
+          example: "Main customer support line"
+        routing_type:
+          type: string
+          enum: [extension, queue, ivr, ai_agent, intercom, external]
+          example: "queue"
+        routing_destination:
+          type: string
+          example: "queue-uuid-here"
+        recording_enabled:
+          type: boolean
+          example: true
+        status:
+          type: string
+          enum: [active, inactive]
+          example: "active"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "u1s2e3r4-5678-90ab-cdef-1234567890ab"
+        org_id:
+          type: string
+          format: uuid
+          example: "2c662bff-8f80-483a-8235-74fd48965a9c"
+        extension:
+          type: string
+          example: "1001"
+        username:
+          type: string
+          example: "john.doe"
+        full_name:
+          type: string
+          example: "John Doe"
+        email:
+          type: string
+          format: email
+          example: "john.doe@company.com"
+        role:
+          type: string
+          enum: [admin, supervisor, agent, user]
+          example: "agent"
+        sip_password:
+          type: string
+          description: SIP extension password (write-only)
+        status:
+          type: string
+          enum: [active, inactive]
+          example: "active"
+        routing_type:
+          type: string
+          enum: [sip, ai_agent]
+          default: sip
+          description: |
+            - sip: Ring the PJSIP endpoint (default)
+            - ai_agent: Connect to AI agent via pipecat WSS URL
+          example: "sip"
+        routing_destination:
+          type: string
+          nullable: true
+          description: "WSS URL for ai_agent routing (e.g. ws://server:8765). Null when routing_type is sip."
+          example: null
+        phone_number:
+          type: string
+          nullable: true
+          maxLength: 20
+          description: "External phone number to ring when calling this extension (used when ring_target is 'phone')"
+          example: "7400464659"
+        ring_target:
+          type: string
+          enum: [ext, phone]
+          default: ext
+          description: |
+            Where to ring when calling this extension:
+            - ext: Ring the SIP endpoint (Zoiper/softphone) — default
+            - phone: Ring the external phone_number via trunk
+          example: "ext"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Queue:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "q1u2e3u4-5678-90ab-cdef-1234567890ab"
+        org_id:
+          type: string
+          format: uuid
+          example: "2c662bff-8f80-483a-8235-74fd48965a9c"
+        name:
+          type: string
+          example: "Support Queue"
+        number:
+          type: string
+          example: "5000"
+        strategy:
+          type: string
+          enum: [ringall, leastrecent, fewestcalls, random, rrmemory, linear]
+          example: "ringall"
+        timeout:
+          type: integer
+          example: 30
+        max_wait_time:
+          type: integer
+          example: 300
+        music_on_hold:
+          type: string
+          example: "default"
+        ring_sound:
+          type: string
+          example: "ring"
+        recording_enabled:
+          type: boolean
+          example: true
+        retry:
+          type: integer
+          example: 5
+        status:
+          type: string
+          enum: [active, inactive]
+          example: "active"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    QueueMember:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "m1e2m3b4-5678-90ab-cdef-1234567890ab"
+        queue_id:
+          type: string
+          format: uuid
+          example: "q1u2e3u4-5678-90ab-cdef-1234567890ab"
+        user_id:
+          type: string
+          format: uuid
+          example: "u1s2e3r4-5678-90ab-cdef-1234567890ab"
+        penalty:
+          type: integer
+          example: 0
+        paused:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+
+    Ivr:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "i1v2r3-4567-89ab-cdef-1234567890ab"
+        org_id:
+          type: string
+          format: uuid
+          example: "2c662bff-8f80-483a-8235-74fd48965a9c"
+        name:
+          type: string
+          example: "Main Menu"
+        extension:
+          type: string
+          example: "1000"
+          description: "IVR extension number for dialplan routing"
+        description:
+          type: string
+          example: "Main company IVR menu"
+        greeting_prompt:
+          type: string
+          example: "welcome"
+          description: "Audio file for greeting message"
+        timeout:
+          type: integer
+          example: 10
+          description: "Timeout in seconds for digit input"
+        max_retries:
+          type: integer
+          example: 3
+          description: "Maximum retries for invalid input"
+        invalid_prompt:
+          type: string
+          example: "invalid"
+          description: "Audio file for invalid input message"
+        timeout_prompt:
+          type: string
+          example: "timeout"
+          description: "Audio file for timeout message"
+        enable_direct_dial:
+          type: boolean
+          example: true
+          description: "Allow direct extension dialing from IVR"
+        status:
+          type: string
+          enum: [active, inactive]
+          example: "active"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    IvrMenu:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "m1e2n3u4-5678-90ab-cdef-1234567890ab"
+        ivr_id:
+          type: string
+          format: uuid
+          example: "i1v2r3-4567-89ab-cdef-1234567890ab"
+        digit:
+          type: string
+          enum: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#"]
+          example: "1"
+          description: "DTMF digit for this option"
+        action_type:
+          type: string
+          enum: [extension, queue, ivr, voicemail, hangup, callback]
+          example: "queue"
+          description: "Type of action to perform"
+        action_destination:
+          type: string
+          example: "queue-uuid-here"
+          description: "Destination UUID for extension/queue/ivr, or null for hangup"
+        description:
+          type: string
+          example: "Press 1 for Support"
+        order:
+          type: integer
+          example: 1
+          description: "Display order for menu options"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    OutboundRoute:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "r1o2u3t4-5678-90ab-cdef-1234567890ab"
+        org_id:
+          type: string
+          format: uuid
+          example: "2c662bff-8f80-483a-8235-74fd48965a9c"
+        name:
+          type: string
+          example: "US Long Distance"
+          description: "Friendly name for this route"
+        description:
+          type: string
+          example: "Route for US long distance calls"
+        trunk_id:
+          type: string
+          format: uuid
+          example: "trunk-uuid-here"
+          description: "SIP trunk to use for outbound calls"
+        dial_pattern:
+          type: string
+          example: "_1NXXNXXXXXX"
+          description: "Asterisk dial pattern (e.g., _1NXXNXXXXXX, _011., _NXXXXXX)"
+        dial_prefix:
+          type: string
+          example: "1"
+          description: "Prefix to prepend to dialed number"
+        strip_digits:
+          type: integer
+          default: 0
+          example: 1
+          description: "Number of digits to strip from beginning"
+        prepend_digits:
+          type: string
+          example: "00"
+          description: "Digits to prepend after stripping"
+        caller_id_override:
+          type: string
+          example: "+15551234567"
+          description: "Override caller ID for outbound calls"
+        caller_id_name_override:
+          type: string
+          example: "Company Name"
+          description: "Override caller ID name"
+        recording_enabled:
+          type: boolean
+          default: false
+          example: true
+          description: "Enable call recording for this route"
+        max_channels:
+          type: integer
+          example: 10
+          description: "Maximum concurrent channels for this route"
+        route_type:
+          type: string
+          enum: [emergency, local, long_distance, international, toll_free, custom]
+          default: custom
+          example: "long_distance"
+          description: "Type of route for easier categorization"
+        priority:
+          type: integer
+          default: 10
+          example: 10
+          description: "Priority order (lower number = higher priority)"
+        time_conditions:
+          type: object
+          description: "Time-based routing conditions"
+        user_permissions:
+          type: object
+          description: "User or group permissions for this route"
+        status:
+          type: string
+          enum: [active, inactive]
+          default: active
+          example: "active"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        trunk:
+          $ref: '#/components/schemas/SIPTrunk'
+
+    CallRouting:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          type: string
+          enum: [time_based, caller_id, did_based]
+        conditions:
+          type: object
+        destination_type:
+          type: string
+          enum: [extension, queue, ivr, ai_agent, external]
+        destination:
+          type: string
+        priority:
+          type: integer
+        active:
+          type: boolean
+
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "w1e2b3h4-5678-90ab-cdef-1234567890ab"
+        org_id:
+          type: string
+          format: uuid
+          example: "2c662bff-8f80-483a-8235-74fd48965a9c"
+        url:
+          type: string
+          format: uri
+          example: "https://myapp.com/webhook"
+        events:
+          type: array
+          items:
+            type: string
+            enum: [call.initiated, call.ringing, call.answered, call.ended, call.failed, queue.entered, queue.abandoned]
+          example: ["call.initiated", "call.answered", "call.ended"]
+        secret:
+          type: string
+          example: "webhook-secret-key"
+        active:
+          type: boolean
+          example: true
+        retry_count:
+          type: integer
+          example: 3
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CallRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        call_id:
+          type: string
+        from_number:
+          type: string
+        to_number:
+          type: string
+        direction:
+          type: string
+          enum: [inbound, outbound]
+        status:
+          type: string
+          enum: [ringing, answered, busy, failed, no-answer, completed]
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        duration:
+          type: integer
+        recording_url:
+          type: string
+
+    WebhookPayload:
+      type: object
+      properties:
+        event:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        organization_id:
+          type: string
+          format: uuid
+        data:
+          type: object
+          properties:
+            call_id:
+              type: string
+            from:
+              type: string
+            to:
+              type: string
+            status:
+              type: string
+            duration:
+              type: integer
+            recording_url:
+              type: string
+            queue_id:
+              type: string
+            user_id:
+              type: string
+
+    ConfigurationVerificationResult:
+      type: object
+      properties:
+        organization:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        timestamp:
+          type: string
+          format: date-time
+        overall_status:
+          type: string
+          enum: [SUCCESS, WARNING, ERROR]
+        checks:
+          type: object
+          properties:
+            file_existence:
+              $ref: '#/components/schemas/VerificationCheck'
+            pjsip_config:
+              $ref: '#/components/schemas/VerificationCheck'
+            dialplan_config:
+              $ref: '#/components/schemas/VerificationCheck'
+            queue_config:
+              $ref: '#/components/schemas/VerificationCheck'
+            asterisk_syntax:
+              $ref: '#/components/schemas/VerificationCheck'
+            service_status:
+              $ref: '#/components/schemas/VerificationCheck'
+
+    VerificationCheck:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [PASS, FAIL, WARNING]
+        message:
+          type: string
+        details:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        token:
+          type: string
+        expires_in:
+          type: integer
+          description: Token expiration time in seconds (86400 for 24 hours)
+        organization:
+          $ref: '#/components/schemas/Organization'
+
+    CallStatistics:
+      type: object
+      properties:
+        total:
+          type: integer
+        active:
+          type: integer
+        completed:
+          type: integer
+        failed:
+          type: integer
+        average_duration:
+          type: integer
+        total_duration:
+          type: integer
+        by_status:
+          type: object
+        by_direction:
+          type: object
+        by_time_period:
+          type: object
+
+    HelperFunctionTest:
+      type: object
+      properties:
+        function_name:
+          type: string
+        extension:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [available, unavailable, error]
+        test_result:
+          type: object
+
+    GlobalSettings:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        pjsip_transport:
+          $ref: '#/components/schemas/PJSIPTransport'
+        rtp_config:
+          $ref: '#/components/schemas/RTPConfig'
+        sip_global:
+          $ref: '#/components/schemas/SIPGlobal'
+        codecs:
+          $ref: '#/components/schemas/CodecConfig'
+        system:
+          $ref: '#/components/schemas/SystemConfig'
+        ami_config:
+          $ref: '#/components/schemas/AMIConfig'
+        security:
+          $ref: '#/components/schemas/SecurityConfig'
+        voicemail:
+          $ref: '#/components/schemas/VoicemailConfig'
+        logging:
+          $ref: '#/components/schemas/LoggingConfig'
+        features:
+          $ref: '#/components/schemas/FeaturesConfig'
+        custom_config:
+          type: object
+          nullable: true
+        last_deployed_at:
+          type: string
+          format: date-time
+          nullable: true
+        deployed_by:
+          type: string
+          nullable: true
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    PJSIPTransport:
+      type: object
+      properties:
+        udp:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            bind:
+              type: string
+              example: "0.0.0.0:5060"
+            external_media_address:
+              type: string
+              nullable: true
+            external_signaling_address:
+              type: string
+              nullable: true
+            local_net:
+              type: array
+              items:
+                type: string
+        tcp:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            bind:
+              type: string
+        tls:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            bind:
+              type: string
+            cert_file:
+              type: string
+              nullable: true
+            privkey_file:
+              type: string
+              nullable: true
+            cipher:
+              type: string
+            method:
+              type: string
+        wss:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            bind:
+              type: string
+            cert_file:
+              type: string
+              nullable: true
+            privkey_file:
+              type: string
+              nullable: true
+
+    RTPConfig:
+      type: object
+      properties:
+        rtp_start:
+          type: integer
+          example: 10000
+        rtp_end:
+          type: integer
+          example: 20000
+        rtcp_mux:
+          type: boolean
+        ice_support:
+          type: boolean
+        stun_server:
+          type: string
+          nullable: true
+        turn_server:
+          type: string
+          nullable: true
+
+    SIPGlobal:
+      type: object
+      properties:
+        user_agent:
+          type: string
+        default_expiry:
+          type: integer
+        min_expiry:
+          type: integer
+        max_expiry:
+          type: integer
+        mwi_disable_initial_unsolicited:
+          type: boolean
+        ignore_uri_user_options:
+          type: boolean
+        send_rpid:
+          type: boolean
+
+    CodecConfig:
+      type: object
+      properties:
+        allow:
+          type: array
+          items:
+            type: string
+        disallow:
+          type: string
+
+    SystemConfig:
+      type: object
+      properties:
+        max_calls:
+          type: integer
+        max_channels_per_org:
+          type: integer
+        default_language:
+          type: string
+        enable_call_recording:
+          type: boolean
+        recording_format:
+          type: string
+        timezone:
+          type: string
+
+    AMIConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        bind_address:
+          type: string
+        port:
+          type: integer
+        webenabled:
+          type: boolean
+        timestampevents:
+          type: boolean
+
+    SecurityConfig:
+      type: object
+      properties:
+        enable_acl:
+          type: boolean
+        permitted_networks:
+          type: array
+          items:
+            type: string
+        failed_auth_ban_threshold:
+          type: integer
+        failed_auth_ban_duration:
+          type: integer
+        enable_tls_verification:
+          type: boolean
+
+    VoicemailConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        max_msg_duration:
+          type: integer
+        min_msg_duration:
+          type: integer
+        max_messages:
+          type: integer
+        email_notifications:
+          type: boolean
+        attach_audio:
+          type: boolean
+
+    LoggingConfig:
+      type: object
+      properties:
+        console_level:
+          type: string
+        syslog_level:
+          type: string
+        cdr_enabled:
+          type: boolean
+        cel_enabled:
+          type: boolean
+        queue_log_enabled:
+          type: boolean
+
+    FeaturesConfig:
+      type: object
+      properties:
+        enable_call_parking:
+          type: boolean
+        enable_call_pickup:
+          type: boolean
+        enable_call_transfer:
+          type: boolean
+        enable_call_waiting:
+          type: boolean
+        enable_caller_id:
+          type: boolean
+        enable_do_not_disturb:
+          type: boolean
+paths:
+  # Authentication
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Generate JWT token (Organization authentication)
+      description: |
+        Authenticate organization using API key and secret to receive JWT token for API access.
+
+        **Authentication Flow:**
+        1. Get organization API credentials using admin endpoints
+        2. Use these credentials to authenticate and receive JWT token
+        3. Use JWT token for all subsequent API calls
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/auth/login \
+          -H "Content-Type: application/json" \
+          -d '{
+            "api_key": "YOUR_ORG_API_KEY",
+            "api_secret": "YOUR_ORG_API_SECRET"
+          }'
+        ```
+      security: []  # No authentication required for login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_key, api_secret]
+              properties:
+                api_key:
+                  type: string
+                  description: Organization API key
+                  example: "YOUR_ORG_API_KEY"
+                api_secret:
+                  type: string
+                  description: Organization API secret (plain text)
+                  example: "YOUR_ORG_API_SECRET"
+            example:
+              api_key: "YOUR_ORG_API_KEY"
+              api_secret: "YOUR_ORG_API_SECRET"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  token:
+                    type: string
+                    description: JWT token for API authentication
+                  expires_in:
+                    type: integer
+                    description: Token expiration time in seconds (86400 for 24 hours)
+                  organization:
+                    $ref: '#/components/schemas/Organization'
+              example:
+                success: true
+                token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                expires_in: 86400
+                organization:
+                  id: "2c662bff-8f80-483a-8235-74fd48965a9c"
+                  name: "TestOrg"
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Invalid API key or secret"
+
+  /admin/auth:
+    post:
+      tags: [Admin Authentication]
+      summary: Admin authentication
+      description: |
+        Authenticate as system administrator using credentials from environment variables.
+        This endpoint provides access to administrative functions like managing organizations
+        and retrieving organization credentials.
+
+        **Required Environment Variables:**
+        - `ADMIN_USERNAME`: System admin username
+        - `ADMIN_PASSWORD`: System admin password
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/admin/auth \
+          -H "Content-Type: application/json" \
+          -d '{
+            "admin_username": "pbx_admin",
+            "admin_password": "YOUR_ADMIN_PASSWORD"
+          }'
+        ```
+      security: []  # No authentication required for admin login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [admin_username, admin_password]
+              properties:
+                admin_username:
+                  type: string
+                  description: Admin username from environment variables
+                  example: "pbx_admin"
+                admin_password:
+                  type: string
+                  description: Admin password from environment variables
+                  example: "YOUR_ADMIN_PASSWORD"
+            example:
+              admin_username: "pbx_admin"
+              admin_password: "YOUR_ADMIN_PASSWORD"
+      responses:
+        '200':
+          description: Admin authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  token:
+                    type: string
+                    description: JWT token with admin privileges
+                  expires_in:
+                    type: integer
+                    description: Token expiration time in seconds (86400 for 24 hours)
+                  message:
+                    type: string
+              example:
+                success: true
+                token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                expires_in: 86400
+                message: "Admin authenticated successfully"
+        '401':
+          description: Invalid admin credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Invalid admin credentials"
+        '400':
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  required_fields:
+                    type: array
+                    items:
+                      type: string
+              example:
+                error: "Admin credentials required"
+                required_fields: ["admin_username", "admin_password"]
+
+  /admin/organizations/{organizationId}/credentials:
+    get:
+      tags: [Admin Authentication]
+      summary: Get organization API credentials
+      description: |
+        Retrieve organization API credentials with fresh plain text API secret.
+        This endpoint generates a new plain text API secret for the organization,
+        replacing the previous one. Use the returned credentials for organization authentication.
+
+        **Authentication:** Requires admin JWT token from `/admin/auth` endpoint.
+
+        **Important:** The returned `api_secret_plaintext` should be used for organization authentication,
+        not the hashed version.
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/admin/organizations/2c662bff-8f80-483a-8235-74fd48965a9c/credentials \
+          -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
+        ```
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Organization UUID
+          example: "2c662bff-8f80-483a-8235-74fd48965a9c"
+      responses:
+        '200':
+          description: Organization credentials retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  api_key:
+                    type: string
+                    description: Organization API key for authentication
+                  api_secret_plaintext:
+                    type: string
+                    description: Plain text API secret (use this for authentication)
+                  api_secret_hash:
+                    type: string
+                    description: Hashed version stored in database (for reference only)
+                  note:
+                    type: string
+                    description: Usage instructions
+              example:
+                id: "2c662bff-8f80-483a-8235-74fd48965a9c"
+                name: "TestOrg"
+                api_key: "YOUR_ORG_API_KEY"
+                api_secret_plaintext: "secret_testorg7h8k2m"
+                api_secret_hash: "$2b$10$Xy7uV3mNqP2rS8tK5wQ6J..."
+                note: "Fresh API secret generated. Use api_secret_plaintext for API calls."
+        '401':
+          description: Unauthorized - Invalid or missing admin token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "Admin authentication required"
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "Organization not found"
+
+  /admin/organizations:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Admin Authentication]
+      summary: List all organizations (Admin only)
+      description: |
+        Retrieve a list of all organizations in the system.
+
+        **Authentication:** Requires admin JWT token from `/admin/auth` endpoint.
+
+        This endpoint is for admin use only and returns all organizations regardless of which admin token is used.
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/admin/organizations \
+          -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
+        ```
+      responses:
+        '200':
+          description: List of all organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Organization'
+              example:
+                - id: "2c662bff-8f80-483a-8235-74fd48965a9c"
+                  name: "TestOrg"
+                  domain: "testorg.local"
+                  context_prefix: "testorg_"
+                  status: "active"
+                  settings:
+                    max_trunks: 5
+                    max_dids: 10
+                    features:
+                      ai_agent: false
+                  createdAt: "2025-09-17T17:28:10.899Z"
+                - id: "3d773c0f-493d-4061-b3f3-4d42134234g2"
+                  name: "AnotherOrg"
+                  domain: "anotherorg.local"
+                  context_prefix: "anotherorg_"
+                  status: "active"
+                  settings:
+                    max_trunks: 10
+                    max_dids: 20
+                    features:
+                      ai_agent: true
+                  createdAt: "2025-09-18T10:15:22.123Z"
+        '401':
+          description: Unauthorized - Invalid or missing admin token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "Admin authentication required"
+
+  # Configuration Management
+  /config/verify:
+    get:
+      tags: [Configuration Management]
+      summary: Verify organization configuration
+      description: |
+        Comprehensive verification of organization's Asterisk configuration including PJSIP, dialplan, queues, and helper functions
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/config/verify \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Verification completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationVerificationResult'
+              example:
+                organization:
+                  id: "2c662bff-8f80-483a-8235-74fd48965a9c"
+                  name: "TestOrg"
+                timestamp: "2025-09-17T16:28:04.028Z"
+                overall_status: "SUCCESS"
+                checks:
+                  file_existence:
+                    status: "PASS"
+                    message: "All configuration files exist"
+                  pjsip_config:
+                    status: "PASS"
+                    message: "4 PJSIP endpoints loaded successfully"
+                  dialplan_config:
+                    status: "PASS"
+                    message: "17 helper functions available"
+
+  /config/deploy:
+    post:
+      tags: [Configuration Management]
+      summary: Deploy organization configuration
+      description: |
+        Deploy and reload organization configuration to Asterisk using AMI 'core reload' command.
+
+        **Important:** Uses `core reload` instead of module-specific reloads to avoid dropping active calls.
+
+        **Example curl:**
+        ```bash
+        curl -X POST http://localhost:3000/api/v1/config/deploy \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"reload": true}'
+        ```
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reload:
+                  type: boolean
+                  default: true
+                  description: Whether to reload Asterisk after deployment (default true)
+      responses:
+        '200':
+          description: Configuration deployed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  deployment:
+                    type: object
+                    description: Deployment result details
+                  reload:
+                    type: object
+                    properties:
+                      success:
+                        type: boolean
+                      method:
+                        type: string
+                        example: "AMI"
+                      action:
+                        type: string
+                        example: "core reload"
+                      message:
+                        type: string
+                        example: "Asterisk configuration reloaded successfully without dropping calls"
+              example:
+                success: true
+                deployment:
+                  files_written: 5
+                  organization: "mytest"
+                reload:
+                  success: true
+                  method: "AMI"
+                  action: "core reload"
+                  message: "Asterisk configuration reloaded successfully without dropping calls"
+
+  /config/test-helpers:
+    get:
+      tags: [Configuration Management]
+      summary: Test helper functions
+      description: |
+        Test all dialplan helper functions for the organization
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/config/test-helpers \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Helper function test results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  organization:
+                    type: object
+                  helper_functions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HelperFunctionTest'
+
+  /config/report:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Configuration Management]
+      summary: Generate verification report
+      description: |
+        Generate detailed verification report in Markdown format
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/config/report \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      produces:
+        - text/markdown
+      responses:
+        '200':
+          description: Verification report in Markdown format
+          content:
+            text/markdown:
+              schema:
+                type: string
+
+  /config/list:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Configuration Management]
+      summary: List organization configurations
+      description: |
+        List all configuration files for the organization
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/config/list \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      responses:
+        '200':
+          description: Configuration file list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  configurations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                        path:
+                          type: string
+                        exists:
+                          type: boolean
+                        size:
+                          type: integer
+
+  /config/reload:
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Configuration Management]
+      summary: Reload Asterisk configuration via AMI
+      description: |
+        Reload Asterisk configuration using AMI 'core reload' command without dropping active calls.
+
+        **Important:** Uses `core reload` to safely reload configuration without affecting active calls.
+
+        **Note:** No request body required. This endpoint uses AMI to execute the core reload command.
+      responses:
+        '200':
+          description: Configuration reloaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  method:
+                    type: string
+                    example: "AMI"
+                  action:
+                    type: string
+                    example: "core reload"
+                  message:
+                    type: string
+                    example: "Asterisk configuration reloaded successfully without dropping calls"
+              example:
+                success: true
+                method: "AMI"
+                action: "core reload"
+                message: "Asterisk configuration reloaded successfully without dropping calls"
+
+  # Organization Management
+  /organizations:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Organization Management]
+      summary: List all organizations
+      description: |
+        Get all organizations for the authenticated organization (returns only the organization that owns the token)
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/organizations \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      responses:
+        '200':
+          description: List of organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Organization'
+        '401':
+          description: Unauthorized - Invalid or missing token
+    post:
+      tags: [Organization Management]
+      summary: Create new organization
+      description: |
+        Create a new organization with admin authentication required. Supports full configuration including settings, limits, and features.
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/organizations \
+          -H "Content-Type: application/json" \
+          -d '{
+            "name": "SecureTestCompany",
+            "admin_username": "pbx_admin",
+            "admin_password": "YOUR_ADMIN_PASSWORD",
+            "settings": {
+              "max_trunks": 10,
+              "max_users": 100,
+              "features": {
+                "ai_agent": true
+              }
+            },
+            "limits": {
+              "concurrent_calls": 50,
+              "monthly_minutes": 50000
+            },
+            "contact_info": {
+              "email": "admin@testcompany.com",
+              "phone": "+1-555-0123"
+            }
+          }'
+        ```
+      security: []  # No API key required, uses admin credentials instead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, admin_username, admin_password]
+              properties:
+                name:
+                  type: string
+                  description: |
+                    Organization name - used to generate context prefix for multi-tenant isolation.
+
+                    **Validation Rules:**
+                    - Must be 3-50 characters long
+                    - Cannot contain spaces
+                    - Cannot start or end with special characters
+                    - Only alphanumeric characters and hyphens allowed
+                    - Must start and end with alphanumeric characters
+
+                    **Examples:**
+                    - Valid: "MyCompany", "ACME-Corp", "TestOrg123"
+                    - Invalid: "My Company" (spaces), "-ACME" (starts with special char), "Test!" (special char)
+                  pattern: '^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$'
+                  minLength: 3
+                  maxLength: 50
+                  example: "TestOrg"
+                domain:
+                  type: string
+                  description: Organization domain (auto-generated from name if not provided)
+                  example: "testorg.local"
+                status:
+                  type: string
+                  enum: [active, suspended, deleted]
+                  default: active
+                admin_username:
+                  type: string
+                  description: Admin username from environment variables
+                  example: "pbx_admin"
+                admin_password:
+                  type: string
+                  description: Admin password from environment variables
+                  example: "YOUR_ADMIN_PASSWORD"
+                settings:
+                  type: object
+                  description: Organization settings including resource limits and feature flags
+                  properties:
+                    max_trunks:
+                      type: integer
+                      default: 5
+                    max_dids:
+                      type: integer
+                      default: 10
+                    max_users:
+                      type: integer
+                      default: 50
+                    max_queues:
+                      type: integer
+                      default: 10
+                    recording_enabled:
+                      type: boolean
+                      default: false
+                    webhook_enabled:
+                      type: boolean
+                      default: true
+                    features:
+                      type: object
+                      properties:
+                        call_transfer:
+                          type: boolean
+                          default: true
+                        call_recording:
+                          type: boolean
+                          default: true
+                        voicemail:
+                          type: boolean
+                          default: true
+                        conference:
+                          type: boolean
+                          default: true
+                        ivr:
+                          type: boolean
+                          default: true
+                        ai_agent:
+                          type: boolean
+                          default: false
+                limits:
+                  type: object
+                  description: Organization resource limits
+                  properties:
+                    concurrent_calls:
+                      type: integer
+                      default: 10
+                    monthly_minutes:
+                      type: integer
+                      default: 10000
+                    storage_gb:
+                      type: integer
+                      default: 10
+                contact_info:
+                  type: object
+                  properties:
+                    email:
+                      type: string
+                      format: email
+                    phone:
+                      type: string
+                    address:
+                      type: string
+              example:
+                name: "SecureTestCompany"
+                admin_username: "pbx_admin"
+                admin_password: "YOUR_ADMIN_PASSWORD"
+                settings:
+                  max_trunks: 10
+                  max_users: 100
+                  features:
+                    ai_agent: true
+                limits:
+                  concurrent_calls: 50
+                  monthly_minutes: 50000
+                contact_info:
+                  email: "admin@testcompany.com"
+                  phone: "+1-555-0123"
+      responses:
+        '201':
+          description: Organization created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Organization'
+                  - type: object
+                    properties:
+                      api_key:
+                        type: string
+                        description: API key for organization authentication
+                      api_secret:
+                        type: string
+                        description: API secret for organization authentication
+              example:
+                id: "054d633e-382c-4fe0-a2f2-3c31023123f1"
+                name: "Secure Test Company"
+                context_prefix: "org_mfo99g9e_"
+                api_key: "YOUR_ORG_API_KEY"
+                api_secret: "YOUR_ORG_API_SECRET"
+                status: "active"
+                settings:
+                  max_trunks: 5
+                  max_dids: 10
+                  max_users: 50
+                  max_queues: 10
+                  recording_enabled: false
+                  webhook_enabled: true
+                  features:
+                    call_transfer: true
+                    call_recording: true
+                    voicemail: true
+                    conference: true
+                    ivr: true
+                    ai_agent: false
+                limits:
+                  concurrent_calls: 10
+                  monthly_minutes: 10000
+                  storage_gb: 10
+                createdAt: "2025-09-17T17:28:10.899Z"
+                updatedAt: "2025-09-17T17:28:10.899Z"
+        '401':
+          description: Unauthorized - Invalid admin credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  required_fields:
+                    type: array
+                    items:
+                      type: string
+              examples:
+                missing_credentials:
+                  summary: Missing admin credentials
+                  value:
+                    error: "Admin credentials required"
+                    required_fields: ["admin_username", "admin_password"]
+                invalid_credentials:
+                  summary: Invalid admin credentials
+                  value:
+                    error: "Invalid admin credentials"
+        '400':
+          description: Bad request - Invalid input data
+        '500':
+          description: Internal server error
+
+  # SIP Trunk Management
+  /trunks:
+    get:
+      tags: [SIP Trunks]
+      summary: List all SIP trunks
+      description: |
+        Retrieve all SIP trunks for the organization
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/trunks \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of SIP trunks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SipTrunk'
+    post:
+      tags: [SIP Trunks]
+      summary: Create new SIP trunk
+      description: |
+        Create a new SIP trunk for inbound/outbound calling.
+
+        **Trunk Types:**
+        - **inbound**: Remote provider registers TO our server (dynamic registration, NO host required)
+        - **outbound**: We register TO remote provider (we authenticate to them, host required)
+        - **peer2peer**: No registration - SIP OPTIONS keepalive only (host required)
+
+        **Example curl - Outbound Registration Trunk:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/trunks \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "name": "VoIP Provider Registration",
+            "host": "sip.provider.com",
+            "port": 5060,
+            "username": "myaccount",
+            "password": "secret123",
+            "transport": "udp",
+            "trunk_type": "outbound",
+            "retry_interval": 60,
+            "expiration": 3600
+          }'
+        ```
+
+        **Example curl - Inbound Trunk (Provider registers to us):**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/trunks \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "name": "Remote Provider Inbound",
+            "username": "provider_user",
+            "password": "provider_pass",
+            "transport": "udp",
+            "trunk_type": "inbound"
+          }'
+        ```
+        **Note:** Inbound trunks do NOT require host/IP - the remote provider registers dynamically to our server using username/password.
+
+        **Example curl - Peer2Peer Trunk (SIP OPTIONS only):**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/trunks \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "name": "Peer Server",
+            "host": "198.51.100.20",
+            "port": 5060,
+            "transport": "udp",
+            "trunk_type": "peer2peer"
+          }'
+        ```
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, host]
+              properties:
+                name:
+                  type: string
+                  example: "Main SIP Provider"
+                host:
+                  type: string
+                  example: "sip.provider.com"
+                username:
+                  type: string
+                  example: "myaccount"
+                password:
+                  type: string
+                  example: "secret123"
+                port:
+                  type: integer
+                  default: 5060
+                  example: 5060
+                transport:
+                  type: string
+                  enum: [udp, tcp, tls]
+                  default: udp
+                  example: "udp"
+                max_channels:
+                  type: integer
+                  default: 10
+                  example: 10
+            example:
+              name: "Main SIP Provider"
+              host: "sip.provider.com"
+              port: 5060
+              username: "myaccount"
+              password: "secret123"
+              transport: "udp"
+      responses:
+        '201':
+          description: Trunk created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SipTrunk'
+
+  /trunks/{trunkId}:
+    get:
+      tags: [SIP Trunks]
+      summary: Get trunk details
+      description: |
+        Retrieve details of a specific SIP trunk
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/trunks/TRUNK_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: trunkId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Trunk details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SipTrunk'
+    put:
+      tags: [SIP Trunks]
+      summary: Update trunk
+      description: |
+        Update an existing SIP trunk
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/trunks/TRUNK_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "name": "Updated SIP Provider",
+            "host": "sip.newprovider.com",
+            "port": 5060,
+            "transport": "tcp"
+          }'
+        ```
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: trunkId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SipTrunk'
+      responses:
+        '200':
+          description: Trunk updated
+    delete:
+      tags: [SIP Trunks]
+      summary: Delete trunk
+      description: |
+        Delete a SIP trunk
+
+        **Example curl:**
+        ```bash
+        curl -X DELETE ${YOUR_SERVER_URL}/api/v1/trunks/TRUNK_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: trunkId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Trunk deleted
+
+  # DID Number Management
+  /dids:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [DID Numbers]
+      summary: List all DID numbers
+      description: |
+        Retrieve all DID numbers for the organization
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/dids \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      responses:
+        '200':
+          description: List of DID numbers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DidNumber'
+    post:
+      security:
+        - BearerAuth: []
+      tags: [DID Numbers]
+      summary: Add new DID number
+      description: |
+        Create a new DID number and configure its routing.
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/dids \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "number": "+15550123456",
+            "trunk_id": "TRUNK_UUID",
+            "routing_type": "queue",
+            "routing_destination": "QUEUE_UUID",
+            "description": "Main customer support line",
+            "recording_enabled": true
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [number, trunk_id, routing_type, routing_destination]
+              properties:
+                number:
+                  type: string
+                  example: "+15550123456"
+                trunk_id:
+                  type: string
+                  format: uuid
+                  example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                description:
+                  type: string
+                  example: "Main customer support line"
+                routing_type:
+                  type: string
+                  enum: [extension, queue, ivr, ai_agent, intercom, external]
+                  description: |
+                    - extension: Route to an extension number (e.g., "100")
+                    - queue: Route to a queue by ID
+                    - ivr: Route to an IVR menu by ID
+                    - ai_agent: Route to AI agent via pipecat WSS URL (e.g., "ws://your-server:8765")
+                    - intercom: Page/intercom an extension with auto-answer (e.g., "100")
+                    - external: Route to an external number
+                  example: "queue"
+                routing_destination:
+                  type: string
+                  description: "Extension number, Queue ID, IVR ID, pipecat WSS URL, intercom extension, or external number"
+                  example: "queue-uuid-here"
+                recording_enabled:
+                  type: boolean
+                  default: false
+                  example: true
+            example:
+              number: "+15550123456"
+              trunk_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+              routing_type: "queue"
+              routing_destination: "queue-uuid-here"
+              description: "Main customer support line"
+              recording_enabled: true
+      responses:
+        '201':
+          description: DID created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DidNumber'
+
+  /dids/{didId}:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [DID Numbers]
+      summary: Get DID details
+      description: |
+        Retrieve details of a specific DID number
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/dids/DID_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: didId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: DID details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DidNumber'
+    put:
+      security:
+        - BearerAuth: []
+      tags: [DID Numbers]
+      summary: Update DID
+      description: |
+        Update an existing DID number
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/dids/DID_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "number": "+15550123456",
+            "description": "Updated support line",
+            "routing_type": "extension",
+            "routing_destination": "1001"
+          }'
+        ```
+      parameters:
+        - name: didId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DidNumber'
+      responses:
+        '200':
+          description: DID updated
+    delete:
+      security:
+        - BearerAuth: []
+      tags: [DID Numbers]
+      summary: Delete DID
+      description: |
+        Delete a DID number
+
+        **Example curl:**
+        ```bash
+        curl -X DELETE ${YOUR_SERVER_URL}/api/v1/dids/DID_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: didId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: DID deleted
+
+  /dids/{didId}/routing:
+    put:
+      security:
+        - BearerAuth: []
+      tags: [DID Numbers]
+      summary: Update DID routing
+      description: |
+        Update routing configuration for a DID number
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/dids/DID_UUID/routing \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "routing_type": "queue",
+            "routing_destination": "QUEUE_UUID"
+          }'
+        ```
+      parameters:
+        - name: didId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [routing_type, routing_destination]
+              properties:
+                routing_type:
+                  type: string
+                  enum: [extension, queue, ivr, ai_agent, intercom, external]
+                  description: |
+                    - extension: Route to an extension number
+                    - queue: Route to a queue by ID
+                    - ivr: Route to an IVR menu by ID
+                    - ai_agent: Route to AI agent via pipecat WSS URL
+                    - intercom: Page/intercom an extension
+                    - external: Route to an external number
+                routing_destination:
+                  type: string
+                  description: "Target based on routing_type"
+      responses:
+        '200':
+          description: Routing updated
+
+  # Call Routing
+  /routing:
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Call Routing]
+      summary: Create routing rule
+      description: |
+        Create a new call routing rule with conditions
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/routing \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "destination_type": "queue",
+            "destination": "QUEUE_UUID",
+            "conditions": {
+              "time_of_day": {
+                "start": "09:00",
+                "end": "17:00"
+              },
+              "day_of_week": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+            }
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [destination_type, destination]
+              properties:
+                destination_type:
+                  type: string
+                  enum: [queue, ai_agent, extension]
+                destination:
+                  type: string
+                  description: Queue ID, AI agent ID, or extension number
+                conditions:
+                  type: object
+                  properties:
+                    time_of_day:
+                      type: object
+                    day_of_week:
+                      type: array
+                      items:
+                        type: string
+                    caller_id_pattern:
+                      type: string
+      responses:
+        '201':
+          description: Routing rule created
+
+  # User Management
+  /users:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Users]
+      summary: List all users
+      description: |
+        Retrieve all users for the organization
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/users \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Users]
+      summary: Create new user
+      description: |
+        Create a new user with SIP extension and web portal access.
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/users \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "extension": "1001",
+            "username": "john.doe",
+            "password": "SecurePass123!",
+            "email": "john.doe@company.com",
+            "full_name": "John Doe",
+            "role": "agent"
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [extension, username, password, email]
+              properties:
+                extension:
+                  type: string
+                  example: "1001"
+                username:
+                  type: string
+                  example: "john.doe"
+                password:
+                  type: string
+                  example: "SecurePass123!"
+                full_name:
+                  type: string
+                  example: "John Doe"
+                email:
+                  type: string
+                  format: email
+                  example: "john.doe@company.com"
+                role:
+                  type: string
+                  enum: [admin, supervisor, agent, user]
+                  default: user
+                  example: "agent"
+            example:
+              extension: "1001"
+              username: "john.doe"
+              password: "SecurePass123!"
+              email: "john.doe@company.com"
+              full_name: "John Doe"
+              role: "agent"
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /users/{userId}:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Users]
+      summary: Get user details
+      description: |
+        Retrieve details of a specific user
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/users/USER_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    put:
+      security:
+        - BearerAuth: []
+      tags: [Users]
+      summary: Update user
+      description: |
+        Update an existing user
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/users/USER_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "extension": "1001",
+            "username": "john.doe",
+            "email": "john.doe@company.com",
+            "full_name": "John Doe Updated",
+            "role": "supervisor",
+            "phone_number": "7400464659",
+            "ring_target": "phone"
+          }'
+        ```
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '200':
+          description: User updated
+    delete:
+      security:
+        - BearerAuth: []
+      tags: [Users]
+      summary: Delete user
+      description: |
+        Delete a user
+
+        **Example curl:**
+        ```bash
+        curl -X DELETE ${YOUR_SERVER_URL}/api/v1/users/USER_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: User deleted
+
+  /users/{userId}/routing:
+    put:
+      security:
+        - BearerAuth: []
+      tags: [Users]
+      summary: Update user extension routing
+      description: |
+        Change how calls to this extension are routed.
+        - `sip`: Normal SIP phone (default)
+        - `ai_agent`: Route to AI agent via pipecat WSS URL
+
+        After updating, regenerate Asterisk configs via `POST /organizations/{orgId}/regenerate`.
+
+        **Example - Route to AI agent:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/users/USER_UUID/routing \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "routing_type": "ai_agent",
+            "routing_destination": "ws://your-pipecat-server:8765"
+          }'
+        ```
+
+        **Example - Revert to SIP phone:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/users/USER_UUID/routing \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"routing_type": "sip"}'
+        ```
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [routing_type]
+              properties:
+                routing_type:
+                  type: string
+                  enum: [sip, ai_agent]
+                  description: |
+                    - sip: Ring the PJSIP endpoint (default)
+                    - ai_agent: Connect to AI agent via pipecat WSS URL
+                routing_destination:
+                  type: string
+                  description: "WSS URL for ai_agent (required when routing_type is ai_agent)"
+                  example: "ws://your-pipecat-server:8765"
+            examples:
+              ai_agent:
+                summary: Route to AI agent
+                value:
+                  routing_type: "ai_agent"
+                  routing_destination: "ws://your-pipecat-server:8765"
+              sip:
+                summary: Revert to SIP phone
+                value:
+                  routing_type: "sip"
+      responses:
+        '200':
+          description: Routing updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  # Queue Management
+  /queues:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Queues]
+      summary: List all queues
+      description: |
+        Retrieve all call queues for the organization
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/queues \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      responses:
+        '200':
+          description: List of queues
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Queue'
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Queues]
+      summary: Create new queue
+      description: |
+        Create a new call queue for distributing calls to agents.
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/queues \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "name": "Support Queue",
+            "number": "5000",
+            "strategy": "ringall",
+            "timeout": 30,
+            "music_on_hold": "default",
+            "recording_enabled": true
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, number]
+              properties:
+                name:
+                  type: string
+                  example: "Support Queue"
+                number:
+                  type: string
+                  example: "5000"
+                strategy:
+                  type: string
+                  enum: [ringall, leastrecent, fewestcalls, random, rrmemory, linear]
+                  default: ringall
+                  example: "ringall"
+                timeout:
+                  type: integer
+                  default: 15
+                  example: 30
+                max_wait_time:
+                  type: integer
+                  default: 300
+                  example: 300
+                music_on_hold:
+                  type: string
+                  default: default
+                  example: "default"
+                ring_sound:
+                  type: string
+                  default: ring
+                  example: "ring"
+                recording_enabled:
+                  type: boolean
+                  default: false
+                  example: true
+            example:
+              name: "Support Queue"
+              number: "5000"
+              strategy: "ringall"
+              timeout: 30
+              music_on_hold: "default"
+              recording_enabled: true
+      responses:
+        '201':
+          description: Queue created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Queue'
+
+  /queues/{queueId}:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Queues]
+      summary: Get queue details
+      description: |
+        Retrieve details of a specific queue
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/queues/QUEUE_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: queueId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Queue details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Queue'
+    put:
+      security:
+        - BearerAuth: []
+      tags: [Queues]
+      summary: Update queue
+      description: |
+        Update an existing queue
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/queues/QUEUE_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "name": "Updated Support Queue",
+            "number": "5000",
+            "strategy": "fewestcalls",
+            "timeout": 45
+          }'
+        ```
+      parameters:
+        - name: queueId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Queue'
+      responses:
+        '200':
+          description: Queue updated
+    delete:
+      security:
+        - BearerAuth: []
+      tags: [Queues]
+      summary: Delete queue
+      description: |
+        Delete a queue
+
+        **Example curl:**
+        ```bash
+        curl -X DELETE ${YOUR_SERVER_URL}/api/v1/queues/QUEUE_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: queueId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Queue deleted
+
+  /queues/{queueId}/members:
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Queues]
+      summary: Add member to queue
+      description: |
+        Add a user as a member to the specified queue. This endpoint automatically
+        triggers configuration deployment to ensure the new queue member is
+        immediately available in the Asterisk system.
+
+        **Automatic Actions:**
+        1. Add queue member to database
+        2. Deploy updated configuration to Asterisk
+        3. Reload queue configuration in real-time
+
+        **Note:** Configuration deployment happens automatically. No additional
+        API calls are needed to make the queue member active.
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/queues/QUEUE_UUID/members \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "user_id": "USER_UUID",
+            "penalty": 0
+          }'
+        ```
+      parameters:
+        - name: queueId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Queue UUID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                  description: User UUID to add as queue member
+                penalty:
+                  type: integer
+                  default: 0
+                  description: Queue member penalty (0 = highest priority)
+            example:
+              user_id: "bf25246a-9434-4ef1-963f-2ac0fe6dcf9a"
+              penalty: 0
+      responses:
+        '201':
+          description: Member added successfully and configuration deployed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  queue_member:
+                    $ref: '#/components/schemas/QueueMember'
+                  configuration_deployed:
+                    type: boolean
+                    description: Indicates if Asterisk configuration was automatically deployed
+              example:
+                success: true
+                message: "Queue member added successfully"
+                queue_member:
+                  id: "uuid-generated"
+                  queue_id: "queue-uuid"
+                  user_id: "bf25246a-9434-4ef1-963f-2ac0fe6dcf9a"
+                  penalty: 0
+                  paused: false
+                configuration_deployed: true
+
+    delete:
+      security:
+        - BearerAuth: []
+      tags: [Queues]
+      summary: Remove member from queue
+      description: |
+        Remove a user from a queue
+
+        **Example curl:**
+        ```bash
+        curl -X DELETE "${YOUR_SERVER_URL}/api/v1/queues/QUEUE_UUID/members?userId=USER_UUID" \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: queueId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Member removed
+
+  /queues/{queueId}/music:
+    put:
+      security:
+        - BearerAuth: []
+      tags: [Queues]
+      summary: Update music on hold
+      description: |
+        Update music on hold settings for a queue
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/queues/QUEUE_UUID/music \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "music_on_hold": "default",
+            "ring_sound": "ring"
+          }'
+        ```
+      parameters:
+        - name: queueId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [music_on_hold]
+              properties:
+                music_on_hold:
+                  type: string
+                ring_sound:
+                  type: string
+      responses:
+        '200':
+          description: Music settings updated
+
+  # Greeting Management (TTS)
+  /greetings:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Greetings]
+      summary: List all greetings
+      description: |
+        Retrieve all TTS greetings for the organization.
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/greetings \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      responses:
+        '200':
+          description: List of greetings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Greeting'
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Greetings]
+      summary: Create greeting with TTS
+      description: |
+        Create a new greeting. Text is converted to speech audio using Google TTS.
+        Audio is saved as 8kHz 16-bit mono WAV for Asterisk playback.
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/greetings \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "name": "Welcome Greeting",
+            "text": "Welcome to Grand Estancia. Please hold.",
+            "language": "en-IN",
+            "voice": "en-IN-Wavenet-D"
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, text]
+              properties:
+                name:
+                  type: string
+                  description: Greeting display name
+                text:
+                  type: string
+                  description: TTS text to convert to speech
+                language:
+                  type: string
+                  default: en-IN
+                  description: Language code (e.g. en-IN, hi-IN, en-US)
+                voice:
+                  type: string
+                  default: en-IN-Wavenet-D
+                  description: Google TTS voice name
+      responses:
+        '201':
+          description: Greeting created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Greeting'
+
+  /greetings/{greetingId}:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Greetings]
+      summary: Get greeting details
+      parameters:
+        - name: greetingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Greeting details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Greeting'
+    put:
+      security:
+        - BearerAuth: []
+      tags: [Greetings]
+      summary: Update greeting
+      description: |
+        Update greeting details. If text, language, or voice changes, audio is regenerated.
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/greetings/GREETING_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "text": "Welcome to Grand Estancia Hotels.",
+            "voice": "en-IN-Wavenet-A"
+          }'
+        ```
+      parameters:
+        - name: greetingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                text:
+                  type: string
+                language:
+                  type: string
+                voice:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, inactive]
+      responses:
+        '200':
+          description: Greeting updated
+    delete:
+      security:
+        - BearerAuth: []
+      tags: [Greetings]
+      summary: Delete greeting
+      description: Deletes greeting record and audio file. Removes from any assigned queues.
+      parameters:
+        - name: greetingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Greeting deleted
+
+  /settings/greeting:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Greetings]
+      summary: Get greeting settings
+      description: Get org-level greeting toggle settings (where greetings play).
+      responses:
+        '200':
+          description: Greeting settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GreetingSettings'
+    put:
+      security:
+        - BearerAuth: []
+      tags: [Greetings]
+      summary: Update greeting settings
+      description: |
+        Enable/disable greetings and control where they play.
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/settings/greeting \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "greeting_enabled": true,
+            "greeting_id": "UUID",
+            "play_on_queue": true,
+            "play_on_extension": false
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GreetingSettings'
+      responses:
+        '200':
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GreetingSettings'
+
+  # Music on Hold
+  /moh:
+    get:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [Music on Hold]
+      summary: List MOH files
+      description: |
+        List all uploaded music on hold files and classes for the organization.
+
+        **Workflow:** Upload audio → Get `moh_class_name` from this endpoint → Assign to queue via `PUT /queues/{queueId}/moh`.
+      responses:
+        '200':
+          description: MOH files and classes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  org_classes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        class:
+                          type: string
+                          description: Short class name (e.g. "default")
+                        moh_class_name:
+                          type: string
+                          description: Full Asterisk MOH class name — use this value when assigning to a queue
+                        file_count:
+                          type: integer
+                        files:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              filename:
+                                type: string
+                              size:
+                                type: integer
+                                description: File size in bytes
+                              uploaded_at:
+                                type: string
+                                format: date-time
+                  system_classes:
+                    type: array
+                    description: Built-in Asterisk MOH classes (may not have audio files)
+                    items:
+                      type: string
+              example:
+                org_classes:
+                  - class: default
+                    moh_class_name: org_abc123_default
+                    file_count: 2
+                    files:
+                      - filename: lobby-music_1775046205517.wav
+                        size: 568880
+                        uploaded_at: "2026-04-01T12:23:27.202Z"
+                system_classes: [default, classical, modern, jazz, silence]
+
+  /moh/upload:
+    post:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [Music on Hold]
+      summary: Upload MOH audio
+      description: |
+        Upload an audio file for music on hold. Accepts common audio formats — automatically converts to 8kHz 16-bit mono WAV (Asterisk native format).
+
+        **Supported formats:** mp3, wav, ogg, flac, m4a, aac, webm (max 10MB).
+
+        **After upload:** Use the returned `moh_class_name` to assign to queues via `PUT /queues/{queueId}/moh`.
+        Config is auto-deployed — no manual reload needed.
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/moh/upload \
+          -H "X-API-Key: YOUR_API_KEY" \
+          -F "audio=@/path/to/music.mp3" \
+          -F "class=default"
+        ```
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio]
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                  description: Audio file (mp3, wav, ogg, flac, m4a, aac, webm — max 10MB)
+                class:
+                  type: string
+                  default: default
+                  description: MOH class name. Use "default" for general hold music, or create custom classes like "premium", "support"
+      responses:
+        '201':
+          description: Audio uploaded, converted, and deployed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  filename:
+                    type: string
+                    description: Generated filename on server
+                  moh_class_name:
+                    type: string
+                    description: Full MOH class name — pass this to PUT /queues/{id}/moh
+                  class:
+                    type: string
+                    description: Short class name
+                  original_name:
+                    type: string
+                  size:
+                    type: integer
+                    description: Converted file size in bytes
+                  format:
+                    type: string
+                  assign_to_queue:
+                    type: string
+                    description: Hint showing how to assign this class to a queue
+              example:
+                filename: lobby-music_1775046205517.wav
+                moh_class_name: org_abc123_default
+                class: default
+                original_name: lobby-music.mp3
+                size: 568880
+                format: "8kHz 16-bit mono WAV"
+                assign_to_queue: 'PUT /api/v1/queues/{queueId}/moh with {"music_on_hold": "org_abc123_default"}'
+        '400':
+          description: No audio file provided or unsupported format
+        '422':
+          description: Audio conversion failed (ffmpeg error)
+
+  /moh/{className}/{filename}:
+    delete:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [Music on Hold]
+      summary: Delete MOH file
+      description: |
+        Delete a specific audio file from an MOH class. Config is auto-deployed after deletion.
+
+        **className** is the short class name (e.g. `default`), not the full `org_prefix_default`.
+        **filename** is the exact filename from `GET /moh` (e.g. `lobby-music_1775046205517.wav`).
+      parameters:
+        - name: className
+          in: path
+          required: true
+          description: Short MOH class name (e.g. "default", "premium")
+          schema:
+            type: string
+        - name: filename
+          in: path
+          required: true
+          description: Exact filename to delete (from GET /moh response)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  deleted:
+                    type: string
+                  class:
+                    type: string
+        '404':
+          description: File not found
+
+  /queues/{queueId}/moh:
+    put:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [Music on Hold]
+      summary: Assign MOH class to queue
+      description: |
+        Assign a music on hold class to a queue. Use the `moh_class_name` value from `GET /moh` or the upload response.
+
+        Config is auto-deployed — callers in queue will hear the new music immediately.
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/queues/QUEUE_UUID/moh \
+          -H "X-API-Key: YOUR_API_KEY" \
+          -H "Content-Type: application/json" \
+          -d '{ "music_on_hold": "org_abc123_default" }'
+        ```
+      parameters:
+        - name: queueId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [music_on_hold]
+              properties:
+                music_on_hold:
+                  type: string
+                  description: Full MOH class name from GET /moh (moh_class_name field)
+            example:
+              music_on_hold: org_abc123_default
+      responses:
+        '200':
+          description: MOH class assigned and config deployed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queue_id:
+                    type: string
+                  queue_name:
+                    type: string
+                  music_on_hold:
+                    type: string
+        '404':
+          description: Queue not found
+
+  # Outbound Route Management
+  /outbound-routes:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Outbound Routes]
+      summary: List all outbound routes
+      description: |
+        Retrieve all outbound calling routes for the organization
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/outbound-routes \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      responses:
+        '200':
+          description: List of outbound routes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OutboundRoute'
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Outbound Routes]
+      summary: Create new outbound route
+      description: |
+        Create a new outbound calling route with dial patterns and number manipulation
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/outbound-routes \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "name": "US Long Distance",
+            "trunk_id": "TRUNK_UUID",
+            "dial_pattern": "_1NXXNXXXXXX",
+            "strip_digits": 1,
+            "caller_id_override": "+15551234567",
+            "route_type": "long_distance",
+            "priority": 10
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, trunk_id, dial_pattern]
+              properties:
+                name:
+                  type: string
+                  example: "US Long Distance"
+                description:
+                  type: string
+                  example: "Route for US long distance calls"
+                trunk_id:
+                  type: string
+                  format: uuid
+                  example: "trunk-uuid-here"
+                dial_pattern:
+                  type: string
+                  example: "_1NXXNXXXXXX"
+                  description: "Asterisk dial pattern"
+                dial_prefix:
+                  type: string
+                  example: "1"
+                  description: "Prefix to add to dialed number"
+                strip_digits:
+                  type: integer
+                  default: 0
+                  example: 1
+                  description: "Number of digits to strip from beginning"
+                prepend_digits:
+                  type: string
+                  example: "00"
+                  description: "Digits to prepend after stripping"
+                caller_id_override:
+                  type: string
+                  example: "+15551234567"
+                  description: "Override outbound caller ID"
+                caller_id_name_override:
+                  type: string
+                  example: "Company Name"
+                recording_enabled:
+                  type: boolean
+                  default: false
+                max_channels:
+                  type: integer
+                  example: 10
+                route_type:
+                  type: string
+                  enum: [emergency, local, long_distance, international, toll_free, custom]
+                  default: custom
+                priority:
+                  type: integer
+                  default: 10
+                  example: 10
+                  description: "Lower number = higher priority"
+      responses:
+        '201':
+          description: Outbound route created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboundRoute'
+
+  /outbound-routes/{routeId}:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Outbound Routes]
+      summary: Get outbound route details
+      description: |
+        Retrieve details of a specific outbound route
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/outbound-routes/ROUTE_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: routeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Outbound route details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboundRoute'
+    put:
+      security:
+        - BearerAuth: []
+      tags: [Outbound Routes]
+      summary: Update outbound route
+      description: |
+        Update an existing outbound route
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/outbound-routes/ROUTE_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "priority": 5,
+            "caller_id_override": "+15559876543"
+          }'
+        ```
+      parameters:
+        - name: routeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                trunk_id:
+                  type: string
+                  format: uuid
+                dial_pattern:
+                  type: string
+                dial_prefix:
+                  type: string
+                strip_digits:
+                  type: integer
+                prepend_digits:
+                  type: string
+                caller_id_override:
+                  type: string
+                caller_id_name_override:
+                  type: string
+                recording_enabled:
+                  type: boolean
+                max_channels:
+                  type: integer
+                route_type:
+                  type: string
+                  enum: [emergency, local, long_distance, international, toll_free, custom]
+                priority:
+                  type: integer
+                status:
+                  type: string
+                  enum: [active, inactive]
+      responses:
+        '200':
+          description: Outbound route updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboundRoute'
+    delete:
+      security:
+        - BearerAuth: []
+      tags: [Outbound Routes]
+      summary: Delete outbound route
+      description: |
+        Delete an outbound route
+
+        **Example curl:**
+        ```bash
+        curl -X DELETE ${YOUR_SERVER_URL}/api/v1/outbound-routes/ROUTE_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: routeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Outbound route deleted
+
+  # Webhook Management
+  /webhooks:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Webhooks]
+      summary: List all webhooks
+      description: |
+        Retrieve all webhooks for the organization
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/webhooks \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      responses:
+        '200':
+          description: List of webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Webhook'
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Webhooks]
+      summary: Register webhook
+      description: |
+        Register a new webhook for call events
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/webhooks \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "url": "https://myapp.com/webhook",
+            "events": ["call.initiated", "call.answered", "call.ended"],
+            "secret": "my-webhook-secret"
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                events:
+                  type: array
+                  items:
+                    type: string
+                    enum: [call.initiated, call.answered, call.ended, call.failed]
+                secret:
+                  type: string
+                  description: Secret for HMAC validation
+      responses:
+        '201':
+          description: Webhook registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+
+  /webhooks/{webhookId}:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Webhooks]
+      summary: Get webhook details
+      description: |
+        Retrieve details of a specific webhook
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/webhooks/WEBHOOK_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Webhook details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+    put:
+      security:
+        - BearerAuth: []
+      tags: [Webhooks]
+      summary: Update webhook
+      description: |
+        Update an existing webhook
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/webhooks/WEBHOOK_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "url": "https://myapp.com/webhook-updated",
+            "events": ["call.answered", "call.ended"],
+            "active": true
+          }'
+        ```
+      parameters:
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Webhook'
+      responses:
+        '200':
+          description: Webhook updated
+    delete:
+      security:
+        - BearerAuth: []
+      tags: [Webhooks]
+      summary: Delete webhook
+      description: |
+        Delete a webhook
+
+        **Example curl:**
+        ```bash
+        curl -X DELETE ${YOUR_SERVER_URL}/api/v1/webhooks/WEBHOOK_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Webhook deleted
+
+  # Testing Endpoints
+  /test/call-event:
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Testing]
+      summary: Simulate call event for testing
+      description: |
+        Simulate webhook call events for testing purposes
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/test/call-event \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "event": "call.answered",
+            "data": {
+              "call_id": "test-call-123",
+              "from": "+1234567890",
+              "to": "2001",
+              "status": "answered"
+            }
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, data]
+              properties:
+                event:
+                  type: string
+                  enum: [call.initiated, call.answered, call.ended, call.failed]
+                data:
+                  type: object
+                  properties:
+                    call_id:
+                      type: string
+                    from:
+                      type: string
+                    to:
+                      type: string
+                    status:
+                      type: string
+              example:
+                event: "call.answered"
+                data:
+                  call_id: "test-call-123"
+                  from: "+1234567890"
+                  to: "2001"
+                  status: "answered"
+      responses:
+        '200':
+          description: Event simulated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  webhook_results:
+                    type: array
+                    items:
+                      type: object
+
+  # Call Logs
+  /calls:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: List call logs
+      description: |
+        Paginated call logs with filtering. Returns one record per call
+        (deduped by linkedid — keeps the longest-duration channel leg).
+
+        Every CDR row is tagged with the org's UUID via `accountcode` so
+        only calls belonging to the authenticated org are returned.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+          description: Number of records per page
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+          description: Pagination offset
+        - name: direction
+          in: query
+          schema: { type: string, enum: [inbound, outbound, internal, all] }
+          description: Filter by call direction
+        - name: disposition
+          in: query
+          schema: { type: string, enum: [ANSWERED, NO ANSWER, BUSY, FAILED] }
+          description: Filter by call outcome (Asterisk disposition)
+        - name: from
+          in: query
+          schema: { type: string }
+          description: Filter by caller number (partial match)
+        - name: to
+          in: query
+          schema: { type: string }
+          description: Filter by destination number (partial match)
+        - name: date_from
+          in: query
+          schema: { type: string, format: date }
+          description: Start date (YYYY-MM-DD, inclusive)
+        - name: date_to
+          in: query
+          schema: { type: string, format: date }
+          description: End date (YYYY-MM-DD, inclusive)
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Free-text search across caller number, destination, and caller ID
+      responses:
+        "200":
+          description: Paginated call log
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer }
+                        started_at: { type: string, format: date-time }
+                        ended_at: { type: string, format: date-time }
+                        from_number: { type: string }
+                        caller_id: { type: string }
+                        to_number: { type: string }
+                        duration: { type: integer, description: "Total seconds (ring + talk)" }
+                        talk_time: { type: integer, description: "Talk seconds only (billsec)" }
+                        disposition: { type: string, enum: [ANSWERED, NO ANSWER, BUSY, FAILED] }
+                        direction: { type: string, enum: [inbound, outbound, internal] }
+                        org_id: { type: string, format: uuid }
+                        channel: { type: string }
+                        destination_channel: { type: string }
+                        dcontext: { type: string }
+                        lastapp: { type: string }
+                        call_id: { type: string }
+                        linkedid: { type: string }
+                        recording_file: { type: string }
+                        recording_url: { type: string, nullable: true }
+                  pagination:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      limit: { type: integer }
+                      offset: { type: integer }
+                      has_more: { type: boolean }
+        "401":
+          description: Authentication required
+
+  # Call Recording
+  /calls/{callId}/recording:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Download call recording
+      description: |
+        Download the WAV recording file for a completed call.
+        Returns the recording as a downloadable WAV file.
+
+        **Authentication:** Use Bearer token or API Key headers.
+
+        **Example curl:**
+        ```bash
+        curl -X GET \${YOUR_SERVER_URL}/api/v1/calls/CALL_UUID/recording \
+          -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+          --output recording.wav
+        ```
+      parameters:
+        - name: callId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The call record ID (UUID from GET /calls response)
+      responses:
+        '200':
+          description: WAV audio file download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Authentication required
+        '404':
+          description: Call not found or no recording available
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: No recording available for this call
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Enable/disable call recording on active call
+      description: |
+        Enable or disable recording for a currently active call.
+
+        **Example curl:**
+        ```bash
+        curl -X POST \${YOUR_SERVER_URL}/api/v1/calls/CALL_UUID/recording \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"enabled": true}'
+        ```
+      parameters:
+        - name: callId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The call record ID (UUID)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Recording status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  call_id:
+                    type: string
+                  recording_enabled:
+                    type: boolean
+                  message:
+                    type: string
+        '404':
+          description: Call not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  # Call Statistics
+  /calls/count:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Get call count and statistics
+      description: |
+        Retrieve call statistics with optional filters
+
+        **Example curl:**
+        ```bash
+        curl -X GET "${YOUR_SERVER_URL}/api/v1/calls/count?status=completed&from=2025-01-01T00:00:00Z&to=2025-12-31T23:59:59Z" \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, completed, failed]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Call statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  active:
+                    type: integer
+                  completed:
+                    type: integer
+                  failed:
+                    type: integer
+                  average_duration:
+                    type: integer
+                  total_duration:
+                    type: integer
+                example:
+                  total: 150
+                  active: 3
+                  completed: 140
+                  failed: 7
+                  average_duration: 245
+                  total_duration: 34300
+
+  /calls/live:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Get live active calls
+      description: |
+        Retrieve all currently active calls for this organization in real-time via Asterisk AMI.
+        Returns caller info, connected party, duration, context, application, and bridge details.
+        Only shows channels belonging to the authenticated organization.
+      responses:
+        '200':
+          description: Active calls for this organization
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    description: Number of active calls
+                  calls:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        channel_id:
+                          type: string
+                          description: Asterisk channel ID (use for hangup/hold/transfer)
+                          example: "PJSIP/1001-00000003"
+                        uniqueid:
+                          type: string
+                        from:
+                          type: string
+                          description: Caller number
+                        from_name:
+                          type: string
+                        to:
+                          type: string
+                          description: Connected party number
+                        to_name:
+                          type: string
+                        status:
+                          type: string
+                          enum: [Up, Ringing, Ring, Down]
+                        context:
+                          type: string
+                        extension:
+                          type: string
+                        duration:
+                          type: integer
+                          description: Call duration in seconds
+                        application:
+                          type: string
+                          description: Current Asterisk application (Queue, Dial, MusicOnHold, etc.)
+                        bridge_id:
+                          type: string
+
+  /calls/channels:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Get active channels with full details
+      description: |
+        Retrieve all active Asterisk channels for this organization with detailed channel information.
+        Returns channel IDs needed for call control operations (hangup, hold, transfer).
+
+        **Use this endpoint to get `channel_id` values required by:**
+        - `POST /calls/{channelId}/hangup`
+        - `POST /calls/{channelId}/hold`
+        - `POST /calls/{channelId}/unhold`
+        - `POST /calls/{channelId}/transfer`
+      responses:
+        '200':
+          description: Active channels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  org_id:
+                    type: string
+                    format: uuid
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        channel_id:
+                          type: string
+                          example: "PJSIP/1001-00000003"
+                        channel_name:
+                          type: string
+                        uniqueid:
+                          type: string
+                        linkedid:
+                          type: string
+                        state:
+                          type: string
+                          enum: [Up, Ringing, Ring, Down, Busy]
+                        caller_number:
+                          type: string
+                        caller_name:
+                          type: string
+                        connected_number:
+                          type: string
+                        connected_name:
+                          type: string
+                        context:
+                          type: string
+                        extension:
+                          type: string
+                        application:
+                          type: string
+                        application_data:
+                          type: string
+                        duration:
+                          type: integer
+                        bridge_id:
+                          type: string
+
+  /calls/{channelId}/hangup:
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Hang up an active call
+      description: |
+        Terminate an active call immediately. Get the `channelId` from `GET /calls/channels` or `GET /calls/live`.
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Asterisk channel ID (e.g., PJSIP/1001-00000003)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  enum: [normal, busy, congestion]
+                  default: normal
+                  description: Hangup cause
+      responses:
+        '200':
+          description: Call terminated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  channel_id:
+                    type: string
+                  reason:
+                    type: string
+
+  /calls/{channelId}/hold:
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Put a call on hold
+      description: |
+        Place an active call on hold. The caller hears music on hold until the call is resumed via `POST /calls/{channelId}/unhold`.
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Asterisk channel ID
+      responses:
+        '200':
+          description: Call placed on hold
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  channel_id:
+                    type: string
+
+  /calls/{channelId}/unhold:
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Resume a call from hold
+      description: |
+        Remove a call from hold and redirect it to a destination extension.
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Asterisk channel ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [destination]
+              properties:
+                destination:
+                  type: string
+                  description: Extension to redirect the call to after unhold
+                  example: "1001"
+      responses:
+        '200':
+          description: Call resumed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  channel_id:
+                    type: string
+                  destination:
+                    type: string
+
+  /calls/{channelId}/transfer:
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Transfer an active call
+      description: |
+        Transfer an active call to another extension, queue, or external number.
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Asterisk channel ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [destination]
+              properties:
+                destination:
+                  type: string
+                  description: Destination extension, queue number, or external number
+                  example: "1002"
+                destination_type:
+                  type: string
+                  enum: [extension, queue, external]
+                  default: extension
+                  description: Type of destination for correct routing context
+      responses:
+        '200':
+          description: Call transferred
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  transfer:
+                    type: object
+                    properties:
+                      channel_id:
+                        type: string
+                      destination:
+                        type: string
+                      destination_type:
+                        type: string
+                      context:
+                        type: string
+
+  # Click-to-Call
+  /calls/click-to-call:
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Initiate a click-to-call between two parties
+      description: |
+        Initiate a call between two parties using Asterisk AMI Originate.
+        The system will first call the 'from' party, then bridge them to the 'to' destination.
+
+        Supports multiple destination types:
+        - **extension**: Internal extension/user
+        - **queue**: Call queue
+        - **ivr**: IVR/auto-attendant
+        - **ai_agent**: AI agent endpoint
+        - **external**: External phone number
+
+        **Example curl (call extension to extension):**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/calls/click-to-call \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "from": "2001",
+            "to": "2002",
+            "to_type": "extension"
+          }'
+        ```
+
+        **Example curl (call extension to queue):**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/calls/click-to-call \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "from": "2001",
+            "to": "support",
+            "to_type": "queue",
+            "caller_id": "Support Request"
+          }'
+        ```
+
+        **Example curl (call extension to external number):**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/calls/click-to-call \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "from": "2001",
+            "to": "+15551234567",
+            "to_type": "external",
+            "timeout": 45
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from:
+                  type: string
+                  description: Source extension or number (will be called first)
+                  example: "2001"
+                to:
+                  type: string
+                  description: Destination (extension, queue, IVR, AI agent, or external number)
+                  example: "2002"
+                to_type:
+                  type: string
+                  enum: [extension, queue, ivr, ai_agent, external]
+                  default: extension
+                  description: Type of destination
+                caller_id:
+                  type: string
+                  description: Caller ID to display (optional, defaults to 'from')
+                  example: "John Doe"
+                timeout:
+                  type: integer
+                  description: Call timeout in seconds
+                  default: 30
+                  example: 45
+                context:
+                  type: string
+                  description: Custom Asterisk context (optional, auto-determined from to_type)
+                  example: "testorg_internal"
+                variables:
+                  type: object
+                  description: Additional channel variables to set
+                  additionalProperties:
+                    type: string
+                  example:
+                    CAMPAIGN_ID: "campaign-123"
+                    CALL_TYPE: "outbound"
+            examples:
+              extensionToExtension:
+                summary: Extension to Extension
+                value:
+                  from: "2001"
+                  to: "2002"
+                  to_type: "extension"
+              extensionToQueue:
+                summary: Extension to Queue
+                value:
+                  from: "2001"
+                  to: "support"
+                  to_type: "queue"
+                  caller_id: "Support Request"
+              extensionToExternal:
+                summary: Extension to External Number
+                value:
+                  from: "2001"
+                  to: "+15551234567"
+                  to_type: "external"
+                  timeout: 45
+              extensionToIVR:
+                summary: Extension to IVR
+                value:
+                  from: "2003"
+                  to: "1000"
+                  to_type: "ivr"
+              extensionToAI:
+                summary: Extension to AI Agent
+                value:
+                  from: "2001"
+                  to: "ai-agent-001"
+                  to_type: "ai_agent"
+                  variables:
+                    AI_PROMPT: "customer_support"
+      responses:
+        '200':
+          description: Call initiated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Call initiated successfully"
+                  call:
+                    type: object
+                    properties:
+                      from:
+                        type: string
+                        example: "2001"
+                      to:
+                        type: string
+                        example: "2002"
+                      to_type:
+                        type: string
+                        example: "extension"
+                      caller_id:
+                        type: string
+                        example: "2001"
+                      destination:
+                        type: string
+                        example: "2002"
+                      context:
+                        type: string
+                        example: "testorg_internal"
+                      timeout:
+                        type: integer
+                        example: 30
+                      response:
+                        type: object
+                        description: AMI response data
+        '400':
+          description: Bad request - missing or invalid parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Missing required fields"
+                  required:
+                    type: array
+                    items:
+                      type: string
+                    example: ["from", "to"]
+        '401':
+          description: Unauthorized - Invalid or missing token
+        '500':
+          description: Server error - Failed to initiate call
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to initiate click-to-call"
+                  details:
+                    type: string
+                    example: "AMI connection failed"
+
+  /calls/originate-to-ai:
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Originate call to remote party and connect to AI agent Stasis app
+      description: |
+        Originate a call to a remote party (extension or external number) and immediately
+        connect the call to an Asterisk Stasis AI agent application when they answer.
+
+        This endpoint is designed for AI-powered calling systems that use Asterisk ARI (Asterisk REST Interface)
+        to handle calls programmatically. When the remote party answers, the call enters a Stasis application
+        where an AI agent can control the conversation.
+
+        **Key Features:**
+        - Direct call origination to Stasis app (no dialplan routing)
+        - WebSocket URL support for external AI services
+        - Supports both internal extensions and external numbers
+        - Channel variables passed to AI agent handler
+        - Async call origination (non-blocking)
+
+        **Use Cases:**
+        - AI-powered outbound calling campaigns
+        - Automated appointment reminders with conversational AI
+        - Customer surveys with natural language processing
+        - Voice assistant integrations (OpenAI Realtime API, Deepgram, etc.)
+        - Real-time speech-to-speech translation services
+
+        **Example curl (call extension with AI agent):**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/calls/originate-to-ai \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "to": "2001",
+            "caller_id": "AI Assistant",
+            "wss_url": "wss://ai.example.com/voice/stream"
+          }'
+        ```
+
+        **Example curl (call external number with OpenAI):**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/calls/originate-to-ai \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "to": "+15551234567",
+            "caller_id": "Support Bot",
+            "ai_agent_app": "ai_agent",
+            "wss_url": "wss://api.openai.com/v1/realtime",
+            "timeout": 45,
+            "variables": {
+              "CAMPAIGN_ID": "summer2024",
+              "LANGUAGE": "en-US"
+            }
+          }'
+        ```
+
+        **Example curl (call with custom AI service):**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/calls/originate-to-ai \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "to": "2002",
+            "wss_url": "wss://voice-ai.myservice.com/stream",
+            "variables": {
+              "AGENT_TYPE": "sales",
+              "PRIORITY": "high"
+            }
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to]
+              properties:
+                to:
+                  type: string
+                  description: |
+                    Destination to call - can be:
+                    - Internal extension (3-4 digits): "2001"
+                    - External phone number: "+15551234567"
+                  example: "2001"
+                caller_id:
+                  type: string
+                  description: Caller ID displayed to the called party
+                  default: "AI Agent"
+                  example: "AI Assistant"
+                ai_agent_app:
+                  type: string
+                  description: Name of the Asterisk Stasis application to use
+                  default: "ai_agent"
+                  example: "ai_agent"
+                wss_url:
+                  type: string
+                  description: |
+                    WebSocket URL for AI agent service (optional).
+                    Must start with wss:// or ws://.
+                    This URL is passed to the AI agent via channel variable WSS_URL.
+                  example: "wss://ai.example.com/voice/stream"
+                timeout:
+                  type: integer
+                  description: Call timeout in seconds
+                  default: 30
+                  example: 45
+                variables:
+                  type: object
+                  description: Additional channel variables to pass to AI agent
+                  additionalProperties:
+                    type: string
+                  example:
+                    CAMPAIGN_ID: "summer2024"
+                    LANGUAGE: "en-US"
+                    AGENT_TYPE: "sales"
+            examples:
+              basicExtension:
+                summary: Call Extension with AI Agent
+                value:
+                  to: "2001"
+                  caller_id: "AI Support Bot"
+              externalWithWebSocket:
+                summary: Call External Number with WebSocket
+                value:
+                  to: "+15551234567"
+                  caller_id: "AI Sales Assistant"
+                  wss_url: "wss://ai.example.com/voice"
+                  timeout: 45
+                  variables:
+                    CAMPAIGN_ID: "summer2024"
+                    LANGUAGE: "en-US"
+              openAIRealtime:
+                summary: OpenAI Realtime API Integration
+                value:
+                  to: "2002"
+                  wss_url: "wss://api.openai.com/v1/realtime"
+                  variables:
+                    OPENAI_MODEL: "gpt-4o-realtime-preview"
+                    VOICE: "alloy"
+              customAIService:
+                summary: Custom AI Service with Variables
+                value:
+                  to: "+15559876543"
+                  caller_id: "Customer Survey Bot"
+                  wss_url: "wss://voice-ai.myservice.com/stream"
+                  ai_agent_app: "ai_agent"
+                  timeout: 60
+                  variables:
+                    SURVEY_ID: "q4-2024"
+                    CUSTOMER_ID: "12345"
+                    RETRY_COUNT: "0"
+      responses:
+        '200':
+          description: Call to AI agent initiated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Call to AI agent initiated successfully"
+                  call:
+                    type: object
+                    properties:
+                      to:
+                        type: string
+                        example: "2001"
+                      endpoint:
+                        type: string
+                        description: Asterisk endpoint that was called
+                        example: "PJSIP/2001"
+                      caller_id:
+                        type: string
+                        example: "AI Agent"
+                      ai_agent_app:
+                        type: string
+                        example: "ai_agent"
+                      wss_url:
+                        type: string
+                        nullable: true
+                        example: "wss://ai.example.com/voice/stream"
+                      timeout:
+                        type: integer
+                        example: 30
+                      channel:
+                        type: string
+                        description: Asterisk channel that was originated
+                        example: "PJSIP/2001"
+                      response:
+                        type: object
+                        description: AMI originate response
+                        properties:
+                          success:
+                            type: boolean
+                            example: true
+                          response:
+                            type: string
+                            example: "Response: Success\r\n..."
+              example:
+                success: true
+                message: "Call to AI agent initiated successfully"
+                call:
+                  to: "2001"
+                  endpoint: "PJSIP/2001"
+                  caller_id: "AI Agent"
+                  ai_agent_app: "ai_agent"
+                  wss_url: "wss://ai.example.com/voice/stream"
+                  timeout: 30
+                  channel: "PJSIP/2001"
+                  response:
+                    success: true
+                    response: "Response: Success"
+        '400':
+          description: Bad request - missing or invalid parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid WSS URL"
+                  message:
+                    type: string
+                    example: "WSS URL must start with wss:// or ws://"
+              examples:
+                missingTo:
+                  summary: Missing required field
+                  value:
+                    error: "Missing required fields"
+                    required: ["to"]
+                invalidWssUrl:
+                  summary: Invalid WSS URL format
+                  value:
+                    error: "Invalid WSS URL"
+                    message: "WSS URL must start with wss:// or ws://"
+        '401':
+          description: Unauthorized - Invalid or missing JWT token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Unauthorized"
+                  message:
+                    type: string
+                    example: "Organization ID not found in token"
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Organization not found"
+        '500':
+          description: Server error - Failed to initiate AI agent call
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to initiate AI agent call"
+                  details:
+                    type: string
+                    example: "AMI connection failed"
+
+  /calls/{channelId}/transfer:
+    post:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Transfer an active call
+      description: |
+        Transfer an active call to another destination (extension, queue, etc.).
+        This performs a blind transfer using Asterisk ARI.
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/calls/CHANNEL_ID/transfer \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "destination": "2003",
+            "type": "blind",
+            "context": "testorg_internal"
+          }'
+        ```
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Asterisk channel ID (e.g., PJSIP/2001-00000001)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [destination]
+              properties:
+                destination:
+                  type: string
+                  description: Transfer destination (extension, queue number, etc.)
+                  example: "2003"
+                type:
+                  type: string
+                  enum: [blind, attended]
+                  default: blind
+                  description: Transfer type
+                context:
+                  type: string
+                  description: Asterisk context (optional, auto-determined from org)
+                  example: "testorg_internal"
+      responses:
+        '200':
+          description: Call transferred successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Call transferred successfully"
+                  transfer:
+                    type: object
+                    properties:
+                      channel_id:
+                        type: string
+                      destination:
+                        type: string
+                      context:
+                        type: string
+                      type:
+                        type: string
+        '400':
+          description: Bad request - missing destination
+        '401':
+          description: Unauthorized - Invalid or missing token
+        '503':
+          description: Service unavailable - ARI not connected
+        '500':
+          description: Server error - Transfer failed
+
+  /calls:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Call Management]
+      summary: Get call history
+      description: |
+        Retrieve call history with pagination and filtering.
+
+        **Example curl:**
+        ```bash
+        curl -X GET "${YOUR_SERVER_URL}/api/v1/calls?limit=50&offset=0&status=answered" \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+          description: Number of records to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Number of records to skip
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ringing, answered, busy, failed, no-answer, completed]
+          description: Filter by call status
+        - name: direction
+          in: query
+          schema:
+            type: string
+            enum: [inbound, outbound, internal]
+          description: Filter by call direction
+      responses:
+        '200':
+          description: Call history retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  calls:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CallRecord'
+                  count:
+                    type: integer
+                    description: Number of calls in this response
+                  total:
+                    type: integer
+                    description: Total number of calls matching filters
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          description: Unauthorized
+
+  /organizations/{organizationId}:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Organization Management]
+      summary: Get organization details
+      description: |
+        Get details of a specific organization by ID
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/organizations/ORG_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Organization UUID
+      responses:
+        '200':
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '401':
+          description: Unauthorized - Invalid or missing token
+        '403':
+          description: Forbidden - Access denied to this organization
+        '404':
+          description: Organization not found
+    put:
+      security:
+        - BearerAuth: []
+      tags: [Organization Management]
+      summary: Update organization settings
+      description: |
+        Update organization configuration including settings, limits, features, and contact information.
+        All fields are optional - only provided fields will be updated (merged with existing values).
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/organizations/ORG_UUID \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "settings": {
+              "features": {
+                "ai_agent": true,
+                "call_recording": true
+              }
+            },
+            "limits": {
+              "concurrent_calls": 100
+            },
+            "contact_info": {
+              "email": "new-admin@company.com"
+            }
+          }'
+        ```
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Organization UUID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  pattern: '^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$'
+                  minLength: 3
+                  maxLength: 50
+                domain:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, suspended, deleted]
+                settings:
+                  type: object
+                  description: Settings are merged with existing values
+                  properties:
+                    max_trunks:
+                      type: integer
+                    max_dids:
+                      type: integer
+                    max_users:
+                      type: integer
+                    max_queues:
+                      type: integer
+                    recording_enabled:
+                      type: boolean
+                    webhook_enabled:
+                      type: boolean
+                    features:
+                      type: object
+                      description: Features are merged with existing feature flags
+                      properties:
+                        call_transfer:
+                          type: boolean
+                        call_recording:
+                          type: boolean
+                        voicemail:
+                          type: boolean
+                        conference:
+                          type: boolean
+                        ivr:
+                          type: boolean
+                        ai_agent:
+                          type: boolean
+                limits:
+                  type: object
+                  description: Limits are merged with existing limits
+                  properties:
+                    concurrent_calls:
+                      type: integer
+                    monthly_minutes:
+                      type: integer
+                    storage_gb:
+                      type: integer
+                contact_info:
+                  type: object
+                  description: Contact info is merged with existing values
+                  properties:
+                    email:
+                      type: string
+                      format: email
+                    phone:
+                      type: string
+                    address:
+                      type: string
+            example:
+              settings:
+                features:
+                  ai_agent: true
+                  call_recording: true
+              limits:
+                concurrent_calls: 100
+              contact_info:
+                email: "new-admin@company.com"
+      responses:
+        '200':
+          description: Organization updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '400':
+          description: Bad request - Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Cannot update other organization
+        '404':
+          description: Organization not found
+
+
+  # ========================================
+  # ADMIN - GLOBAL SETTINGS
+  # ========================================
+  /admin/settings:
+    get:
+      tags:
+        - Admin - Global Settings
+      summary: Get global PBX settings
+      description: Retrieve all global PBX configuration settings
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Settings retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  settings:
+                    $ref: '#/components/schemas/GlobalSettings'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+    put:
+      tags:
+        - Admin - Global Settings
+      summary: Update global PBX settings
+      description: Update global PBX configuration settings
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pjsip_transport:
+                  $ref: '#/components/schemas/PJSIPTransport'
+                rtp_config:
+                  $ref: '#/components/schemas/RTPConfig'
+                sip_global:
+                  $ref: '#/components/schemas/SIPGlobal'
+                codecs:
+                  $ref: '#/components/schemas/CodecConfig'
+                system:
+                  $ref: '#/components/schemas/SystemConfig'
+                ami_config:
+                  $ref: '#/components/schemas/AMIConfig'
+                security:
+                  $ref: '#/components/schemas/SecurityConfig'
+                voicemail:
+                  $ref: '#/components/schemas/VoicemailConfig'
+                logging:
+                  $ref: '#/components/schemas/LoggingConfig'
+                features:
+                  $ref: '#/components/schemas/FeaturesConfig'
+                deploy:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Settings updated successfully
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /admin/settings/deploy:
+    post:
+      tags:
+        - Admin - Global Settings
+      summary: Deploy settings to Asterisk
+      description: |
+        Deploy current global settings to Asterisk via AMI.
+
+        **Deployment Modes:**
+        - **Default (reload)**: Reloads affected modules only (minimal disruption)
+        - **Restart mode**: Full Asterisk restart - **WARNING: Drops ALL active calls across ALL organizations**
+
+        Use restart mode only when absolutely necessary (e.g., AMI configuration changes).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: restart
+          in: query
+          description: Set to 'true' to perform full Asterisk restart (WARNING - drops all calls)
+          required: false
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                restart:
+                  type: boolean
+                  default: false
+                  description: Set to true to perform full Asterisk restart (WARNING - drops all calls)
+      responses:
+        '200':
+          description: Settings deployed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  deployment:
+                    type: object
+                  settings_version:
+                    type: integer
+                  deployed_at:
+                    type: string
+                    format: date-time
+                  restart_performed:
+                    type: boolean
+                  warning:
+                    type: string
+                    nullable: true
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: No settings found
+        '500':
+          description: Deployment failed
+
