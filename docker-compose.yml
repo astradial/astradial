@@ -113,6 +113,7 @@ services:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - GATEWAY_ADMIN_KEY=${INTERNAL_API_KEY:-internal-dev-key}
     depends_on:
       - api

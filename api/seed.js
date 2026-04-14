@@ -25,9 +25,9 @@ async function seed() {
     conn = await pool.getConnection();
 
     // Check if already seeded
-    const rows = await conn.query('SELECT COUNT(*) as c FROM organizations');
+    const rows = await conn.query('SELECT COUNT(*) as c FROM org_users');
     if (rows[0].c > 0) {
-      console.log('Database already has organisations. Skipping seed.');
+      console.log('Admin account already exists. Skipping seed.');
       return;
     }
 
@@ -37,28 +37,14 @@ async function seed() {
     const adminPassword = process.env.ADMIN_PASSWORD || 'changeme';
     const adminName = process.env.ADMIN_NAME || 'Admin';
 
-    // Create org
-    const orgId = uuid();
-    const apiKey = 'org_' + uuid().replace(/-/g, '');
-    const apiSecretHash = await bcrypt.hash(uuid(), 12);
-
-    await conn.query(
-      `INSERT INTO organizations (id, name, context_prefix, api_key, api_secret, status, settings, limits, contact_info, created_at, updated_at)
-       VALUES (?, 'Default', 'default', ?, ?, 'active',
-       '{"max_trunks":5,"max_dids":10,"max_users":50,"max_queues":10,"recording_enabled":false,"webhook_enabled":true,"features":{"call_transfer":true,"call_recording":true,"voicemail":true,"conference":true,"ivr":true,"ai_agent":false}}',
-       '{"concurrent_calls":10,"monthly_minutes":10000,"storage_gb":10}',
-       ?, NOW(), NOW())`,
-      [orgId, apiKey, apiSecretHash, JSON.stringify({ email: adminEmail })]
-    );
-
-    // Create admin user with password
+    // No default org — admin creates orgs from the dashboard
+    // Just check org_users table exists and create admin user
     const passwordHash = await bcrypt.hash(adminPassword, 12);
-    const userId = uuid();
 
     await conn.query(
-      `INSERT INTO org_users (id, org_id, email, name, role, status, password_hash, extension, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'owner', 'active', ?, '1001', NOW(), NOW())`,
-      [userId, orgId, adminEmail, adminName, passwordHash]
+      `INSERT INTO org_users (id, org_id, email, name, role, status, password_hash, created_at, updated_at)
+       VALUES (?, NULL, ?, ?, 'owner', 'active', ?, NOW(), NOW())`,
+      [uuid(), adminEmail, adminName, passwordHash]
     );
 
     // Create SIP extension for admin
