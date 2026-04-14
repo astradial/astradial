@@ -60,6 +60,7 @@ services:
     environment:
       - HOST=0.0.0.0
       - SIP_HOST=${SIP_HOST:-}
+      - SIP_PORT=${SIP_PORT:-5060}
       - DB_HOST=mariadb
       - DB_PORT=3306
       - DB_NAME=${DB_NAME:-astradial}

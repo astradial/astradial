@@ -363,7 +363,7 @@ app.get('/api/v1/server-info', (req, res) => {
   }
   res.json({
     sip_host: process.env.SIP_HOST || lanIp || 'localhost',
-    sip_port: 5060,
+    sip_port: parseInt(process.env.SIP_PORT) || 5060,
     hostname: os.hostname(),
   });
 });

@@ -21,19 +21,19 @@ interface SipQrDialogProps {
 }
 
 export function SipQrDialog({ user, onClose }: SipQrDialogProps) {
-  const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
-  const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
-  const [sipServer, setSipServer] = useState(isLocal ? "YOUR_SERVER_IP" : hostname);
-  const sipPort = "5060";
+  const [sipServer, setSipServer] = useState("loading...");
+  const [sipPort, setSipPort] = useState("5060");
 
-  // Try to get server IP from API
+  // Get SIP server from API (reads SIP_HOST env var)
   useEffect(() => {
-    if (isLocal) {
-      fetch("/api/pbx/server-info").then(r => r.json()).then(d => {
-        if (d.sip_host) setSipServer(d.sip_host);
-      }).catch(() => {});
-    }
-  }, [isLocal]);
+    fetch("/api/pbx/server-info").then(r => r.json()).then(d => {
+      if (d.sip_host) setSipServer(d.sip_host);
+      if (d.sip_port) setSipPort(String(d.sip_port));
+    }).catch(() => {
+      const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
+      setSipServer(hostname);
+    });
+  }, []);
   const [copied, setCopied] = useState<string | null>(null);
   const [sipPassword, setSipPassword] = useState(user.sip_password || "");
 
