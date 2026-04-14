@@ -32,7 +32,7 @@ echo "  1) UI only — develop without phone calls (Mac/Windows)"
 echo "  2) Full setup — includes Asterisk PBX for calls (Linux)"
 echo ""
 echo "  To connect a SIP trunk later, use the Trunks page in the dashboard."
-echo "  For a free developer trunk, email dev@astradial.com"
+echo "  For a free developer trunk, email cats@astradial.com"
 echo ""
 read -p "  Choice [1]: " SIP_MODE
 SIP_MODE=${SIP_MODE:-1}
@@ -166,6 +166,6 @@ echo "║  Or connect a SIP trunk from: Dashboard → Trunks         ║"
 fi
 echo "║                                                          ║"
 echo "║  For a free developer SIP trunk:                         ║"
-echo "║  Email dev@astradial.com                                 ║"
+echo "║  Email cats@astradial.com                                 ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""

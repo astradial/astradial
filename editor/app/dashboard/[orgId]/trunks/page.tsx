@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, MoreHorizontal } from "lucide-react";
+import { Plus, MoreHorizontal, Phone, Mail } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -169,6 +171,27 @@ export default function TrunksPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Developer trunk request */}
+      <Card className="max-w-sm">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Phone className="h-5 w-5" />
+            <CardTitle className="text-base">Need a SIP trunk?</CardTitle>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Get a free developer SIP trunk with 1 channel and 1 Indian DID for 30 days. Perfect for testing.
+          </p>
+        </CardHeader>
+        <CardFooter>
+          <a href="mailto:cats@astradial.com?subject=Developer%20SIP%20Trunk%20Request&body=Hi%2C%20I%20would%20like%20a%20free%20developer%20SIP%20trunk%20for%20testing%20Astradial.%0A%0AMy%20name%3A%20%0AGitHub%3A%20" className="w-full">
+            <Button variant="outline" className="w-full gap-2">
+              <Mail className="h-4 w-4" />
+              Request Free Trunk
+            </Button>
+          </a>
+        </CardFooter>
+      </Card>
 
       {/* Edit Trunk Dialog — admin only */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
