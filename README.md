@@ -1,8 +1,8 @@
 # Astradial
 
-Open-source cloud PBX platform. Phone numbers, call routing, CRM, AI bots, and automation in one system.
+Everything your business needs to talk to customers — phone numbers, call queues, CRM, AI bots. One app, open source.
 
-Self-host or use [Astradial Cloud](https://astradial.com).
+Astradial is an open-source phone system for businesses. It handles call routing, CRM, AI voice bots, and automation — all in one app you can self-host with Docker.
 
 ## Features
 
