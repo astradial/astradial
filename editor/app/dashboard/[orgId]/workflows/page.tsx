@@ -72,7 +72,7 @@ export default function WorkflowsPage() {
   const [filterStatus,         setFilterStatus]         = useState<string>("all");
   const [filterDate,           setFilterDate]           = useState<string>("");
   const SCHEDULED_PAGE_SIZE = 50;
-  const isAdmin = typeof window !== "undefined" && !!getAdminKey();
+  const isAdmin = typeof window !== "undefined" && (!!getAdminKey() || localStorage.getItem("user_role") === "owner" || localStorage.getItem("user_role") === "admin");
 
   useEffect(() => { loadWorkflows(); loadAutomationConfig(); }, [orgId]);
   // Reload scheduled list whenever the user changes filter or page

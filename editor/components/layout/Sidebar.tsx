@@ -94,7 +94,7 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const basePath = `/dashboard/${orgId}`;
-  const isAdmin = typeof window !== "undefined" && !!localStorage.getItem("gateway_admin_key");
+  const isAdmin = typeof window !== "undefined" && (!!localStorage.getItem("gateway_admin_key") || localStorage.getItem("user_role") === "owner" || localStorage.getItem("user_role") === "admin");
 
   // Open ticket count — placeholder (ticket API integration pending)
   const [openTickets] = useState(0);
