@@ -53,7 +53,7 @@ export default function TrunksPage() {
 
   function openEdit(t: PbxTrunk) {
     setEditingTrunk(t);
-    setEditForm({ name: t.name, host: t.host, port: String(t.port), username: (t as Record<string, unknown>).username as string || "", password: "", transport: t.transport, trunk_type: t.trunk_type, max_channels: String(t.max_channels), status: t.status });
+    setEditForm({ name: t.name, host: t.host, port: String(t.port), username: (t as unknown as Record<string, unknown>).username as string || "", password: "", transport: t.transport, trunk_type: t.trunk_type, max_channels: String(t.max_channels), status: t.status });
     setEditOpen(true);
   }
 
