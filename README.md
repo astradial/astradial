@@ -26,21 +26,18 @@ cd astradial
 ./setup.sh
 ```
 
-The setup script:
-- Asks for your admin email and password
-- Installs Asterisk natively on macOS (via Homebrew) for SIP audio
-- Starts all services with Docker
-- Deploys Asterisk config automatically
-- Prints your credentials and SIP server address
+The setup script asks:
+- Your admin email and password
+- Whether you're on **Linux/VPS** or **Mac/Windows**
+
+**Linux/VPS:** Full setup — Asterisk runs in Docker. Create extensions, make calls, everything works.
+
+**Mac/Windows:** Uses Astradial Cloud for SIP. Email [cats@astradial.com](mailto:cats@astradial.com) for free SIP credentials (1 phone number, 1 extension, 30 days). Everything else runs locally — CRM, dashboard, API, workflows.
 
 Then:
-1. Open **http://localhost:3001** → sign in with your credentials
-2. Go to **Users** → click on extension 1001 → get SIP credentials
-3. Open **Zoiper** on your phone → enter the SIP credentials
-4. Create a second user (1002) → register on another device
-5. Call 1001 from 1002 — audio works!
-
-> **Linux users:** SIP audio works out of the box with Docker. No native Asterisk needed.
+1. Open **http://localhost:3001** → Admin tab → login
+2. Create an organisation → enter it
+3. Explore: Users, CRM, Calls, Phone Numbers, Queues
 
 ## 3 ways to connect calls
 
