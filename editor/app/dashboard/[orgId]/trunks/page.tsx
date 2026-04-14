@@ -31,7 +31,7 @@ export default function TrunksPage() {
   const [editingTrunk, setEditingTrunk] = useState<PbxTrunk | null>(null);
   const isAdmin = typeof window !== "undefined" && !!localStorage.getItem("gateway_admin_key");
   const [form, setForm] = useState({ name: "", host: "", port: "5060", username: "", password: "", transport: "udp", trunk_type: "outbound", max_channels: "10" });
-  const [editForm, setEditForm] = useState({ name: "", host: "", port: "5060", transport: "udp", trunk_type: "outbound", max_channels: "10", status: "active" });
+  const [editForm, setEditForm] = useState({ name: "", host: "", port: "5060", username: "", password: "", transport: "udp", trunk_type: "outbound", max_channels: "10", status: "active" });
 
   useEffect(() => { loadTrunks(); }, []);
 
@@ -53,14 +53,16 @@ export default function TrunksPage() {
 
   function openEdit(t: PbxTrunk) {
     setEditingTrunk(t);
-    setEditForm({ name: t.name, host: t.host, port: String(t.port), transport: t.transport, trunk_type: t.trunk_type, max_channels: String(t.max_channels), status: t.status });
+    setEditForm({ name: t.name, host: t.host, port: String(t.port), username: (t as Record<string, unknown>).username as string || "", password: "", transport: t.transport, trunk_type: t.trunk_type, max_channels: String(t.max_channels), status: t.status });
     setEditOpen(true);
   }
 
   async function handleEdit() {
     if (!editingTrunk) return;
     try {
-      await trunks.update(editingTrunk.id, { name: editForm.name, host: editForm.host, port: parseInt(editForm.port), transport: editForm.transport as PbxTrunk["transport"], trunk_type: editForm.trunk_type as PbxTrunk["trunk_type"], max_channels: parseInt(editForm.max_channels), status: editForm.status as PbxTrunk["status"] });
+      const updateData: Record<string, unknown> = { name: editForm.name, host: editForm.host, port: parseInt(editForm.port), username: editForm.username, transport: editForm.transport, trunk_type: editForm.trunk_type, max_channels: parseInt(editForm.max_channels), status: editForm.status };
+      if (editForm.password) updateData.password = editForm.password;
+      await trunks.update(editingTrunk.id, updateData as Partial<PbxTrunk>);
       showToast("Trunk updated", "success");
       setEditOpen(false);
       await loadTrunks();
@@ -113,9 +115,10 @@ export default function TrunksPage() {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label>Username</Label><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="Optional" /></div>
-                <div className="space-y-1.5"><Label>Max Channels</Label><Input type="number" value={form.max_channels} onChange={(e) => setForm({ ...form, max_channels: e.target.value })} /></div>
+                <div className="space-y-1.5"><Label>Username</Label><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="SIP username" /></div>
+                <div className="space-y-1.5"><Label>Password</Label><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="SIP password" /></div>
               </div>
+              <div className="space-y-1.5"><Label>Max Channels</Label><Input type="number" value={form.max_channels} onChange={(e) => setForm({ ...form, max_channels: e.target.value })} /></div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -229,10 +232,13 @@ export default function TrunksPage() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Username</Label><Input value={editForm.username} onChange={(e) => setEditForm({ ...editForm, username: e.target.value })} placeholder="SIP username" /></div>
+              <div className="space-y-1.5"><Label>Password</Label><Input type="password" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} placeholder="Leave blank to keep current" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Max Channels (concurrent calls)</Label>
+                <Label>Max Channels</Label>
                 <Input type="number" value={editForm.max_channels} onChange={(e) => setEditForm({ ...editForm, max_channels: e.target.value })} />
-                <p className="text-[10px] text-muted-foreground">Limits simultaneous calls on this trunk</p>
               </div>
               <div className="space-y-1.5"><Label>Status</Label>
                 <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
