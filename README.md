@@ -23,13 +23,24 @@ Astradial is an open-source phone system for businesses. It handles call routing
 ```bash
 git clone https://github.com/astradial/astradial
 cd astradial
-cp .env.example .env
-docker compose up
+./setup.sh
 ```
 
-Open [http://localhost:3001](http://localhost:3001). Login with `admin` / `admin`.
+The setup script:
+- Asks for your admin email and password
+- Installs Asterisk natively on macOS (via Homebrew) for SIP audio
+- Starts all services with Docker
+- Deploys Asterisk config automatically
+- Prints your credentials and SIP server address
 
-Two test extensions (1001, 1002) are pre-configured. Register a softphone (Zoiper, Opal) to make calls between them.
+Then:
+1. Open **http://localhost:3001** → sign in with your credentials
+2. Go to **Users** → click on extension 1001 → get SIP credentials
+3. Open **Zoiper** on your phone → enter the SIP credentials
+4. Create a second user (1002) → register on another device
+5. Call 1001 from 1002 — audio works!
+
+> **Linux users:** SIP audio works out of the box with Docker. No native Asterisk needed.
 
 ## 3 ways to connect calls
 

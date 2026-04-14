@@ -30,6 +30,8 @@ services:
   asterisk:
     build: ./asterisk
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "5060:5060/udp"
       - "5060:5060/tcp"
@@ -38,6 +40,7 @@ services:
       - asterisk_config:/etc/asterisk
       - asterisk_recordings:/var/spool/asterisk/monitor
     environment:
+      - SIP_HOST=${SIP_HOST:-}
       - ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
       - ASTRADIAL_TRUNK_HOST=${ASTRADIAL_TRUNK_HOST:-}
       - ASTRADIAL_TRUNK_USER=${ASTRADIAL_TRUNK_USER:-}

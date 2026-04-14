@@ -4,6 +4,35 @@ set -e
 echo "=== Astradial Asterisk Starting ==="
 echo "Mode: ${ASTRADIAL_MODE:-selfhosted}"
 
+# Detect host IP for NAT (Docker container → host network)
+# SIP_HOST env var is preferred; fallback to Docker host gateway
+HOST_IP=${SIP_HOST:-$(getent ahostsv4 host.docker.internal 2>/dev/null | head -1 | awk '{print $1}' || ip route | grep default | awk '{print $3}')}
+echo "Host IP for NAT: ${HOST_IP}"
+
+# Configure PJSIP transport with NAT settings
+cat > /etc/asterisk/pjsip.conf <<PJSIP
+[global]
+type=global
+max_forwards=70
+user_agent=Astradial PBX
+
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0:5060
+external_media_address=${HOST_IP}
+external_signaling_address=${HOST_IP}
+local_net=172.16.0.0/12
+
+[transport-tcp]
+type=transport
+protocol=tcp
+bind=0.0.0.0:5060
+external_media_address=${HOST_IP}
+external_signaling_address=${HOST_IP}
+local_net=172.16.0.0/12
+PJSIP
+
 # Developer mode: auto-configure trunk to Astradial Cloud
 if [ "$ASTRADIAL_MODE" = "developer" ] && [ -n "$ASTRADIAL_TRUNK_HOST" ]; then
   echo "Developer mode: configuring trunk to ${ASTRADIAL_TRUNK_HOST}..."
