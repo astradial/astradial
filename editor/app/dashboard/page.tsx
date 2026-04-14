@@ -452,9 +452,8 @@ export default function DashboardPage() {
           </div>
 
           <Tabs defaultValue="org" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="hidden">
               <TabsTrigger value="org">Organisation</TabsTrigger>
-              <TabsTrigger value="admin">Admin</TabsTrigger>
             </TabsList>
 
             {/* Organisation Login */}
@@ -496,36 +495,7 @@ export default function DashboardPage() {
               </p>
             </TabsContent>
 
-            {/* Admin Login */}
-            <TabsContent value="admin" className="space-y-4 pt-2">
-              <div className="space-y-2">
-                <Label htmlFor="admin-email">Email</Label>
-                <Input
-                  id="admin-email"
-                  type="email"
-                  placeholder="admin@astradial.com"
-                  value={adminEmail}
-                  onChange={(e) => setAdminEmail(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAdminLogin()}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="admin-password">Password</Label>
-                <Input
-                  id="admin-password"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="Enter password"
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAdminLogin()}
-                />
-              </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              <Button className="w-full" onClick={handleAdminLogin} disabled={loading}>
-                {loading ? "Signing in..." : "Sign In as Admin"}
-              </Button>
-            </TabsContent>
+            {/* Admin login removed — use staging admin panel instead */}
           </Tabs>
 
           <p className="px-8 text-center text-xs text-muted-foreground">
