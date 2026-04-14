@@ -1529,21 +1529,15 @@ app.post('/api/v1/dids', authenticateOrg, async (req, res) => {
       });
     }
 
-    // Verify trunk belongs to organization
-    const trunk = await SipTrunk.findOne({
-      where: {
-        id: trunk_id,
-        org_id: req.orgId
-      }
-    });
-
-    if (!trunk) {
-      return res.status(400).json({ error: 'Invalid trunk' });
+    // Verify trunk if provided
+    if (trunk_id) {
+      const trunk = await SipTrunk.findOne({ where: { id: trunk_id, org_id: req.orgId } });
+      if (!trunk) return res.status(400).json({ error: 'Invalid trunk' });
     }
 
     const did = await DidNumber.create({
       org_id: req.orgId,
-      trunk_id,
+      trunk_id: trunk_id || null,
       number,
       description,
       routing_type,
