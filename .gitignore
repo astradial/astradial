@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+.env.*
+!.env.example
+
+# Next.js
+.next/
+out/
+
+# Build
+dist/
+build/
+
+# Secrets
+firebase-sa-key.json
+*.pem
+*.key
+*.p12
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Asterisk
+asterisk/recordings/
+asterisk/voicemail/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Docker volumes
+data/

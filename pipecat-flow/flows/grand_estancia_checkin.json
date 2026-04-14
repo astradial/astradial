@@ -1,0 +1,103 @@
+{
+  "$schema": "https://flows.pipecat.ai/schema/flow.json",
+  "meta": {
+    "name": "grand_estancia_checkin",
+    "version": "0.1.0",
+    "description": "Check-in greeting bot for Grand Estancia"
+  },
+  "nodes": [
+    {
+      "id": "welcome",
+      "type": "initial",
+      "position": { "x": 400, "y": 0 },
+      "data": {
+        "label": "Check-in Welcome",
+        "role_messages": [
+          {
+            "role": "system",
+            "content": "You are an AI concierge at Grand Estancia, a premium hotel. You speak with warmth and professionalism. Keep responses natural for voice conversation. Avoid special characters and emojis. You have just been connected to a guest who is checking in. You know the guest's name from the check-in system. Be brief, welcoming, and informative."
+          }
+        ],
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "Greet the guest warmly by name. Welcome them to Grand Estancia. Introduce yourself as their AI assistant available for super human support. Let them know they can call back anytime for help with: service requests, restaurant reservations, swimming pool information, bar recommendations, housekeeping, or any other needs during their stay. Ask if they need anything right now before ending the call."
+          }
+        ],
+        "functions": [
+          {
+            "name": "guest_has_request",
+            "description": "Guest wants help with something right now",
+            "properties": {
+              "request_type": {
+                "type": "string",
+                "description": "What the guest is asking about"
+              }
+            },
+            "required": ["request_type"],
+            "next_node_id": "handle_request"
+          },
+          {
+            "name": "guest_all_set",
+            "description": "Guest has no immediate needs and is ready to end the call",
+            "properties": {},
+            "required": [],
+            "next_node_id": "farewell"
+          }
+        ],
+        "respond_immediately": true
+      }
+    },
+    {
+      "id": "handle_request",
+      "type": "node",
+      "position": { "x": 200, "y": 300 },
+      "data": {
+        "label": "Handle Request",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "The guest has a request. Help them with information about Grand Estancia services: Restaurant hours are breakfast 7-10am, lunch 12-3pm, dinner 7-11pm. Swimming pool is open 6am-9pm. Bar is open 5pm-midnight. Room service is available 24 hours. Spa is open 9am-8pm. For anything you cannot resolve, offer to connect them with the front desk. After helping, ask if there is anything else."
+          }
+        ],
+        "functions": [
+          {
+            "name": "another_request",
+            "description": "Guest has another question or request",
+            "properties": {
+              "request_type": {
+                "type": "string",
+                "description": "The new request"
+              }
+            },
+            "required": ["request_type"],
+            "next_node_id": "handle_request"
+          },
+          {
+            "name": "guest_done",
+            "description": "Guest is satisfied and has no more requests",
+            "properties": {},
+            "required": [],
+            "next_node_id": "farewell"
+          }
+        ]
+      }
+    },
+    {
+      "id": "farewell",
+      "type": "end",
+      "position": { "x": 400, "y": 600 },
+      "data": {
+        "label": "Farewell",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "Wish the guest a wonderful stay at Grand Estancia. Remind them they can call back anytime for assistance. End warmly and professionally."
+          }
+        ],
+        "post_actions": [{ "type": "end_conversation" }]
+      }
+    }
+  ],
+  "edges": []
+}

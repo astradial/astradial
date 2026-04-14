@@ -1,0 +1,19 @@
+name: Deploy to production
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: [self-hosted, production]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync to /opt/astrapbx
+        run: rsync -a --delete --exclude=node_modules --exclude=.git --exclude=.github --exclude=.env --exclude='*.log' --exclude=google-credentials.json --exclude=firebase-sa-key.json . /opt/astrapbx/
+      - name: Install deps
+        working-directory: /opt/astrapbx
+        run: npm ci --omit=dev
+      - name: Reload PM2
+        run: pm2 reload astrapbx --update-env
+      - name: Health check
+        run: sleep 3 && curl -fsS http://127.0.0.1:8000/health | head -c 50

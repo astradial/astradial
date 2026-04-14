@@ -1,0 +1,30 @@
+.next/
+node_modules/
+.DS_Store
+*.log
+out/
+dist/
+coverage/
+test-results/
+playwright-report/
+playwright/.cache/
+
+# IDE
+.idea/
+.vscode/
+
+# Secrets
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Claude
+.claude/
+
+
+# Additional staging hardening
+credentials.txt
+*.credentials
+service-account*.json
+google-credentials.json

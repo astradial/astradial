@@ -1,0 +1,19 @@
+{
+  "name": "astradial-workflow-engine",
+  "version": "1.0.0",
+  "description": "Astradial workflow automation engine",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "bullmq": "^5.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "ioredis": "^5.4.0",
+    "mariadb": "^3.3.0",
+    "uuid": "^9.0.0"
+  }
+}
