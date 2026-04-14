@@ -1,32 +1,37 @@
 import { create } from "zustand";
 
 /**
- * Called by API clients when they receive a 401 from the PBX or workflow engine.
- * Clears all local auth state and redirects to the dashboard root which shows
- * the login form when there's no token.
- *
- * Guarded against re-entry / redirect loops via a module-level flag and a
- * pathname check (don't redirect if we're already on the login page).
+ * Clear all authentication state from localStorage.
+ */
+function clearAllAuth() {
+  if (typeof window === "undefined") return;
+  const keys = [
+    "auth_type", "admin_key", "org_token", "org_id", "org_name",
+    "gateway_admin_key", "pbx_api_key", "pbx_org_token",
+    "org_access", "user_role", "user_permissions", "admin_jwt",
+  ];
+  keys.forEach(k => localStorage.removeItem(k));
+}
+
+/**
+ * Called by API clients when they receive a 401.
+ * Admin sessions (gateway_admin_key) are never auto-logged out.
+ * Clears ALL state including org_access to prevent stale token loops.
  */
 let _unauthorizedHandling = false;
 export function handleUnauthorized(reason: string = "401") {
   if (typeof window === "undefined") return;
   if (_unauthorizedHandling) return;
 
-  // Don't logout if admin key exists — admin sessions should persist
+  // Admin sessions persist through 401 errors
   const hasAdminKey = !!localStorage.getItem("gateway_admin_key");
   if (hasAdminKey) {
-    console.warn("[auth] 401 but admin key exists, ignoring:", reason);
+    console.warn("[auth] 401 ignored (admin session):", reason);
     return;
   }
 
   _unauthorizedHandling = true;
-
-  try {
-    useAuthStore.getState().logout();
-  } catch (e) {
-    console.warn("[auth] handleUnauthorized cleanup failed:", e);
-  }
+  clearAllAuth();
 
   const path = window.location.pathname;
   const onLoginPage = path === "/dashboard" || path === "/dashboard/" || path === "/";
@@ -77,20 +82,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("auth_type");
-      localStorage.removeItem("admin_key");
-      localStorage.removeItem("org_token");
-      localStorage.removeItem("org_id");
-      localStorage.removeItem("org_name");
-      localStorage.removeItem("gateway_admin_key");
-      localStorage.removeItem("pbx_api_key");
-      localStorage.removeItem("pbx_org_token");
-      // org_access is the JSON blob the /dashboard page reads on mount;
-      // if not cleared, the page sees a stale session and redirects back to
-      // the protected route, creating a redirect loop instead of showing login.
-      localStorage.removeItem("org_access");
-    }
+    clearAllAuth();
+    _unauthorizedHandling = false;
     set({ authType: null, adminKey: null, orgToken: null, orgId: null, orgName: null });
   },
 
@@ -103,10 +96,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (typeof window === "undefined") return;
     const authType = localStorage.getItem("auth_type") as "admin" | "org" | null;
     if (authType === "admin") {
-      set({
-        authType: "admin",
-        adminKey: localStorage.getItem("admin_key"),
-      });
+      set({ authType: "admin", adminKey: localStorage.getItem("admin_key") });
     } else if (authType === "org") {
       set({
         authType: "org",

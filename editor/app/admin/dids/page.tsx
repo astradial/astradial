@@ -70,13 +70,14 @@ export default function AdminDidsPage() {
 
     setBulkSaving(true);
     try {
-      const res = await didAdmin.bulkAdd({
-        numbers,
-        provider: bulkForm.provider || undefined,
-        region: bulkForm.region || undefined,
-        monthly_price: bulkForm.monthly_price ? parseFloat(bulkForm.monthly_price) : undefined,
+      const fetchRes = await fetch("/api/admin/dids/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numbers, provider: bulkForm.provider, region: bulkForm.region, monthly_price: bulkForm.monthly_price ? parseFloat(bulkForm.monthly_price) : undefined }),
       });
-      showToast(`Added ${res.created} DIDs${res.skipped > 0 ? `, ${res.skipped} already existed` : ""}`, "success");
+      const data = await fetchRes.json();
+      if (!fetchRes.ok) throw new Error(data.error || "Failed");
+      showToast(`Added ${data.created} DIDs${data.skipped > 0 ? `, ${data.skipped} already existed` : ""}`, "success");
       setBulkOpen(false);
       loadAll();
     } catch (e: unknown) { showToast((e as Error).message, "error"); }
