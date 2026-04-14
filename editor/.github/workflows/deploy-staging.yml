@@ -1,0 +1,35 @@
+name: Deploy to staging
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, staging]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync to /opt/pipecat-flow-editor
+        run: |
+          rsync -a --delete \
+            --exclude=node_modules \
+            --exclude=.next \
+            --exclude=.git \
+            --exclude=.github \
+            --exclude=.env \
+            --exclude=.env.local \
+            --exclude='*.log' \
+            --exclude=logs \
+            . /opt/pipecat-flow-editor/
+      - name: Install deps
+        working-directory: /opt/pipecat-flow-editor
+        run: npm ci
+      - name: Build
+        working-directory: /opt/pipecat-flow-editor
+        run: npm run build
+      - name: Reload PM2
+        run: PORT=3001 pm2 reload editor --update-env
+      - name: Health check
+        run: |
+          sleep 3
+          curl -fsS -o /dev/null -w "editor: %{http_code}\n" http://127.0.0.1:3001/

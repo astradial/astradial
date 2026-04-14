@@ -1,0 +1,125 @@
+services:
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-astradial}
+      MARIADB_DATABASE: ${DB_NAME:-astradial}
+      MARIADB_USER: ${DB_USER:-astradial}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-changeme}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - astradial
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - astradial
+
+  asterisk:
+    build: ./asterisk
+    restart: unless-stopped
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "10000-10100:10000-10100/udp"
+    volumes:
+      - asterisk_config:/etc/asterisk
+      - asterisk_recordings:/var/spool/asterisk/monitor
+    environment:
+      - ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
+      - ASTRADIAL_TRUNK_HOST=${ASTRADIAL_TRUNK_HOST:-}
+      - ASTRADIAL_TRUNK_USER=${ASTRADIAL_TRUNK_USER:-}
+      - ASTRADIAL_TRUNK_PASS=${ASTRADIAL_TRUNK_PASS:-}
+      - ASTERISK_AMI_SECRET=${ASTERISK_AMI_SECRET:-astradial}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    networks:
+      - astradial
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=mariadb
+      - DB_PORT=3306
+      - DB_NAME=${DB_NAME:-astradial}
+      - DB_USER=${DB_USER:-astradial}
+      - DB_PASSWORD=${DB_PASSWORD:-changeme}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - ASTERISK_HOST=asterisk
+      - ASTERISK_AMI_PORT=5038
+      - ASTERISK_AMI_USER=astradial
+      - ASTERISK_AMI_SECRET=${ASTERISK_AMI_SECRET:-astradial}
+      - ASTERISK_PJSIP_CONFIG_PATH=/etc/asterisk
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
+      - ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      asterisk:
+        condition: service_started
+    volumes:
+      - asterisk_config:/etc/asterisk
+      - asterisk_recordings:/var/spool/asterisk/monitor
+    networks:
+      - astradial
+
+  editor:
+    build: ./editor
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NEXT_PUBLIC_PBX_URL=http://api:8000
+      - NEXT_PUBLIC_WORKFLOW_URL=http://workflow-engine:3002
+      - NEXT_PUBLIC_ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
+    depends_on:
+      - api
+    networks:
+      - astradial
+
+  workflow-engine:
+    build: ./workflow-engine
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - API_URL=http://api:8000
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
+      - PORT=3002
+    depends_on:
+      - api
+      - redis
+    networks:
+      - astradial
+
+volumes:
+  mariadb_data:
+  asterisk_config:
+  asterisk_recordings:
+
+networks:
+  astradial:
+    driver: bridge
