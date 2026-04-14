@@ -42,6 +42,17 @@ export default function OrgLayout({ children }: { children: React.ReactNode }) {
         if (tokenRes.ok) {
           const { token } = await tokenRes.json();
           setOrgToken(token);
+          // Persist admin impersonation so child pages don't lose auth
+          if (typeof window !== "undefined") {
+            localStorage.setItem("org_access", JSON.stringify({
+              org_id: orgId,
+              org_name: org.name,
+              api_key: token,
+              role: "owner",
+              email: "admin",
+            }));
+            localStorage.setItem("pbx_org_token", token);
+          }
         }
       } catch {
         setOrgName(orgId);
