@@ -1,0 +1,101 @@
+{
+  "$schema": "https://flows.pipecat.ai/schema/flow.json",
+  "meta": {
+    "name": "grand_estancia_ivr",
+    "version": "0.1.0",
+    "description": "IVR department router for Grand Estancia"
+  },
+  "idle_config": {
+    "timeout_secs": 8,
+    "max_retries": 2,
+    "prompt_message": "Are you still there? How may I help you today?",
+    "goodbye_message": "I haven't heard from you. Thank you for calling Grand Estancia. Goodbye."
+  },
+  "value_maps": {
+    "department_queues": {
+      "restaurant": "5003",
+      "housekeeping": "5002",
+      "reception": "5001",
+      "spa": "5004",
+      "maintenance": "5005",
+      "billing": "5006"
+    }
+  },
+  "nodes": [
+    {
+      "id": "welcome",
+      "type": "initial",
+      "position": { "x": 400, "y": 0 },
+      "data": {
+        "label": "Welcome",
+        "role_messages": [
+          {
+            "role": "system",
+            "content": "You are the Grand Estancia hotel receptionist. You are warm, professional, and speak naturally for a phone conversation. Your job is to understand what the caller needs and route them to the right department. Available departments: restaurant (dining reservations, room service), housekeeping (room cleaning, towels, amenities), reception (check-in, check-out, general inquiries), spa (spa appointments, wellness), maintenance (room repairs, AC, plumbing), billing (invoices, charges, payments). Listen carefully and ask a brief clarifying question only if truly ambiguous. Do not use special characters or emojis."
+          }
+        ],
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "Greet the caller warmly. Say: Welcome to Grand Estancia. How may I help you today? Then listen to understand which department they need."
+          }
+        ],
+        "functions": [
+          {
+            "name": "select_department",
+            "description": "Route the caller to the appropriate hotel department based on their request",
+            "properties": {
+              "department": {
+                "type": "string",
+                "enum": ["restaurant", "housekeeping", "reception", "spa", "maintenance", "billing"],
+                "description": "The department that best matches the caller's request"
+              }
+            },
+            "required": ["department"],
+            "state_mappings": {
+              "selected_dept": "{args.department}",
+              "queue_number": "{value_map.department_queues.{args.department}}"
+            },
+            "next_node_id": "confirm_transfer"
+          }
+        ]
+      }
+    },
+    {
+      "id": "confirm_transfer",
+      "type": "end",
+      "position": { "x": 400, "y": 300 },
+      "data": {
+        "label": "Transfer Call",
+        "task_messages": [
+          {
+            "role": "system",
+            "content": "Tell the caller you are now connecting them to the department they requested. Be brief and polite. Say something like: I will connect you to our [department] right away. Please hold."
+          }
+        ],
+        "post_actions": [
+          {
+            "type": "webhook",
+            "url": "http://localhost:8000/api/v1/calls/{call.channel_id}/transfer",
+            "auth": "internal",
+            "body": {
+              "destination": "{state.queue_number}",
+              "destination_type": "queue"
+            }
+          },
+          {
+            "type": "end_conversation"
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_welcome_transfer",
+      "source": "welcome",
+      "target": "confirm_transfer",
+      "label": "select_department"
+    }
+  ]
+}

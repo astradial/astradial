@@ -55,6 +55,7 @@ SIP_HOST=${SIP_HOST}
 SIP_PORT=${SIP_PORT}
 NEXT_PUBLIC_PBX_URL=http://api:3000
 NEXT_PUBLIC_WORKFLOW_URL=http://workflow-engine:3002
+NEXT_PUBLIC_GATEWAY_URL=http://pipecat-flow:7860
 EOF
 
   echo ""
@@ -76,8 +77,8 @@ EOF
   docker compose up -d asterisk 2>&1 >/dev/null; sleep 3
   echo "  ✓ Asterisk started"
 
-  echo "[4/5] Starting API and Dashboard..."
-  docker compose up -d api editor workflow-engine 2>&1 >/dev/null
+  echo "[4/5] Starting API, Dashboard, and AI Gateway..."
+  docker compose up -d api editor workflow-engine pipecat-flow 2>&1 >/dev/null
   for i in $(seq 1 30); do
     curl -s http://localhost:8000/health >/dev/null 2>&1 && break
     printf "\r  ⏳ Starting... (%s/30)" "$i"; sleep 2

@@ -409,7 +409,7 @@ export default function BotsPage() {
         <div className="rounded-lg border bg-muted/30 p-4">
           <p className="text-sm text-muted-foreground mb-2">Connect AstraPBX using:</p>
           <code className="text-xs break-all">
-            wss://gateway.astradial.com/ws/{orgId}/&#123;bot_id&#125;?key=&#123;api_key&#125;
+            wss://{typeof window !== "undefined" ? window.location.host : "localhost:7860"}/ws/{orgId}/&#123;bot_id&#125;?key=&#123;api_key&#125;
           </code>
         </div>
       </section>

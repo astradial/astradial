@@ -357,7 +357,7 @@ export default function WorkflowsPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => router.push(`/dashboard/${orgId}/workflows/${wf.id}`)}>Edit</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(`https://gateway.astradial.com/trigger/${wf.id}`); showToast("Trigger URL copied", "success"); }}>Copy Trigger URL</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/workflow/trigger/${wf.id}`); showToast("Trigger URL copied", "success"); }}>Copy Trigger URL</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(wf.id); showToast("ID copied", "success"); }}>Copy ID</DropdownMenuItem>
                               <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(wf.id)}>Delete</DropdownMenuItem>
                             </DropdownMenuContent>
@@ -375,7 +375,7 @@ export default function WorkflowsPage() {
           {workflowList.length > 0 && (
             <div className="rounded-lg border bg-muted/30 p-4">
               <p className="text-sm text-muted-foreground mb-2">Trigger workflows via HTTP:</p>
-              <code className="text-xs break-all">POST https://gateway.astradial.com/trigger/&#123;workflow_id&#125;</code>
+              <code className="text-xs break-all">POST {typeof window !== "undefined" ? window.location.origin : ""}/api/workflow/trigger/&#123;workflow_id&#125;</code>
             </div>
           )}
         </TabsContent>

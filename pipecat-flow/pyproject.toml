@@ -1,0 +1,95 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pipecat-ai-flows"
+dynamic = ["version"]
+description = "Conversation Flow management for Pipecat AI applications"
+license = { text = "BSD 2-Clause License" }
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["pipecat", "conversation", "flows", "state machine", "ai", "llm"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Communications :: Conferencing",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = [
+    "pipecat-ai>=0.0.105",
+    "loguru~=0.7.2",
+    "docstring_parser~=0.16",
+    "aiomysql>=0.2.0",
+    "python-dotenv>=1.2.2",
+    "gunicorn>=23.0.0",
+    "aiohttp>=3.11.0",
+]
+
+[project.urls]
+Source = "https://github.com/pipecat-ai/pipecat-flows"
+Website = "https://www.pipecat.ai"
+
+[dependency-groups]
+dev = [
+    "build~=1.2.2",
+    "pip-tools~=7.4.1",
+    "pre-commit~=4.2.0",
+    "pyright~=1.1.402",
+    "pytest~=8.4.1",
+    "pytest-asyncio~=1.0.0",
+    "pytest-aiohttp==1.1.0",
+    "pytest-cov~=4.1.0",
+    "ruff~=0.12.1",
+    "setuptools~=78.1.1",
+    "setuptools_scm~=8.3.1",
+    "python-dotenv>=1.0.1,<2.0.0",
+    "pipecat-ai[webrtc,websocket,daily,silero,deepgram,cartesia,openai,anthropic,google,aws,runner]>=0.0.105",
+]
+
+docs = [
+    "sphinx>=8.1.3",
+    "sphinx-rtd-theme",
+    "sphinx-markdown-builder",
+    "sphinx-autodoc-typehints",
+    "toml",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+exclude = [".git"]
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "D", # Docstring rules
+    "I", # Import rules
+]
+ignore = [
+    "D105",  # Missing docstring in magic methods (__str__, __repr__, etc.)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Skip docstring checks for non-source code
+"examples/**/*.py" = ["D"]
+"tests/**/*.py" = ["D"]
+"docs/**/*.py" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.uv]
+override-dependencies = [
+    "llvmlite==0.43.0",
+    "numba==0.60.0",
+]
+
+[tool.setuptools_scm]
+local_scheme = "no-local-version"
+fallback_version = "0.0.0-dev"

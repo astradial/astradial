@@ -1,0 +1,413 @@
+{
+  "$schema": "https://flows.pipecat.ai/schema/flow.json",
+  "meta": {
+    "name": "grand_estancia_helpdesk",
+    "version": "0.1.0",
+    "description": "Helpdesk bot for Grand Estancia - incoming calls"
+  },
+  "nodes": [
+    {
+      "id": "welcome",
+      "type": "initial",
+      "position": { "x": 400, "y": 0 },
+      "data": {
+        "label": "Helpdesk Welcome",
+        "role_messages": [
+          {
+            "role": "system",
+            "content": "You are the AI helpdesk assistant at Grand Estancia, a premium hotel. You handle incoming calls from guests and potential guests. You speak with warmth and professionalism. Keep responses natural for voice conversation. Avoid special characters and emojis. Be efficient but caring."
+          }
+        ],
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "Welcome the caller to Grand Estancia. Introduce yourself as the AI helpdesk assistant. Ask what service they are looking for: new room bookings, raising a complaint or issue, reaching the reception, restaurant reservations, or any other assistance."
+          }
+        ],
+        "functions": [
+          {
+            "name": "route_to_booking",
+            "description": "Caller wants to make a new room booking or enquire about availability",
+            "properties": {
+              "caller_name": {
+                "type": "string",
+                "description": "Caller's name if provided"
+              }
+            },
+            "required": [],
+            "next_node_id": "booking"
+          },
+          {
+            "name": "route_to_complaint",
+            "description": "Caller wants to raise a complaint, report an issue, or request maintenance",
+            "properties": {
+              "issue_summary": {
+                "type": "string",
+                "description": "Brief summary of the issue"
+              }
+            },
+            "required": ["issue_summary"],
+            "next_node_id": "complaint"
+          },
+          {
+            "name": "route_to_reception",
+            "description": "Caller wants to speak to or be connected to the reception or front desk",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "description": "Reason for wanting reception"
+              }
+            },
+            "required": [],
+            "next_node_id": "reception"
+          },
+          {
+            "name": "route_to_restaurant",
+            "description": "Caller wants to make a restaurant reservation or ask about dining",
+            "properties": {
+              "party_size": {
+                "type": "integer",
+                "description": "Number of guests if mentioned"
+              }
+            },
+            "required": [],
+            "next_node_id": "restaurant"
+          },
+          {
+            "name": "route_to_general",
+            "description": "Caller has a general enquiry about the hotel, services, or amenities",
+            "properties": {
+              "topic": {
+                "type": "string",
+                "description": "What the caller is asking about"
+              }
+            },
+            "required": ["topic"],
+            "next_node_id": "general_enquiry"
+          }
+        ],
+        "respond_immediately": true
+      }
+    },
+    {
+      "id": "booking",
+      "type": "node",
+      "position": { "x": 0, "y": 300 },
+      "data": {
+        "label": "New Booking",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "The caller wants to make a booking or check availability. Collect the following details one at a time: 1) Their full name, 2) Check-in and check-out dates, 3) Number of guests, 4) Room preference (standard, deluxe, suite), 5) Any special requirements. Grand Estancia has: Standard rooms from $150/night, Deluxe rooms from $250/night, Suites from $400/night. All rooms include complimentary breakfast and WiFi. Once you have all details, confirm the booking summary."
+          }
+        ],
+        "functions": [
+          {
+            "name": "confirm_booking",
+            "description": "All booking details collected, confirm the reservation",
+            "properties": {
+              "guest_name": { "type": "string", "description": "Full name" },
+              "checkin_date": { "type": "string", "description": "Check-in date" },
+              "checkout_date": { "type": "string", "description": "Check-out date" },
+              "num_guests": { "type": "integer", "description": "Number of guests" },
+              "room_type": { "type": "string", "description": "Room type chosen" },
+              "special_requests": { "type": "string", "description": "Special requirements" }
+            },
+            "required": ["guest_name", "checkin_date", "checkout_date", "num_guests", "room_type"],
+            "next_node_id": "booking_confirmed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "booking_confirmed",
+      "type": "node",
+      "position": { "x": 0, "y": 600 },
+      "data": {
+        "label": "Booking Confirmed",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "The booking has been noted. Confirm the reservation details back to the caller with a reference number like GE-2026-XXXX. Let them know a confirmation email will be sent. Mention they can call back to modify or cancel. Ask if they need anything else."
+          }
+        ],
+        "functions": [
+          {
+            "name": "needs_more_help",
+            "description": "Caller wants additional help",
+            "properties": {},
+            "required": [],
+            "next_node_id": "welcome"
+          },
+          {
+            "name": "end_call",
+            "description": "Caller is done",
+            "properties": {},
+            "required": [],
+            "next_node_id": "farewell"
+          }
+        ]
+      }
+    },
+    {
+      "id": "complaint",
+      "type": "node",
+      "position": { "x": 250, "y": 300 },
+      "data": {
+        "label": "Raise Complaint",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "The caller wants to raise a complaint or report an issue. Listen with empathy and collect: 1) Detailed description of the issue, 2) Their room number if they are a current guest, 3) Their name, 4) How urgent this is - immediate, within a few hours, or not urgent. Apologize sincerely for any inconvenience. Assure them it will be handled promptly."
+          }
+        ],
+        "functions": [
+          {
+            "name": "submit_complaint",
+            "description": "Submit the complaint with all details",
+            "properties": {
+              "guest_name": { "type": "string", "description": "Guest name" },
+              "room_number": { "type": "string", "description": "Room number" },
+              "issue_description": { "type": "string", "description": "Full description of the issue" },
+              "urgency": { "type": "string", "description": "Urgency level", "enum": ["immediate", "few_hours", "not_urgent"] }
+            },
+            "required": ["guest_name", "issue_description", "urgency"],
+            "next_node_id": "complaint_confirmed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "complaint_confirmed",
+      "type": "node",
+      "position": { "x": 250, "y": 600 },
+      "data": {
+        "label": "Complaint Logged",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "The complaint has been logged. Provide a ticket reference number like GE-C-XXXX. Give estimated response time: immediate issues within 15 minutes, few hours issues within 2 hours, not urgent within 24 hours. Assure them someone will follow up personally. Ask if there is anything else."
+          }
+        ],
+        "functions": [
+          {
+            "name": "needs_more_help",
+            "description": "Caller wants additional help",
+            "properties": {},
+            "required": [],
+            "next_node_id": "welcome"
+          },
+          {
+            "name": "end_call",
+            "description": "Caller is done",
+            "properties": {},
+            "required": [],
+            "next_node_id": "farewell"
+          }
+        ]
+      }
+    },
+    {
+      "id": "reception",
+      "type": "node",
+      "position": { "x": 500, "y": 300 },
+      "data": {
+        "label": "Reception",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "The caller wants to reach the reception. Let them know you will note their request and have the reception call them back shortly. Ask for their name and room number or phone number so reception can reach them. If their query is something you can help with directly, offer to assist first."
+          }
+        ],
+        "functions": [
+          {
+            "name": "transfer_to_reception",
+            "description": "Note the callback request for reception",
+            "properties": {
+              "guest_name": { "type": "string", "description": "Guest name" },
+              "contact": { "type": "string", "description": "Room number or phone number" },
+              "reason": { "type": "string", "description": "What they need from reception" }
+            },
+            "required": ["guest_name", "contact"],
+            "next_node_id": "reception_confirmed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "reception_confirmed",
+      "type": "node",
+      "position": { "x": 500, "y": 600 },
+      "data": {
+        "label": "Reception Notified",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "Confirm that the reception team has been notified and will call them back within 5 minutes. Ask if there is anything else you can help with in the meantime."
+          }
+        ],
+        "functions": [
+          {
+            "name": "needs_more_help",
+            "description": "Caller wants additional help",
+            "properties": {},
+            "required": [],
+            "next_node_id": "welcome"
+          },
+          {
+            "name": "end_call",
+            "description": "Caller is done",
+            "properties": {},
+            "required": [],
+            "next_node_id": "farewell"
+          }
+        ]
+      }
+    },
+    {
+      "id": "restaurant",
+      "type": "node",
+      "position": { "x": 750, "y": 300 },
+      "data": {
+        "label": "Restaurant",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "The caller is asking about dining or wants a restaurant reservation. Grand Estancia has: 'La Terraza' - fine dining, open for dinner 7-11pm, smart casual dress code. 'Garden Cafe' - casual dining, breakfast 7-10am, lunch 12-3pm, dinner 6-10pm. 'Poolside Bar' - light bites and drinks, 11am-8pm. Room service available 24 hours. If they want a reservation, collect: name, date, time, party size, any dietary requirements."
+          }
+        ],
+        "functions": [
+          {
+            "name": "make_reservation",
+            "description": "Make a restaurant reservation",
+            "properties": {
+              "guest_name": { "type": "string", "description": "Guest name" },
+              "restaurant": { "type": "string", "description": "Which restaurant" },
+              "date": { "type": "string", "description": "Reservation date" },
+              "time": { "type": "string", "description": "Reservation time" },
+              "party_size": { "type": "integer", "description": "Number of guests" },
+              "dietary": { "type": "string", "description": "Dietary requirements" }
+            },
+            "required": ["guest_name", "restaurant", "date", "time", "party_size"],
+            "next_node_id": "reservation_confirmed"
+          },
+          {
+            "name": "just_info",
+            "description": "Caller only needed information, no reservation needed",
+            "properties": {},
+            "required": [],
+            "next_node_id": "post_help"
+          }
+        ]
+      }
+    },
+    {
+      "id": "reservation_confirmed",
+      "type": "node",
+      "position": { "x": 750, "y": 600 },
+      "data": {
+        "label": "Reservation Confirmed",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "Confirm the restaurant reservation details back to the caller. Let them know they can modify or cancel by calling back. Ask if there is anything else."
+          }
+        ],
+        "functions": [
+          {
+            "name": "needs_more_help",
+            "description": "Caller wants additional help",
+            "properties": {},
+            "required": [],
+            "next_node_id": "welcome"
+          },
+          {
+            "name": "end_call",
+            "description": "Caller is done",
+            "properties": {},
+            "required": [],
+            "next_node_id": "farewell"
+          }
+        ]
+      }
+    },
+    {
+      "id": "general_enquiry",
+      "type": "node",
+      "position": { "x": 1000, "y": 300 },
+      "data": {
+        "label": "General Enquiry",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "Answer the caller's general enquiry. You know: Swimming pool open 6am-9pm, Spa open 9am-8pm, Gym 24 hours, WiFi is complimentary, Valet parking available, Check-in 3pm check-out 11am, Airport shuttle available on request. If you do not know something, offer to have someone call them back. After answering, ask if they have other questions."
+          }
+        ],
+        "functions": [
+          {
+            "name": "another_question",
+            "description": "Caller has another question",
+            "properties": {
+              "topic": { "type": "string", "description": "New question topic" }
+            },
+            "required": ["topic"],
+            "next_node_id": "general_enquiry"
+          },
+          {
+            "name": "end_call",
+            "description": "Caller is satisfied",
+            "properties": {},
+            "required": [],
+            "next_node_id": "farewell"
+          }
+        ]
+      }
+    },
+    {
+      "id": "post_help",
+      "type": "node",
+      "position": { "x": 600, "y": 800 },
+      "data": {
+        "label": "Post Help",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "Ask if there is anything else you can help with."
+          }
+        ],
+        "functions": [
+          {
+            "name": "needs_more_help",
+            "description": "Caller wants additional help",
+            "properties": {},
+            "required": [],
+            "next_node_id": "welcome"
+          },
+          {
+            "name": "end_call",
+            "description": "Caller is done",
+            "properties": {},
+            "required": [],
+            "next_node_id": "farewell"
+          }
+        ]
+      }
+    },
+    {
+      "id": "farewell",
+      "type": "end",
+      "position": { "x": 400, "y": 1000 },
+      "data": {
+        "label": "Farewell",
+        "task_messages": [
+          {
+            "role": "user",
+            "content": "Thank the caller for calling Grand Estancia. Wish them a wonderful day or evening. If they are a guest, wish them a pleasant stay. End warmly."
+          }
+        ],
+        "post_actions": [{ "type": "end_conversation" }]
+      }
+    }
+  ],
+  "edges": []
+}

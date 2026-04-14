@@ -96,7 +96,7 @@ export default function WorkflowEditorPage() {
   useEffect(() => {
     gwBots.list(orgId).then((b) => setBotList(b.map((bot) => ({
       id: bot.id, name: bot.name,
-      wss_url: `wss://gateway.astradial.com/ws/${orgId}/${bot.id}`,
+      wss_url: `wss://${typeof window !== "undefined" ? window.location.host : "localhost:7860"}/ws/${orgId}/${bot.id}`,
     })))).catch(() => {});
     pbxDids.list().then((d) => setDidList(d.filter((x) => x.status === "active").map((x) => ({
       number: x.number, description: x.description,

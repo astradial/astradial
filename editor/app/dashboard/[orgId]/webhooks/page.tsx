@@ -349,7 +349,7 @@ export default function WebhooksPage() {
             <CardContent className="p-4 space-y-2">
               <p className="text-sm font-medium">Usage</p>
               <p className="text-xs text-muted-foreground">Include the key when triggering workflows:</p>
-              <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST https://gateway.astradial.com/trigger/{workflow_id} \\
+              <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST ${typeof window !== "undefined" ? window.location.origin : "http://localhost:3001"}/api/workflow/trigger/{workflow_id} \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: wfk_your_key_here" \\
   -d '{"name": "John", "phone": "9944421125"}'`}</pre>

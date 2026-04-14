@@ -41,5 +41,11 @@ Thumbs.db
 asterisk/recordings/
 asterisk/voicemail/
 
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
 # Docker volumes
 data/

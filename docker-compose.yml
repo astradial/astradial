@@ -110,12 +110,14 @@ services:
       args:
         PBX_URL: ${NEXT_PUBLIC_PBX_URL:-http://api:3000}
         WORKFLOW_URL: ${NEXT_PUBLIC_WORKFLOW_URL:-http://workflow-engine:3002}
+        GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://pipecat-flow:7860}
         ASTRADIAL_MODE: ${ASTRADIAL_MODE:-selfhosted}
     restart: unless-stopped
     ports:
       - "3001:3001"
     environment:
       - NEXT_PUBLIC_ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
+      - NEXT_PUBLIC_GATEWAY_URL=http://pipecat-flow:7860
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
@@ -137,6 +139,30 @@ services:
     depends_on:
       - api
       - redis
+    networks:
+      - astradial
+
+  pipecat-flow:
+    build: ./pipecat-flow
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+    environment:
+      - GATEWAY_HOST=0.0.0.0
+      - GATEWAY_PORT=7860
+      - GATEWAY_ADMIN_KEY=${INTERNAL_API_KEY:-internal-dev-key}
+      - DB_HOST=mariadb
+      - DB_PORT=3306
+      - DB_USER=${DB_USER:-astradial}
+      - DB_PASSWORD=${DB_PASSWORD:-changeme}
+      - DB_NAME=${DB_NAME:-astradial}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
+      - ASTRAPBX_URL=http://api:3000
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      api:
+        condition: service_started
     networks:
       - astradial
 
