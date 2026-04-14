@@ -12,25 +12,28 @@ let _unauthorizedHandling = false;
 export function handleUnauthorized(reason: string = "401") {
   if (typeof window === "undefined") return;
   if (_unauthorizedHandling) return;
+
+  // Don't logout if admin key exists — admin sessions should persist
+  const hasAdminKey = !!localStorage.getItem("gateway_admin_key");
+  if (hasAdminKey) {
+    console.warn("[auth] 401 but admin key exists, ignoring:", reason);
+    return;
+  }
+
   _unauthorizedHandling = true;
 
   try {
-    // Clear all local auth state (localStorage + Zustand)
     useAuthStore.getState().logout();
   } catch (e) {
     console.warn("[auth] handleUnauthorized cleanup failed:", e);
   }
 
-  // Redirect to dashboard root (which shows the login form when no token).
-  // Skip the redirect if we're already there to avoid a refresh loop.
   const path = window.location.pathname;
   const onLoginPage = path === "/dashboard" || path === "/dashboard/" || path === "/";
   if (!onLoginPage) {
     console.warn("[auth] Session expired (" + reason + "), redirecting to login");
     window.location.href = "/dashboard";
   } else {
-    // Already on login page — just clear the in-flight flag after a tick so a
-    // genuine new login attempt isn't blocked.
     setTimeout(() => { _unauthorizedHandling = false; }, 100);
   }
 }
