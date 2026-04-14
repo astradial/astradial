@@ -174,16 +174,43 @@ class ConfigDeploymentService {
   }
 
   /**
-   * Write configuration file with proper permissions
+   * Write configuration file — local or remote via SSH
    */
   async writeConfigFile(filePath, content) {
+    const sshHost = process.env.ASTERISK_SSH_HOST;
+    const sshUser = process.env.ASTERISK_SSH_USER || 'root';
+    const sshKey = process.env.ASTERISK_SSH_KEY || '';
+
+    // Remote deployment via SSH
+    if (sshHost) {
+      try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        // Write to local temp, then SCP to remote
+        const tempPath = `/tmp/${path.basename(filePath)}`;
+        await fs.writeFile(tempPath, content);
+
+        const sshOpts = sshKey ? `-i ${sshKey}` : '';
+        const scpCmd = `scp -o StrictHostKeyChecking=no ${sshOpts} "${tempPath}" ${sshUser}@${sshHost}:${filePath}`;
+        await execAsync(scpCmd);
+
+        console.log(`✅ Written config file (SSH → ${sshHost}): ${filePath}`);
+        return;
+      } catch (error) {
+        console.error(`❌ SSH write failed for ${filePath}:`, error.message);
+        throw error;
+      }
+    }
+
+    // Local deployment
     try {
       await fs.writeFile(filePath, content, { mode: 0o644 });
       console.log(`✅ Written config file: ${filePath}`);
     } catch (error) {
       if (error.code === 'EACCES') {
         console.warn(`⚠️ Permission denied writing to ${filePath}. Trying with sudo...`);
-        // Write to temp file first, then move with sudo
         const tempPath = `/tmp/${path.basename(filePath)}`;
         await fs.writeFile(tempPath, content);
 
@@ -250,19 +277,32 @@ class ConfigDeploymentService {
    */
   async ensureIncludeInFile(filePath, includeStatement, comment) {
     try {
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+
+      const sshHost = process.env.ASTERISK_SSH_HOST;
+      const sshUser = process.env.ASTERISK_SSH_USER || 'root';
+      const sshKey = process.env.ASTERISK_SSH_KEY || '';
+
       let content;
-      try {
-        content = await fs.readFile(filePath, 'utf8');
-      } catch (error) {
-        if (error.code === 'EACCES') {
-          // Try reading with cat via sudo
-          const { exec } = require('child_process');
-          const { promisify } = require('util');
-          const execAsync = promisify(exec);
-          const { stdout } = await execAsync(`sudo cat "${filePath}"`);
+      if (sshHost) {
+        // Read remote file via SSH
+        const sshOpts = sshKey ? `-i ${sshKey}` : '';
+        try {
+          const { stdout } = await execAsync(`ssh -o StrictHostKeyChecking=no ${sshOpts} ${sshUser}@${sshHost} "cat ${filePath}"`);
           content = stdout;
-        } else {
-          throw error;
+        } catch { content = ''; }
+      } else {
+        try {
+          content = await fs.readFile(filePath, 'utf8');
+        } catch (error) {
+          if (error.code === 'EACCES') {
+            const { stdout } = await execAsync(`sudo cat "${filePath}"`);
+            content = stdout;
+          } else {
+            throw error;
+          }
         }
       }
 
@@ -610,10 +650,19 @@ exten => _X.,1,NoOp(Unrouted DID: \${EXTEN})
       const { promisify } = require('util');
       const execAsync = promisify(exec);
 
-      // Reload everything (dialplan, pjsip, musiconhold, etc.)
-      await execAsync('asterisk -rx "core reload"');
-      // Explicitly reload app_queue so queues.conf static member changes take effect
-      await execAsync('asterisk -rx "module reload app_queue.so"');
+      const sshHost = process.env.ASTERISK_SSH_HOST;
+      const sshUser = process.env.ASTERISK_SSH_USER || 'root';
+      const sshKey = process.env.ASTERISK_SSH_KEY || '';
+
+      if (sshHost) {
+        // Remote reload via SSH
+        const sshOpts = sshKey ? `-i ${sshKey}` : '';
+        await execAsync(`ssh -o StrictHostKeyChecking=no ${sshOpts} ${sshUser}@${sshHost} 'asterisk -rx "core reload" && asterisk -rx "module reload app_queue.so"'`);
+      } else {
+        // Local reload
+        await execAsync('asterisk -rx "core reload"');
+        await execAsync('asterisk -rx "module reload app_queue.so"');
+      }
 
       console.log('✅ Asterisk configuration reloaded (core + app_queue)');
 

@@ -23,28 +23,40 @@ read -p "  Password [admin]: " ADMIN_PASSWORD
 ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
 read -p "  Name [Admin]: " ADMIN_NAME
 ADMIN_NAME=${ADMIN_NAME:-Admin}
-
-# ── SIP mode ──
 echo ""
+
+# ── Setup mode ──
 echo "How do you want to run Astradial?"
 echo ""
-echo "  1) UI only — develop without phone calls (Mac/Windows)"
-echo "  2) Full setup — includes Asterisk PBX for calls (Linux)"
+echo "  1) Full setup — includes Asterisk PBX (Linux only)"
+echo "  2) Connect to a remote Asterisk server (Mac/Windows/any)"
 echo ""
-echo "  To connect a SIP trunk later, use the Trunks page in the dashboard."
-echo "  For a free developer trunk, email cats@astradial.com"
+echo "  Don't have a server? Email cats@astradial.com for"
+echo "  free SIP credentials (1 DID, 1 channel, 30 days)."
 echo ""
-read -p "  Choice [1]: " SIP_MODE
-SIP_MODE=${SIP_MODE:-1}
+read -p "  Choice [1]: " SETUP_MODE
+SETUP_MODE=${SETUP_MODE:-1}
 
-# ── Detect LAN IP ──
-OS=$(uname -s)
-if [ "$OS" = "Darwin" ]; then
-  LAN_IP=$(ifconfig | grep "inet " | grep -v 127.0.0.1 | grep -v "169.254" | head -1 | awk '{print $2}')
+SIP_HOST=""
+SIP_PORT="5060"
+AMI_HOST="asterisk"
+
+if [ "$SETUP_MODE" = "2" ]; then
+  echo ""
+  echo "Enter your Asterisk server details:"
+  read -p "  Server hostname (e.g. stagesip.astradial.com): " SIP_HOST
+  read -p "  SIP port [5060]: " SIP_PORT
+  SIP_PORT=${SIP_PORT:-5060}
+  read -p "  AMI host [same as server]: " AMI_HOST
+  AMI_HOST=${AMI_HOST:-$SIP_HOST}
+  read -p "  AMI password [astradial]: " AMI_SECRET
+  AMI_SECRET=${AMI_SECRET:-astradial}
 else
-  LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || ip route get 1 2>/dev/null | awk '{print $7;exit}')
+  # Linux full setup — detect LAN IP
+  SIP_HOST=$(hostname -I 2>/dev/null | awk '{print $1}' || ip route get 1 2>/dev/null | awk '{print $7;exit}' || echo "localhost")
+  AMI_HOST="asterisk"
+  AMI_SECRET="astradial"
 fi
-LAN_IP=${LAN_IP:-localhost}
 
 # ── Write .env ──
 cat > .env << EOF
@@ -58,8 +70,8 @@ DB_PASSWORD=changeme
 DB_ROOT_PASSWORD=changeme
 
 # Security
-JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "change-this-to-a-random-string")
-INTERNAL_API_KEY=$(openssl rand -hex 16 2>/dev/null || echo "change-this-to-a-random-string")
+JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "change-this-secret")
+INTERNAL_API_KEY=$(openssl rand -hex 16 2>/dev/null || echo "change-this-key")
 
 # Admin account
 ADMIN_EMAIL=${ADMIN_EMAIL}
@@ -69,8 +81,10 @@ ADMIN_USERNAME=admin
 ADMIN_API_PASSWORD=${ADMIN_PASSWORD}
 
 # Asterisk
-ASTERISK_AMI_SECRET=astradial
-SIP_HOST=${LAN_IP}
+ASTERISK_AMI_SECRET=${AMI_SECRET}
+AMI_HOST=${AMI_HOST}
+SIP_HOST=${SIP_HOST}
+SIP_PORT=${SIP_PORT}
 EOF
 
 echo ""
@@ -99,13 +113,13 @@ echo ""
 echo "  ✓ Database ready"
 
 # ── Start Asterisk (only for full setup) ──
-if [ "$SIP_MODE" = "2" ]; then
+if [ "$SETUP_MODE" = "1" ]; then
   echo "[3/5] Starting Asterisk PBX..."
   docker compose up -d asterisk 2>&1 >/dev/null
   sleep 3
   echo "  ✓ Asterisk started"
 else
-  echo "[3/5] Skipping Asterisk (UI-only mode)"
+  echo "[3/5] Skipping local Asterisk (connecting to ${SIP_HOST})"
 fi
 
 # ── Start API + Editor ──
@@ -131,13 +145,12 @@ for i in $(seq 1 15); do
   sleep 2
 done
 
-# Deploy config if Asterisk is running
-if [ "$SIP_MODE" = "2" ]; then
+# Deploy config if local Asterisk
+if [ "$SETUP_MODE" = "1" ]; then
   TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/user-login \
     -H 'Content-Type: application/json' \
     -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}" 2>/dev/null \
     | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))' 2>/dev/null)
-
   if [ -n "$TOKEN" ] && [ "$TOKEN" != "" ]; then
     curl -s -X POST http://localhost:8000/api/v1/config/deploy \
       -H "Authorization: Bearer $TOKEN" >/dev/null 2>&1
@@ -153,19 +166,20 @@ echo "║                                                          ║"
 echo "║  Dashboard:  http://localhost:3001                        ║"
 echo "║  Login:      ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
 echo "║                                                          ║"
-if [ "$SIP_MODE" = "2" ]; then
-echo "║  SIP Server: ${LAN_IP}:5060"
-echo "║                                                          ║"
-echo "║  To connect a SIP trunk:                                 ║"
-echo "║  Dashboard → Trunks → Add Trunk → enter provider creds  ║"
+if [ "$SETUP_MODE" = "1" ]; then
+echo "║  Mode: Full setup (local Asterisk)                       ║"
+echo "║  SIP Server: ${SIP_HOST}:${SIP_PORT}"
 else
-echo "║  Mode: UI development (no Asterisk)                      ║"
+echo "║  Mode: Remote Asterisk (${SIP_HOST})                     ║"
+echo "║  SIP Server: ${SIP_HOST}:${SIP_PORT}"
 echo "║                                                          ║"
-echo "║  To enable calls, re-run: ./setup.sh and choose option 2 ║"
-echo "║  Or connect a SIP trunk from: Dashboard → Trunks         ║"
+echo "║  Your SIP extensions are on the remote server.           ║"
+echo "║  Use the credentials provided to you for Zoiper.         ║"
 fi
 echo "║                                                          ║"
-echo "║  For a free developer SIP trunk:                         ║"
-echo "║  Email cats@astradial.com                                 ║"
+echo "║  Next steps:                                             ║"
+echo "║  1. Open http://localhost:3001                            ║"
+echo "║  2. Admin tab → create organisation                      ║"
+echo "║  3. Enter org → Users, CRM, Calls                        ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""

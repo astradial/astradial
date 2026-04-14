@@ -61,6 +61,9 @@ services:
       - HOST=0.0.0.0
       - SIP_HOST=${SIP_HOST:-}
       - SIP_PORT=${SIP_PORT:-5060}
+      - ASTERISK_SSH_HOST=${ASTERISK_SSH_HOST:-}
+      - ASTERISK_SSH_USER=${ASTERISK_SSH_USER:-root}
+      - ASTERISK_SSH_KEY=/root/.ssh/id_rsa
       - DB_HOST=mariadb
       - DB_PORT=3306
       - DB_NAME=${DB_NAME:-astradial}
@@ -74,8 +77,8 @@ services:
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_API_PASSWORD=${ADMIN_API_PASSWORD:-admin}
-      - ASTERISK_HOST=asterisk
-      - AMI_HOST=asterisk
+      - ASTERISK_HOST=${AMI_HOST:-asterisk}
+      - AMI_HOST=${AMI_HOST:-asterisk}
       - AMI_PORT=5038
       - AMI_USERNAME=astradial
       - AMI_SECRET=${ASTERISK_AMI_SECRET:-astradial}
