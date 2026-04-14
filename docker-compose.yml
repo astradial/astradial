@@ -110,6 +110,7 @@ services:
       args:
         PBX_URL: ${NEXT_PUBLIC_PBX_URL:-http://api:3000}
         WORKFLOW_URL: ${NEXT_PUBLIC_WORKFLOW_URL:-http://workflow-engine:3002}
+        ASTRADIAL_MODE: ${ASTRADIAL_MODE:-selfhosted}
     restart: unless-stopped
     ports:
       - "3001:3001"
