@@ -119,10 +119,10 @@ else
   echo "Enter your Astradial Cloud server:"
   echo "(Email cats@astradial.com if you don't have credentials yet)"
   echo ""
-  read -p "  API URL [https://stagepbx.astradial.com]: " PBX_URL
-  PBX_URL=${PBX_URL:-https://stagepbx.astradial.com}
-  read -p "  SIP host [stagesip.astradial.com]: " SIP_HOST
-  SIP_HOST=${SIP_HOST:-stagesip.astradial.com}
+  read -p "  API URL [https://open.astradial.com]: " PBX_URL
+  PBX_URL=${PBX_URL:-https://open.astradial.com}
+  read -p "  SIP host [opensip.astradial.com]: " SIP_HOST
+  SIP_HOST=${SIP_HOST:-opensip.astradial.com}
   read -p "  SIP port [5080]: " SIP_PORT
   SIP_PORT=${SIP_PORT:-5080}
 
