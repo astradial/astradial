@@ -690,13 +690,13 @@ app.post('/api/v1/organizations', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    // Validate organization name format
-    const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
+    // Validate organization name format (allow spaces, letters, numbers, hyphens)
+    const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9 _-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
 
     if (!namePattern.test(name)) {
       return res.status(400).json({
         error: 'Invalid organization name',
-        message: 'Organization name must start and end with alphanumeric characters, contain only letters, numbers, and hyphens, and cannot contain spaces or special characters.'
+        message: 'Organization name must start and end with alphanumeric characters.'
       });
     }
 
@@ -818,12 +818,12 @@ app.put('/api/v1/organizations/:id', authenticateOrg, async (req, res) => {
 
     // Handle name update with validation
     if (name !== undefined) {
-      const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
+      const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9 _-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
 
       if (!namePattern.test(name)) {
         return res.status(400).json({
           error: 'Invalid organization name',
-          message: 'Organization name must start and end with alphanumeric characters, contain only letters, numbers, and hyphens, and cannot contain spaces or special characters.'
+          message: 'Organization name must start and end with alphanumeric characters.'
         });
       }
 
