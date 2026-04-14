@@ -84,6 +84,7 @@ const navSections = [
     label: "Deploy",
     items: [
       { label: "Phone Numbers", icon: Phone, href: "/dids" },
+      { label: "Trunks", icon: Server, href: "/trunks" },
     ],
   },
 ];

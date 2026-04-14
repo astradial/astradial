@@ -26,32 +26,16 @@ ADMIN_NAME=${ADMIN_NAME:-Admin}
 
 # ── SIP mode ──
 echo ""
-echo "How do you want to handle calls?"
+echo "How do you want to run Astradial?"
 echo ""
-echo "  1) No SIP — UI development only (Mac/Windows)"
-echo "  2) Full setup with SIP — extension-to-extension calls (Linux)"
-echo "  3) Connect your own SIP trunk (Twilio, Telnyx, etc.)"
+echo "  1) UI only — develop without phone calls (Mac/Windows)"
+echo "  2) Full setup — includes Asterisk PBX for calls (Linux)"
 echo ""
-echo "  Want a free Indian DID for testing?"
-echo "  Email dev@astradial.com — we'll send you trunk credentials."
-echo "  Then use option 3 to connect."
+echo "  To connect a SIP trunk later, use the Trunks page in the dashboard."
+echo "  For a free developer trunk, email dev@astradial.com"
 echo ""
 read -p "  Choice [1]: " SIP_MODE
 SIP_MODE=${SIP_MODE:-1}
-
-SIP_TRUNK_HOST=""
-SIP_TRUNK_USER=""
-SIP_TRUNK_PASS=""
-SIP_DID=""
-
-if [ "$SIP_MODE" = "3" ]; then
-  echo ""
-  echo "Enter your SIP trunk credentials:"
-  read -p "  SIP Server (e.g. sip.telnyx.com): " SIP_TRUNK_HOST
-  read -p "  Username: " SIP_TRUNK_USER
-  read -p "  Password: " SIP_TRUNK_PASS
-  read -p "  DID Number (e.g. +14155551234): " SIP_DID
-fi
 
 # ── Detect LAN IP ──
 OS=$(uname -s)
@@ -87,11 +71,6 @@ ADMIN_API_PASSWORD=${ADMIN_PASSWORD}
 # Asterisk
 ASTERISK_AMI_SECRET=astradial
 SIP_HOST=${LAN_IP}
-
-# SIP Trunk (option 3)
-ASTRADIAL_TRUNK_HOST=${SIP_TRUNK_HOST}
-ASTRADIAL_TRUNK_USER=${SIP_TRUNK_USER}
-ASTRADIAL_TRUNK_PASS=${SIP_TRUNK_PASS}
 EOF
 
 echo ""
@@ -106,50 +85,33 @@ docker compose build 2>&1 | while IFS= read -r line; do
 done
 echo "  ✓ All images built"
 
-# ── Start based on mode ──
-if [ "$SIP_MODE" = "1" ]; then
-  # No SIP — skip Asterisk
-  echo "[2/5] Starting database..."
-  docker compose up -d mariadb redis 2>&1 >/dev/null
-  for i in $(seq 1 30); do
-    if docker compose exec mariadb mariadb -u astradial -pchangeme -e "SELECT 1" >/dev/null 2>&1; then
-      break
-    fi
-    printf "\r  ⏳ Waiting for database... (%s/30)" "$i"
-    sleep 2
-  done
-  echo ""
-  echo "  ✓ Database ready"
+# ── Start database ──
+echo "[2/5] Starting database..."
+docker compose up -d mariadb redis 2>&1 >/dev/null
+for i in $(seq 1 30); do
+  if docker compose exec mariadb mariadb -u astradial -pchangeme -e "SELECT 1" >/dev/null 2>&1; then
+    break
+  fi
+  printf "\r  ⏳ Waiting for database... (%s/30)" "$i"
+  sleep 2
+done
+echo ""
+echo "  ✓ Database ready"
 
-  echo "[3/5] Skipping Asterisk (No SIP mode)"
-  echo "  ✓ Skipped"
-
-  echo "[4/5] Starting API and Dashboard..."
-  docker compose up -d api editor workflow-engine 2>&1 >/dev/null
-else
-  # Full setup or own trunk
-  echo "[2/5] Starting database..."
-  docker compose up -d mariadb redis 2>&1 >/dev/null
-  for i in $(seq 1 30); do
-    if docker compose exec mariadb mariadb -u astradial -pchangeme -e "SELECT 1" >/dev/null 2>&1; then
-      break
-    fi
-    printf "\r  ⏳ Waiting for database... (%s/30)" "$i"
-    sleep 2
-  done
-  echo ""
-  echo "  ✓ Database ready"
-
+# ── Start Asterisk (only for full setup) ──
+if [ "$SIP_MODE" = "2" ]; then
   echo "[3/5] Starting Asterisk PBX..."
   docker compose up -d asterisk 2>&1 >/dev/null
   sleep 3
   echo "  ✓ Asterisk started"
-
-  echo "[4/5] Starting API and Dashboard..."
-  docker compose up -d api editor workflow-engine 2>&1 >/dev/null
+else
+  echo "[3/5] Skipping Asterisk (UI-only mode)"
 fi
 
-# Wait for API
+# ── Start API + Editor ──
+echo "[4/5] Starting API and Dashboard..."
+docker compose up -d api editor workflow-engine 2>&1 >/dev/null
+
 for i in $(seq 1 30); do
   if curl -s http://localhost:8000/health >/dev/null 2>&1; then
     echo "  ✓ API is ready"
@@ -161,8 +123,6 @@ done
 echo ""
 
 echo "[5/5] Finishing setup..."
-
-# Wait for editor
 for i in $(seq 1 15); do
   if curl -s http://localhost:3001 >/dev/null 2>&1; then
     echo "  ✓ Dashboard is ready"
@@ -171,8 +131,8 @@ for i in $(seq 1 15); do
   sleep 2
 done
 
-# Deploy Asterisk config (if SIP enabled)
-if [ "$SIP_MODE" != "1" ]; then
+# Deploy config if Asterisk is running
+if [ "$SIP_MODE" = "2" ]; then
   TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/user-login \
     -H 'Content-Type: application/json' \
     -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}" 2>/dev/null \
@@ -182,34 +142,6 @@ if [ "$SIP_MODE" != "1" ]; then
     curl -s -X POST http://localhost:8000/api/v1/config/deploy \
       -H "Authorization: Bearer $TOKEN" >/dev/null 2>&1
     echo "  ✓ Asterisk config deployed"
-
-    # If option 3 with DID, create trunk + DID via API
-    if [ "$SIP_MODE" = "3" ] && [ -n "$SIP_TRUNK_HOST" ]; then
-      # Create trunk
-      TRUNK_RESULT=$(curl -s -X POST http://localhost:8000/api/v1/trunks \
-        -H "Authorization: Bearer $TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "{\"name\":\"My SIP Trunk\",\"host\":\"${SIP_TRUNK_HOST}\",\"port\":5060,\"transport\":\"udp\",\"trunk_type\":\"outbound\",\"username\":\"${SIP_TRUNK_USER}\",\"password\":\"${SIP_TRUNK_PASS}\"}" 2>/dev/null)
-      TRUNK_ID=$(echo "$TRUNK_RESULT" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
-
-      if [ -n "$TRUNK_ID" ] && [ "$TRUNK_ID" != "" ]; then
-        echo "  ✓ SIP trunk created"
-
-        # Create DID if provided
-        if [ -n "$SIP_DID" ]; then
-          curl -s -X POST http://localhost:8000/api/v1/dids \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"number\":\"${SIP_DID}\",\"trunk_id\":\"${TRUNK_ID}\",\"routing_type\":\"extension\",\"routing_destination\":\"1001\"}" >/dev/null 2>&1
-          echo "  ✓ DID ${SIP_DID} → extension 1001"
-        fi
-
-        # Redeploy config with trunk
-        curl -s -X POST http://localhost:8000/api/v1/config/deploy \
-          -H "Authorization: Bearer $TOKEN" >/dev/null 2>&1
-        echo "  ✓ Config redeployed with trunk"
-      fi
-    fi
   fi
 fi
 
@@ -221,26 +153,19 @@ echo "║                                                          ║"
 echo "║  Dashboard:  http://localhost:3001                        ║"
 echo "║  Login:      ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
 echo "║                                                          ║"
-
-if [ "$SIP_MODE" = "1" ]; then
-echo "║  Mode: UI development (no SIP)                           ║"
-echo "║  To test calls, use a Linux server or connect a trunk.   ║"
-elif [ "$SIP_MODE" = "2" ]; then
-echo "║  Mode: Full setup with SIP                               ║"
+if [ "$SIP_MODE" = "2" ]; then
 echo "║  SIP Server: ${LAN_IP}:5060"
-echo "║  Register Zoiper → Users page → click extension → creds ║"
-elif [ "$SIP_MODE" = "3" ]; then
-echo "║  Mode: Own SIP trunk (${SIP_TRUNK_HOST})"
-echo "║  SIP Server: ${LAN_IP}:5060"
-if [ -n "$SIP_DID" ]; then
-echo "║  DID: ${SIP_DID} → rings extension 1001"
-fi
-fi
-
 echo "║                                                          ║"
-echo "║  Next steps:                                             ║"
-echo "║  1. Open http://localhost:3001                            ║"
-echo "║  2. Sign in → Organisation tab                           ║"
-echo "║  3. Explore: Users, CRM, Calls, Phone Numbers            ║"
+echo "║  To connect a SIP trunk:                                 ║"
+echo "║  Dashboard → Trunks → Add Trunk → enter provider creds  ║"
+else
+echo "║  Mode: UI development (no Asterisk)                      ║"
+echo "║                                                          ║"
+echo "║  To enable calls, re-run: ./setup.sh and choose option 2 ║"
+echo "║  Or connect a SIP trunk from: Dashboard → Trunks         ║"
+fi
+echo "║                                                          ║"
+echo "║  For a free developer SIP trunk:                         ║"
+echo "║  Email dev@astradial.com                                 ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
