@@ -93,3 +93,5 @@ async function seed() {
 }
 
 seed().then(() => process.exit(0)).catch(() => process.exit(0));
+
+// This patch is appended by the seed but we need to add missing columns via a separate migration
