@@ -4,11 +4,12 @@ set -e
 echo "=== Astradial API Starting ==="
 
 # Wait for MariaDB
-echo "Waiting for MariaDB..."
+echo "Waiting for database..."
 for i in $(seq 1 30); do
   if node -e "
-    const seq = require('./src/config/database');
-    seq.authenticate().then(() => { console.log('DB ready'); process.exit(0); }).catch(() => process.exit(1));
+    const m = require('mariadb');
+    const p = m.createPool({host:process.env.DB_HOST||'localhost',port:parseInt(process.env.DB_PORT)||3306,user:process.env.DB_USER||'astradial',password:process.env.DB_PASSWORD||'changeme',database:process.env.DB_NAME||'astradial',connectionLimit:1});
+    p.getConnection().then(c=>{c.release();p.end();console.log('DB ready');process.exit(0)}).catch(()=>process.exit(1));
   " 2>/dev/null; then
     break
   fi
@@ -16,69 +17,26 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-# Run migrations
+# Run Sequelize migrations
 echo "Running migrations..."
-npx sequelize-cli db:migrate 2>/dev/null || echo "Migrations completed (or already up to date)"
+npx sequelize-cli db:migrate 2>/dev/null || echo "Sequelize migrations done"
 
-# Seed default admin + test extensions on first boot
-node -e "
-const { sequelize } = require('./src/models');
-const bcrypt = require('bcrypt');
-const { v4: uuid } = require('uuid');
+# Run SQL migrations (for tables not covered by Sequelize)
+for f in database/migrations/*.sql; do
+  if [ -f "$f" ]; then
+    echo "Running SQL: $f"
+    node -e "
+      const m=require('mariadb'),fs=require('fs');
+      const p=m.createPool({host:process.env.DB_HOST||'localhost',port:parseInt(process.env.DB_PORT)||3306,user:process.env.DB_USER||'astradial',password:process.env.DB_PASSWORD||'changeme',database:process.env.DB_NAME||'astradial',connectionLimit:1,multipleStatements:true});
+      p.getConnection().then(async c=>{try{await c.query(fs.readFileSync('$f','utf8'))}catch(e){if(!e.message.includes('already exists'))console.error(e.message)}finally{c.release();await p.end();process.exit(0)}}).catch(e=>{console.error(e.message);process.exit(0)});
+    " 2>/dev/null || true
+  fi
+done
 
-async function seed() {
-  // Check if any org exists
-  const [orgs] = await sequelize.query('SELECT COUNT(*) as c FROM organizations');
-  if (orgs[0].c > 0) { console.log('Database already seeded.'); return; }
-
-  console.log('First boot — creating default admin org + users...');
-
-  // Create default org
-  const orgId = uuid();
-  const apiKey = 'org_' + uuid().replace(/-/g, '');
-  const apiSecret = await bcrypt.hash('admin', 12);
-  await sequelize.query(
-    \`INSERT INTO organizations (id, name, context_prefix, api_key, api_secret, status, settings, limits, contact_info, created_at, updated_at)
-     VALUES (?, 'Default', 'default', ?, ?, 'active', '{\"max_trunks\":5,\"max_dids\":10,\"max_users\":50,\"max_queues\":10,\"recording_enabled\":false,\"webhook_enabled\":true}', '{\"concurrent_calls\":10}', '{\"email\":\"admin@localhost\"}', NOW(), NOW())\`,
-    { replacements: [orgId, apiKey, apiSecret] }
-  );
-
-  // Create admin user
-  const adminHash = await bcrypt.hash('admin', 12);
-  await sequelize.query(
-    \`INSERT INTO org_users (id, org_id, email, name, role, status, password_hash, extension, created_at, updated_at)
-     VALUES (UUID(), ?, 'admin@astradial.com', 'Admin', 'owner', 'active', ?, '1001', NOW(), NOW())\`,
-    { replacements: [orgId, adminHash] }
-  );
-
-  // Create test extensions
-  const crypto = require('crypto');
-  const sipPass1 = crypto.randomBytes(8).toString('hex');
-  const sipPass2 = crypto.randomBytes(8).toString('hex');
-
-  const { User } = require('./src/models');
-  await User.create({ org_id: orgId, username: 'admin', email: 'admin@astradial.com', full_name: 'Admin', extension: '1001', role: 'admin', status: 'active', password: sipPass1, sip_password: sipPass1, recording_enabled: false, routing_type: 'sip' });
-  await User.create({ org_id: orgId, username: 'agent', email: 'agent@astradial.com', full_name: 'Agent', extension: '1002', role: 'agent', status: 'active', password: sipPass2, sip_password: sipPass2, recording_enabled: false, routing_type: 'sip' });
-
-  console.log('');
-  console.log('╔══════════════════════════════════════════════════╗');
-  console.log('║  Astradial is ready!                             ║');
-  console.log('║                                                  ║');
-  console.log('║  Dashboard: http://localhost:3001                 ║');
-  console.log('║  Login:     admin@astradial.com / admin          ║');
-  console.log('║                                                  ║');
-  console.log('║  Test extensions:                                ║');
-  console.log('║    1001 (Admin) SIP pass: ' + sipPass1 + '      ║');
-  console.log('║    1002 (Agent) SIP pass: ' + sipPass2 + '      ║');
-  console.log('║                                                  ║');
-  console.log('║  Register a softphone (Zoiper) to test calls    ║');
-  console.log('╚══════════════════════════════════════════════════╝');
-  console.log('');
-}
-
-seed().then(() => process.exit(0)).catch(e => { console.error('Seed error:', e.message); process.exit(0); });
-" || true
+# Seed default admin on first boot
+echo "Checking seed..."
+node seed.js
 
 # Start the API server
-echo "Starting API server on port 8000..."
+echo "Starting API server..."
 exec node src/server.js

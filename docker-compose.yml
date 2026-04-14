@@ -53,8 +53,9 @@ services:
     build: ./api
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8000:3000"
     environment:
+      - HOST=0.0.0.0
       - DB_HOST=mariadb
       - DB_PORT=3306
       - DB_NAME=${DB_NAME:-astradial}
@@ -63,13 +64,20 @@ services:
       - DB_DIALECT=mariadb
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET:-change-this-secret}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+      - ADMIN_NAME=${ADMIN_NAME:-Admin}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - ADMIN_API_PASSWORD=${ADMIN_API_PASSWORD:-admin}
       - ASTERISK_HOST=asterisk
       - AMI_HOST=asterisk
       - AMI_PORT=5038
       - AMI_USERNAME=astradial
       - AMI_SECRET=${ASTERISK_AMI_SECRET:-astradial}
+      - ASTERISK_PORT=8088
+      - ASTERISK_ARI_USERNAME=astradial
+      - ASTERISK_ARI_PASSWORD=${ASTERISK_AMI_SECRET:-astradial}
+      - ASTERISK_ARI_APP=pbx_api
       - ASTERISK_AMI_PORT=5038
       - ASTERISK_AMI_USER=astradial
       - ASTERISK_AMI_SECRET=${ASTERISK_AMI_SECRET:-astradial}
