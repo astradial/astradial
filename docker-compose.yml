@@ -105,21 +105,21 @@ services:
       - astradial
 
   editor:
-    build: ./editor
+    build:
+      context: ./editor
+      args:
+        PBX_URL: ${NEXT_PUBLIC_PBX_URL:-http://api:3000}
+        WORKFLOW_URL: ${NEXT_PUBLIC_WORKFLOW_URL:-http://workflow-engine:3002}
     restart: unless-stopped
     ports:
       - "3001:3001"
     environment:
-      - NEXT_PUBLIC_PBX_URL=http://api:3000
-      - NEXT_PUBLIC_WORKFLOW_URL=http://workflow-engine:3002
       - NEXT_PUBLIC_ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - GATEWAY_ADMIN_KEY=${INTERNAL_API_KEY:-internal-dev-key}
-    depends_on:
-      - api
     networks:
       - astradial
 

@@ -7,10 +7,12 @@ RUN npm ci
 
 COPY . .
 
-# Build with the Docker-internal API URL
-ENV NEXT_PUBLIC_PBX_URL=http://api:3000
-ENV NEXT_PUBLIC_WORKFLOW_URL=http://workflow-engine:3002
-ENV NEXT_PUBLIC_GATEWAY_URL=http://api:3000
+# Default: Docker-internal API URL (overridden by setup.sh for cloud mode)
+ARG PBX_URL=http://api:3000
+ARG WORKFLOW_URL=http://workflow-engine:3002
+ENV NEXT_PUBLIC_PBX_URL=$PBX_URL
+ENV NEXT_PUBLIC_WORKFLOW_URL=$WORKFLOW_URL
+ENV NEXT_PUBLIC_GATEWAY_URL=$PBX_URL
 
 RUN npm run build
 
