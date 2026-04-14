@@ -18,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showToast } from "@/components/ui/Toast";
 import { didPool, type PoolDid, type MyDidsResponse } from "@/lib/did-pool/client";
+import { Textarea } from "@/components/ui/textarea";
 import { dids, users, queues, type PbxUser, type PbxQueue } from "@/lib/pbx/client";
 
 export default function DidsPage() {
@@ -34,12 +35,41 @@ export default function DidsPage() {
   const [available, setAvailable] = useState<PoolDid[]>([]);
   const [requesting, setRequesting] = useState<string | null>(null);
 
+  // Add DID dialog (self-hosted)
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState({ number: "", description: "", trunk_id: "", routing_type: "extension", routing_destination: "" });
+  const [trunkList, setTrunkList] = useState<{ id: string; name: string }[]>([]);
+
   // Edit routing dialog
   const [editOpen, setEditOpen] = useState(false);
   const [editingDid, setEditingDid] = useState<PoolDid | null>(null);
   const [editForm, setEditForm] = useState({ description: "", routing_type: "extension", routing_destination: "", status: "active" });
 
-  useEffect(() => { loadAll(); }, [orgId]);
+  useEffect(() => { loadAll(); loadTrunks(); }, [orgId]);
+
+  async function loadTrunks() {
+    try {
+      const t = await import("@/lib/pbx/client").then(m => m.trunks.list());
+      setTrunkList(t.map((tr: { id: string; name: string }) => ({ id: tr.id, name: tr.name })));
+    } catch {}
+  }
+
+  async function handleAddDid() {
+    if (!addForm.number.trim()) { showToast("Number is required", "error"); return; }
+    try {
+      await dids.create({
+        number: addForm.number,
+        description: addForm.description,
+        trunk_id: addForm.trunk_id || undefined,
+        routing_type: addForm.routing_type as "extension" | "queue" | "ivr" | "ai_agent" | "external" | "intercom",
+        routing_destination: addForm.routing_destination,
+      });
+      showToast("Number added", "success");
+      setAddOpen(false);
+      setAddForm({ number: "", description: "", trunk_id: "", routing_type: "extension", routing_destination: "" });
+      loadAll();
+    } catch (e: unknown) { showToast((e as Error).message, "error"); }
+  }
 
   async function loadAll() {
     setLoading(true);
@@ -148,6 +178,7 @@ export default function DidsPage() {
           <h1 className="text-2xl font-semibold">DID Numbers</h1>
           <p className="text-sm text-muted-foreground">Manage your phone numbers and buy new ones</p>
         </div>
+        <Button onClick={() => setAddOpen(true)}><Plus className="h-4 w-4 mr-1" /> Add Number</Button>
       </div>
 
       {/* Stats */}
@@ -300,6 +331,54 @@ export default function DidsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Add Number Dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Phone Number</DialogTitle>
+            <DialogDescription>Add a DID from your SIP trunk</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Phone Number *</Label><Input value={addForm.number} onChange={e => setAddForm({ ...addForm, number: e.target.value })} placeholder="+918065978015" /></div>
+              <div className="space-y-1.5"><Label>Description</Label><Input value={addForm.description} onChange={e => setAddForm({ ...addForm, description: e.target.value })} placeholder="Main line" /></div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Trunk</Label>
+              <Select value={addForm.trunk_id} onValueChange={v => setAddForm({ ...addForm, trunk_id: v })}>
+                <SelectTrigger><SelectValue placeholder="Select trunk" /></SelectTrigger>
+                <SelectContent>
+                  {trunkList.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Routing Type</Label>
+                <Select value={addForm.routing_type} onValueChange={v => setAddForm({ ...addForm, routing_type: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="extension">Extension</SelectItem>
+                    <SelectItem value="queue">Queue</SelectItem>
+                    <SelectItem value="ivr">IVR</SelectItem>
+                    <SelectItem value="ai_agent">AI Agent</SelectItem>
+                    <SelectItem value="external">External</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Destination</Label>
+                <DestinationField routingType={addForm.routing_type} value={addForm.routing_destination} onChange={v => setAddForm({ ...addForm, routing_destination: v })} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddDid}>Add Number</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Routing Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
