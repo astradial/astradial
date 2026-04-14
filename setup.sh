@@ -39,18 +39,32 @@ if [ "$IS_LINUX" = "y" ] || [ "$IS_LINUX" = "Y" ]; then
   echo "  ✓ SIP server: ${SIP_HOST}:${SIP_PORT}"
 else
   MODE="cloud"
-  SIP_HOST="stagesip.astradial.com"
-  SIP_PORT="5080"
-  AMI_HOST="stagesip.astradial.com"
   echo ""
-  echo "  ✓ Using Astradial Cloud for SIP"
-  echo "  ✓ SIP server: ${SIP_HOST}:${SIP_PORT}"
+  echo "Enter your Asterisk server details:"
+  echo "(Email cats@astradial.com if you don't have one)"
   echo ""
-  echo "  To make and receive calls, you need SIP credentials."
-  echo "  Email cats@astradial.com to request:"
-  echo "    - 1 free phone number (DID)"
-  echo "    - 1 SIP extension with username + password"
-  echo "    - 30-day free trial"
+  read -p "  Server hostname [stagesip.astradial.com]: " SIP_HOST
+  SIP_HOST=${SIP_HOST:-stagesip.astradial.com}
+  read -p "  SIP port [5080]: " SIP_PORT
+  SIP_PORT=${SIP_PORT:-5080}
+  read -p "  SSH user [root]: " SSH_USER
+  SSH_USER=${SSH_USER:-root}
+  read -p "  Asterisk config path [/etc/asterisk]: " AST_CONFIG_PATH
+  AST_CONFIG_PATH=${AST_CONFIG_PATH:-/etc/asterisk}
+  read -p "  AMI password [astradial]: " AMI_SECRET
+  AMI_SECRET=${AMI_SECRET:-astradial}
+
+  AMI_HOST="$SIP_HOST"
+
+  # Test SSH connection
+  echo ""
+  echo "  Testing SSH connection to ${SIP_HOST}..."
+  if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ${SSH_USER}@${SIP_HOST} "echo ok" >/dev/null 2>&1; then
+    echo "  ✓ SSH connection works"
+  else
+    echo "  ⚠ SSH connection failed. Config deploy won't work."
+    echo "  Make sure your SSH key is set up: ssh-copy-id ${SSH_USER}@${SIP_HOST}"
+  fi
 fi
 
 echo ""
@@ -79,11 +93,16 @@ ADMIN_API_PASSWORD=${ADMIN_PASSWORD}
 
 # Asterisk connection
 AMI_HOST=${AMI_HOST}
-ASTERISK_AMI_SECRET=astradial
+ASTERISK_AMI_SECRET=${AMI_SECRET:-astradial}
 
 # SIP server (shown in softphone credentials)
 SIP_HOST=${SIP_HOST}
 SIP_PORT=${SIP_PORT}
+
+# Remote config deploy (cloud mode only)
+ASTERISK_SSH_HOST=${SIP_HOST}
+ASTERISK_SSH_USER=${SSH_USER:-}
+ASTERISK_PJSIP_CONFIG_PATH=${AST_CONFIG_PATH:-/etc/asterisk}
 EOF
 
 # ── Build ──

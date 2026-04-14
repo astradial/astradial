@@ -97,11 +97,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-      asterisk:
-        condition: service_started
     volumes:
       - asterisk_config:/etc/asterisk
       - asterisk_recordings:/var/spool/asterisk/monitor
+      - ~/.ssh:/root/.ssh:ro
     networks:
       - astradial
 
