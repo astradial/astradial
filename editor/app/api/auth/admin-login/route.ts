@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // Admin emails allowed to access gateway admin panel
-const ADMIN_EMAILS = ["admin@astradial.com"];
+const ADMIN_EMAILS = (process.env.ADMIN_EMAIL || "admin@example.com").split(",").map(e => e.trim());
 
 // Gateway admin key — stored server-side only
 const GATEWAY_ADMIN_KEY = process.env.GATEWAY_ADMIN_KEY || "";

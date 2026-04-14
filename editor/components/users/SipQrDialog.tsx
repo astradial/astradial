@@ -21,8 +21,8 @@ interface SipQrDialogProps {
 }
 
 export function SipQrDialog({ user, onClose }: SipQrDialogProps) {
-  const sipServer = "devsip.astradial.com";
-  const sipPort = "5080";
+  const sipServer = typeof window !== "undefined" ? window.location.hostname : "localhost";
+  const sipPort = "5060";
   const [copied, setCopied] = useState<string | null>(null);
   const [sipPassword, setSipPassword] = useState(user.sip_password || "");
 

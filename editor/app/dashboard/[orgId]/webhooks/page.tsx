@@ -228,7 +228,7 @@ export default function WebhooksPage() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <p className="text-sm font-medium">Click to Call</p>
-                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST https://devpbx.astradial.com/api/v1/calls/click-to-call \\
+                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST http://localhost:8000/api/v1/calls/click-to-call \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ak_your_key_here" \\
   -d '{
@@ -240,7 +240,7 @@ export default function WebhooksPage() {
               <Separator />
               <div className="space-y-2">
                 <p className="text-sm font-medium">Originate to AI Agent (call extension)</p>
-                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST https://devpbx.astradial.com/api/v1/calls/originate-to-ai \\
+                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST http://localhost:8000/api/v1/calls/originate-to-ai \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ak_your_key_here" \\
   -d '{
@@ -252,7 +252,7 @@ export default function WebhooksPage() {
               <Separator />
               <div className="space-y-2">
                 <p className="text-sm font-medium">Originate to AI Agent (external number + OpenAI)</p>
-                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST https://devpbx.astradial.com/api/v1/calls/originate-to-ai \\
+                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST http://localhost:8000/api/v1/calls/originate-to-ai \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ak_your_key_here" \\
   -d '{
@@ -270,13 +270,13 @@ export default function WebhooksPage() {
               <Separator />
               <div className="space-y-2">
                 <p className="text-sm font-medium">Get Call Logs</p>
-                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl https://devpbx.astradial.com/api/v1/calls \\
+                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl http://localhost:8000/api/v1/calls \\
   -H "X-API-Key: ak_your_key_here"`}</pre>
               </div>
               <Separator />
               <div className="space-y-2">
                 <p className="text-sm font-medium">Get Live Calls</p>
-                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl https://devpbx.astradial.com/api/v1/calls/live \\
+                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl http://localhost:8000/api/v1/calls/live \\
   -H "X-API-Key: ak_your_key_here"`}</pre>
               </div>
             </CardContent>
