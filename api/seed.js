@@ -65,12 +65,6 @@ async function seed() {
     const crypto = require('crypto');
     const sipPass = crypto.randomBytes(8).toString('hex');
 
-    await conn.query(
-      `INSERT INTO users (id, org_id, username, email, full_name, extension, role, status, password_hash, sip_password, asterisk_endpoint, recording_enabled, created_at, updated_at)
-       VALUES (?, ?, 'admin', ?, ?, '1001', 'admin', 'active', ?, ?, ?, 0, NOW(), NOW())`,
-      [uuid(), orgId, adminEmail, adminName, sipPass, sipPass, 'PJSIP/default_1001']
-    );
-
     console.log('');
     console.log('╔══════════════════════════════════════════════════════╗');
     console.log('║  Astradial is ready!                                 ║');
@@ -78,9 +72,6 @@ async function seed() {
     console.log('║  Dashboard:  http://localhost:3001                    ║');
     console.log(`║  Email:      ${adminEmail.padEnd(39)}║`);
     console.log(`║  Password:   ${adminPassword.padEnd(39)}║`);
-    console.log('║                                                      ║');
-    console.log(`║  SIP Extension 1001 password: ${sipPass.padEnd(22)}║`);
-    console.log('║  Register with Zoiper to make test calls             ║');
     console.log('╚══════════════════════════════════════════════════════╝');
     console.log('');
 
