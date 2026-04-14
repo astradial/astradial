@@ -48,19 +48,58 @@ grep -q "SIP_HOST" .env && sed -i.bak "s|.*SIP_HOST=.*|SIP_HOST=${LAN_IP}|" .env
 rm -f .env.bak
 
 echo ""
-echo "Starting services..."
-
-# Build and start
-docker compose up -d --build 2>&1 | grep -E "Built|Started|Created|Healthy" | tail -10
-
+echo "Starting services... (first run takes 3-5 minutes)"
 echo ""
-echo "Waiting for database..."
-sleep 15
 
-echo "Waiting for API..."
+# Step 1: Build images
+echo "[1/5] Building Docker images..."
+docker compose build 2>&1 | while IFS= read -r line; do
+  if echo "$line" | grep -q "Built"; then
+    service=$(echo "$line" | awk '{print $1}')
+    echo "  ✓ ${service} built"
+  fi
+done
+echo "  ✓ All images built"
+
+# Step 2: Start database + redis
+echo "[2/5] Starting database..."
+docker compose up -d mariadb redis 2>&1 >/dev/null
+for i in $(seq 1 30); do
+  if docker compose exec mariadb mariadb -u "${DB_USER:-astradial}" -p"${DB_PASSWORD:-changeme}" -e "SELECT 1" >/dev/null 2>&1; then
+    echo "  ✓ Database ready"
+    break
+  fi
+  printf "  ⏳ Waiting for database... (%s/30)\r" "$i"
+  sleep 2
+done
+echo ""
+
+# Step 3: Start Asterisk
+echo "[3/5] Starting Asterisk PBX..."
+docker compose up -d asterisk 2>&1 >/dev/null
+sleep 3
+echo "  ✓ Asterisk started"
+
+# Step 4: Start API + Editor
+echo "[4/5] Starting API and Dashboard..."
+docker compose up -d api editor workflow-engine 2>&1 >/dev/null
+
+echo "  ⏳ Waiting for API to be ready..."
 for i in $(seq 1 30); do
   if curl -s http://localhost:8000/health >/dev/null 2>&1; then
-    echo "API is ready!"
+    echo "  ✓ API is ready"
+    break
+  fi
+  printf "  ⏳ Starting API... (%s/30)\r" "$i"
+  sleep 2
+done
+echo ""
+
+# Step 5: Wait for editor
+echo "[5/5] Starting Dashboard..."
+for i in $(seq 1 15); do
+  if curl -s http://localhost:3001 >/dev/null 2>&1; then
+    echo "  ✓ Dashboard is ready"
     break
   fi
   sleep 2
