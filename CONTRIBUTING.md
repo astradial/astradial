@@ -67,13 +67,38 @@ Check [GitHub Issues](https://github.com/astradial/astradial/issues) for open ta
 
 ```
 astradial/
-├── editor/          # Next.js frontend (dashboard, CRM, etc.)
+├── editor/          # Next.js frontend (dashboard, CRM, AI bot editor)
 ├── api/             # Node.js API server (AstraPBX)
 ├── asterisk/        # Asterisk PBX Docker config
+├── pipecat-flow/    # AI voice bot gateway (FastAPI + Gemini Live)
 ├── workflow-engine/ # Bull job scheduler
 ├── docker-compose.yml
 └── .env.example
 ```
+
+## Pull requests
+
+Before opening a PR:
+
+- [ ] Code builds: `docker compose build <service>`
+- [ ] Types pass: `cd editor && npx tsc --noEmit` (for editor changes)
+- [ ] The PR targets `staging`, not `main`
+- [ ] The PR description links the issue with `Closes #<number>`
+- [ ] No `.env`, `firebase-sa-key.json`, or any secret committed
+
+## Reporting bugs
+
+Open an [issue](https://github.com/astradial/astradial/issues/new) with:
+
+- What you expected to happen
+- What actually happened
+- Steps to reproduce
+- Your environment (OS, Docker version, which services were running)
+- Relevant logs from `docker compose logs <service>`
+
+## Security
+
+If you find a security vulnerability, **do not open a public issue**. Email **cats@astradial.com** with the details. We'll respond within 48 hours.
 
 ## Questions?
 
