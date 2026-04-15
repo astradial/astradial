@@ -109,4 +109,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - [GitHub Discussions](https://github.com/astradial/astradial/discussions)
 - [Documentation](https://docs.astradial.com)
-- Email: [support@astradial.com](mailto:support@astradial.com)
+- Email: [cats@astradial.com](mailto:cats@astradial.com)

@@ -183,7 +183,7 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
           <ShieldCheck className="h-4 w-4 shrink-0" />
           <span>Role Permissions</span>
         </Link>
-        <a href="mailto:admin@astradial.com?subject=Feature%20Request" className="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors">
+        <a href="mailto:cats@astradial.com?subject=Feature%20Request" className="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors">
           <Lightbulb className="h-4 w-4 shrink-0" />
           <span>Request Feature</span>
         </a>
