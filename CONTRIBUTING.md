@@ -102,4 +102,5 @@ If you find a security vulnerability, **do not open a public issue**. Email **ca
 
 ## Questions?
 
-Open a [Discussion](https://github.com/astradial/astradial/discussions) on GitHub.
+- Join the [WhatsApp community group](https://chat.whatsapp.com/EvFHEFLEwOPGNzyhG5QH2s?mode=gi_t) for quick help and real-time chat
+- Open a [Discussion](https://github.com/astradial/astradial/discussions) on GitHub for longer conversations

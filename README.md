@@ -107,6 +107,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Community
 
+- 💬 [WhatsApp Group](https://chat.whatsapp.com/EvFHEFLEwOPGNzyhG5QH2s?mode=gi_t) — chat with contributors and maintainers
 - [GitHub Discussions](https://github.com/astradial/astradial/discussions)
 - [Documentation](https://docs.astradial.com)
 - Email: [cats@astradial.com](mailto:cats@astradial.com)

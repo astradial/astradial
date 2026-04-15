@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 WhatsApp Community Group
+    url: https://chat.whatsapp.com/EvFHEFLEwOPGNzyhG5QH2s?mode=gi_t
+    about: Chat with contributors and maintainers in real-time
+  - name: 💭 GitHub Discussions
+    url: https://github.com/astradial/astradial/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: 📚 Documentation
+    url: https://docs.astradial.com
+    about: Read the docs before opening an issue
