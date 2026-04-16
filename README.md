@@ -1,5 +1,12 @@
 # Astradial
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/astradial/astradial?style=social)](https://github.com/astradial/astradial/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/astradial/astradial)](https://github.com/astradial/astradial/issues)
+[![GitHub PRs](https://img.shields.io/github/issues-pr/astradial/astradial)](https://github.com/astradial/astradial/pulls)
+[![Contributors](https://img.shields.io/github/contributors/astradial/astradial)](https://github.com/astradial/astradial/graphs/contributors)
+[![Last commit](https://img.shields.io/github/last-commit/astradial/astradial)](https://github.com/astradial/astradial/commits/main)
+
 Everything your business needs to talk to customers — phone numbers, call queues, CRM, AI bots. One app, open source.
 
 Astradial is an open-source phone system for businesses. It handles call routing, CRM, AI voice bots, and automation — all in one app you can self-host with Docker.
