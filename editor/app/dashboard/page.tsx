@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getAdminKey, orgs, setAdminKey, type Org } from "@/lib/gateway/client";
 import { setOrgToken } from "@/lib/pbx/client";
 import AstradialLogo from "@/components/icons/AstradialLogo";
+import { PasswordInput } from "@/components/ui/password-input";
+
 
 interface OrgAccess {
   org_id: string;
@@ -474,9 +476,8 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   autoComplete={isSignUp ? "new-password" : "current-password"}
                   placeholder={isSignUp ? "Create a password (min 6 chars)" : "Enter password"}
                   value={password}
