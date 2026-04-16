@@ -24,17 +24,23 @@ Editor runs at http://localhost:3001 with hot reload. Backend services run in Do
 ## Git workflow
 
 ```
-feature/your-feature  →  PR to staging  →  test  →  PR to main  →  release
+fork  →  feature branch from main  →  PR to main  →  review + test  →  merge
 ```
 
-1. Create a branch from `staging`: `git checkout -b feature/your-feature staging`
-2. Make your changes
-3. Run type check: `cd editor && npx tsc --noEmit`
-4. Commit with conventional format (see below)
-5. Push and create a PR to `staging`
-6. After review and testing, PR from `staging` to `main`
+1. **Fork** the repo on GitHub
+2. **Clone your fork** and create a branch from `main`:
+   ```bash
+   git checkout -b feat/your-feature main
+   ```
+3. **Make your changes**
+4. **Run type check** (if touching the editor): `cd editor && npx tsc --noEmit`
+5. **Commit** with conventional format (see below)
+6. **Push** to your fork and **open a PR** targeting the `main` branch
+7. Maintainer reviews, tests, and merges
 
-Never push directly to `staging` or `main`.
+**PRs go directly to `main`.** Main is protected — only approved PRs can merge. Maintainers test the PR (locally or on open.astradial.com) before approving.
+
+> ℹ️ We previously used a `staging → main` flow. As of April 2026, we simplified to single-branch. Open PRs to `main` directly.
 
 ## Commit messages
 
