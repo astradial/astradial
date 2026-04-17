@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { showToast } from "@/components/ui/Toast";
 import { trunks, type PbxTrunk } from "@/lib/pbx/client";
+import { PasswordInput } from "@/components/ui/password-input";
 
 const regStatusColors: Record<string, string> = {
   registered: "default",
@@ -116,7 +117,7 @@ export default function TrunksPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Username</Label><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="SIP username" /></div>
-                <div className="space-y-1.5"><Label>Password</Label><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="SIP password" /></div>
+                <div className="space-y-1.5"><Label>Password</Label><PasswordInput value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="SIP password" /></div>
               </div>
               <div className="space-y-1.5"><Label>Max Channels</Label><Input type="number" value={form.max_channels} onChange={(e) => setForm({ ...form, max_channels: e.target.value })} /></div>
             </div>
@@ -233,7 +234,7 @@ export default function TrunksPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5"><Label>Username</Label><Input value={editForm.username} onChange={(e) => setEditForm({ ...editForm, username: e.target.value })} placeholder="SIP username" /></div>
-              <div className="space-y-1.5"><Label>Password</Label><Input type="password" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} placeholder="Leave blank to keep current" /></div>
+              <div className="space-y-1.5"><Label>Password</Label><PasswordInput value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} placeholder="Leave blank to keep current" /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
