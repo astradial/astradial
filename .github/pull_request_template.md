@@ -28,7 +28,7 @@ Closes #<!-- issue number -->
 <!-- Before / After screenshots for any editor UI changes. Delete this section if not applicable. -->
 
 ## Checklist
-- [ ] This PR targets the `staging` branch (not `main`)
+- [ ] This PR targets the `main` branch
 - [ ] Code builds: `docker compose build <service>`
 - [ ] Types pass: `cd editor && npx tsc --noEmit` (if touching editor)
 - [ ] No secrets committed (`.env`, `firebase-sa-key.json`, API keys, etc.)
