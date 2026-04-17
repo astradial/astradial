@@ -125,6 +125,12 @@ services:
       - GATEWAY_ADMIN_KEY=${INTERNAL_API_KEY:-internal-dev-key}
     networks:
       - astradial
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/api/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   workflow-engine:
     build: ./workflow-engine
