@@ -57,7 +57,7 @@ export default function DashboardPage() {
       try {
         const parsed = JSON.parse(savedOrg) as OrgAccess;
         setOrgAuth(parsed);
-      } catch {}
+      } catch { }
     }
   }, []);
 
@@ -429,16 +429,24 @@ export default function DashboardPage() {
   return (
     <div className="flex min-h-screen">
       {/* Left panel */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between bg-foreground text-background p-10">
-        <div className="flex items-center gap-2">
-          <AstradialLogo height={20} color="currentColor" />
-          <span className="text-lg font-semibold">Astradial</span>
+      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between bg-foreground text-background p-10 bg-cover bg-center" style={{ backgroundImage: "url('/images/image.png')" }}>
+        <div className="flex items-center gap-2 drop-shadow-[0_0_13px_rgba(0,0,0,0.9)]">
+          <div className="logo">
+            <a href="/" className="logo-link">
+              <div className="flex items-end">
+                <span className="font-[600] text-[24px] tracking-[-1.2px] text-[white] whitespace-nowrap overflow-hidden">Astradial</span>
+                <div className="ml-[6px] pb-[8px]">
+                  <div className="w-[5px] h-[5px] bg-[white]"></div>
+                </div>
+              </div>
+            </a>
+          </div>
         </div>
-        <blockquote className="space-y-2">
-          <p className="text-lg">
+        <blockquote className="space-y-2 drop-shadow-2xl">
+          <p className="text-lg text-white">
             &ldquo;Astradial has transformed how we manage our hotel communications. The AI voice bots handle guest calls seamlessly.&rdquo;
           </p>
-          <footer className="text-sm opacity-80">Operations Manager, Abint Palace</footer>
+          <footer className="text-sm opacity-90 text-white font-medium">Operations Manager, Abint Palace</footer>
         </blockquote>
       </div>
 
