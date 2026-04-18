@@ -15,7 +15,6 @@ const axios = require('axios');
 const crypto = require('crypto');
 const swaggerUi = require('swagger-ui-express');
 const YAML = require('yamljs');
-const helmet = require('helmet');
 
 // Import database models
 const { sequelize } = require('./models');
@@ -35,13 +34,6 @@ const apiKeyRoutes = require('./routes/apiKeys');
 
 // Initialize Express app
 const app = express();
-
-app.use(helmet({
-  contentSecurityPolicy: false,  // Disable CSP for now — Swagger UI needs inline scripts
-  crossOriginEmbedderPolicy: false,
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-}));
-
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 
