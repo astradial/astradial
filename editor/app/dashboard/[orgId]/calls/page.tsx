@@ -363,7 +363,7 @@ export default function CallsPage() {
                   ) : (
                     <Input value={callForm.caller_id} disabled className="h-8 text-xs bg-muted" />
                   )}
-                  <p className="text-[10px] text-muted-foreground">Number shown to the 'To' party</p>
+                  <p className="text-xs text-muted-foreground">Number shown to the 'To' party</p>
                 </div>
               </div>
               <DialogFooter>
@@ -401,7 +401,7 @@ export default function CallsPage() {
                   <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
                     <BookOpen className="h-3 w-3" />
                     Phonebook
-                    {phonebook.length > 0 && <Badge variant="secondary" className="h-4 px-1 text-[10px]">{phonebook.length}</Badge>}
+                    {phonebook.length > 0 && <Badge variant="secondary" className="h-4 px-1 text-xs">{phonebook.length}</Badge>}
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-sm">
@@ -484,7 +484,7 @@ export default function CallsPage() {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
                           {!!call.monitoring && (
-                            <Badge variant="outline" className="text-[10px] gap-1">
+                            <Badge variant="outline" className="text-xs gap-1">
                               <Ear className="h-3 w-3" />
                               Monitored
                             </Badge>
@@ -548,7 +548,7 @@ export default function CallsPage() {
 
           <div className="border rounded-lg flex-1 min-h-0 overflow-y-auto">
             <Table>
-              <TableHeader className="sticky top-0 bg-background z-10 shadow-[0_1px_0_0] shadow-border">
+              <TableHeader className="sticky top-0 z-10 border-b border-border bg-background">
                 <TableRow>
                   <TableHead>From</TableHead>
                   <TableHead>To</TableHead>
@@ -643,7 +643,7 @@ export default function CallsPage() {
                                 <div key={i} className="flex items-center gap-3 text-xs border-l-2 border-muted-foreground/20 pl-3 py-1">
                                   <span className="text-muted-foreground w-16 shrink-0">{format(new Date(step.time), "h:mm:ss a")}</span>
                                   <span className="font-medium w-28 shrink-0">{step.action}</span>
-                                  <Badge variant={step.status === "ANSWERED" ? "default" : "secondary"} className="text-[10px]">{step.status}</Badge>
+                                  <Badge variant={step.status === "ANSWERED" ? "default" : "secondary"} className="text-xs">{step.status}</Badge>
                                   {step.duration > 0 && <span className="text-muted-foreground">{step.duration}s</span>}
                                 </div>
                               ))}
@@ -758,7 +758,7 @@ export default function CallsPage() {
             )}
             {transferType === "external" && phonebook.length > 0 && (
               <div className="border rounded-md max-h-40 overflow-y-auto">
-                <p className="text-[10px] text-muted-foreground px-3 pt-1.5">Phonebook</p>
+                <p className="text-xs text-muted-foreground px-3 pt-1.5">Phonebook</p>
                 {phonebook.filter((c) => !userSearch || c.name.toLowerCase().includes(userSearch.toLowerCase()) || c.number.includes(userSearch)).map((c, i) => (
                   <button key={i} className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent flex justify-between" onClick={() => { setTransferDest(c.number); }}>
                     <span>{c.name}</span>
