@@ -22,6 +22,14 @@ export async function GET() {
   try {
     const token = await getAdminToken();
     if (!token) {
+      if (process.env.NEXT_PUBLIC_DEV_UI === "true") {
+        return NextResponse.json([{
+          id: "demo-org-123",
+          name: "UI Sandbox Organisation",
+          is_active: true,
+          created_at: new Date().toISOString()
+        }]);
+      }
       return NextResponse.json({ error: "Admin auth failed" }, { status: 401 });
     }
 
@@ -43,6 +51,14 @@ export async function GET() {
 
     return NextResponse.json(mapped);
   } catch (e) {
+    if (process.env.NEXT_PUBLIC_DEV_UI === "true") {
+      return NextResponse.json([{
+        id: "demo-org-123",
+        name: "UI Sandbox Organisation",
+        is_active: true,
+        created_at: new Date().toISOString()
+      }]);
+    }
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
   }
 }

@@ -31,8 +31,12 @@ function headers(): HeadersInit {
   const h: HeadersInit = { "Content-Type": "application/json" };
   const token = getOrgToken();
   const key = getApiKey();
+  const adminKey = typeof window !== "undefined" ? localStorage.getItem("gateway_admin_key") : "";
+  
   if (token) h["Authorization"] = `Bearer ${token}`;
   else if (key) h["X-API-Key"] = key;
+  else if (adminKey) h["Authorization"] = `Bearer ${adminKey}`;
+
   return h;
 }
 

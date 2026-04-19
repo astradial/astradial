@@ -2,11 +2,11 @@
 
 import { useParams, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Menu, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { AppSidebar } from "@/components/app-sidebar";
+import { SiteHeader } from "@/components/site-header";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { getAdminKey } from "@/lib/gateway/client";
 import { setOrgToken } from "@/lib/pbx/client";
 
@@ -14,7 +14,6 @@ export default function OrgLayout({ children }: { children: React.ReactNode }) {
   const { orgId } = useParams<{ orgId: string }>();
   const pathname = usePathname();
   const [orgName, setOrgName] = useState("");
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -67,14 +66,12 @@ export default function OrgLayout({ children }: { children: React.ReactNode }) {
       }
 
       // No auth available
-      setOrgName(orgId);
-      setReady(true);
+      if (typeof window !== "undefined") {
+        window.location.href = "/dashboard";
+      }
     }
     loadOrg();
   }, [orgId]);
-
-  // Close mobile sidebar on navigation
-  useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   // Bot editor page gets full screen
   if (pathname.includes("/bots/") && pathname.split("/").length > 5) {
@@ -91,27 +88,14 @@ export default function OrgLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen bg-background">
-      <div className="hidden lg:flex">
-        <Sidebar orgId={orgId} orgName={orgName || "Loading..."} />
-      </div>
-
-      <div className="flex flex-col flex-1 min-w-0">
-        <div className="lg:hidden flex items-center gap-2 border-b px-3 py-2">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMobileOpen(true)}>
-            <Menu className="h-5 w-5" />
-          </Button>
-          <span className="text-sm font-medium truncate">{orgName || "Loading..."}</span>
+    <SidebarProvider>
+      <AppSidebar orgId={orgId} variant="inset" />
+      <SidebarInset>
+        <SiteHeader />
+        <div className="flex flex-1 flex-col">
+          {children}
         </div>
-        <main className="flex-1 overflow-auto">{children}</main>
-      </div>
-
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="p-0 w-52">
-          <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <Sidebar orgId={orgId} orgName={orgName || "Loading..."} />
-        </SheetContent>
-      </Sheet>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

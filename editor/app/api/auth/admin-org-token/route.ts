@@ -28,12 +28,24 @@ export async function POST(req: NextRequest) {
     });
 
     if (!res.ok) {
+      if (process.env.NEXT_PUBLIC_DEV_UI === "true") {
+        return NextResponse.json({
+          token: "demo.jwt.token",
+          org_name: "UI Sandbox Organisation"
+        });
+      }
       return NextResponse.json({ error: "Failed to get org token" }, { status: res.status });
     }
 
     const data = await res.json();
     return NextResponse.json(data);
   } catch {
+    if (process.env.NEXT_PUBLIC_DEV_UI === "true") {
+      return NextResponse.json({
+        token: "demo.jwt.token",
+        org_name: "UI Sandbox Organisation"
+      });
+    }
     return NextResponse.json({ error: "PBX unreachable" }, { status: 502 });
   }
 }

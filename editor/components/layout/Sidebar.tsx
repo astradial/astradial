@@ -102,12 +102,12 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
   // Get user info from session
   const userEmail = typeof window !== "undefined"
     ? (() => {
-        try {
-          const orgAccess = localStorage.getItem("org_access");
-          if (orgAccess) return JSON.parse(orgAccess).email || "";
-        } catch {}
-        return isAdmin ? "admin@astradial.com" : "";
-      })()
+      try {
+        const orgAccess = localStorage.getItem("org_access");
+        if (orgAccess) return JSON.parse(orgAccess).email || "";
+      } catch { }
+      return isAdmin ? "admin@astradial.com" : "";
+    })()
     : "";
 
   function isActive(href: string) {
@@ -121,8 +121,10 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
       localStorage.removeItem("pbx_api_key");
       localStorage.removeItem("pbx_org_token");
       localStorage.removeItem("org_access");
+      localStorage.removeItem("user_role");
+      localStorage.removeItem("user_permissions");
     }
-    router.push("/dashboard");
+    window.location.href = "/dashboard";
   }
 
   // Initials from org name
@@ -159,11 +161,10 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
             {section.items.map((item) => (
               <Link key={item.href} href={`${basePath}${item.href}`}>
                 <div
-                  className={`flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] transition-colors ${
-                    isActive(item.href)
+                  className={`flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] transition-colors ${isActive(item.href)
                       ? "bg-accent text-accent-foreground font-medium"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                  }`}
+                    }`}
                 >
                   <item.icon className="h-4 w-4 shrink-0" />
                   <span className="flex-1">{item.label}</span>
@@ -232,7 +233,7 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout} className="gap-2">
-              <LogOut className="h-4 w-4" />
+              <LogOut className="h-4 w-4 bg" />
               Log out
             </DropdownMenuItem>
           </DropdownMenuContent>
