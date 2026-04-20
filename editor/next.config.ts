@@ -1,5 +1,12 @@
 import type { NextConfig } from 'next';
 
+// Dev-only seed-data mode. Strict opt-in via NEXT_PUBLIC_USE_MOCK=1 AND
+// NODE_ENV !== "production". When on, /api/{pbx,gateway,workflow}/* is routed
+// internally to /api/mock/<upstream>/* instead of the real backend.
+const USE_MOCK =
+  process.env.NODE_ENV !== 'production' &&
+  process.env.NEXT_PUBLIC_USE_MOCK === '1';
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   experimental: {
@@ -8,6 +15,13 @@ const nextConfig: NextConfig = {
     ]
   },
   async rewrites() {
+    if (USE_MOCK) {
+      return [
+        { source: '/api/gateway/:path*',  destination: '/api/mock/gateway/:path*'  },
+        { source: '/api/pbx/:path*',      destination: '/api/mock/pbx/:path*'      },
+        { source: '/api/workflow/:path*', destination: '/api/mock/workflow/:path*' },
+      ];
+    }
     return [
       {
         source: '/api/gateway/:path*',
