@@ -1,19 +1,74 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
+  IconCircleCheckFilled,
+  IconDotsVertical,
+  IconLoader,
+} from "@tabler/icons-react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type UniqueIdentifier,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+  type VisibilityState,
+} from "@tanstack/react-table";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DragHandle, DraggableRow } from "@/components/ui/data-table-parts";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showToast } from "@/components/ui/Toast";
 import { customFields, pipelines, type CustomField, type PipelineStage, DEFAULT_LEAD_STAGES, DEFAULT_DEAL_STAGES } from "@/lib/crm/client";
@@ -25,6 +80,8 @@ const FIELD_TYPE_LABELS: Record<string, string> = {
   text: "Text", number: "Number", date: "Date", select: "Select (Dropdown)",
   checkbox: "Checkbox", email: "Email", phone: "Phone", url: "URL", textarea: "Long Text",
 };
+
+type StageRow = PipelineStage & { id: string };
 
 export default function CustomizePage() {
   const { orgId } = useParams<{ orgId: string }>();
@@ -43,7 +100,6 @@ export default function CustomizePage() {
   const [leadStages, setLeadStages] = useState<PipelineStage[]>(DEFAULT_LEAD_STAGES);
   const [dealStages, setDealStages] = useState<PipelineStage[]>(DEFAULT_DEAL_STAGES);
   const [pipelineTab, setPipelineTab] = useState<"lead" | "deal">("lead");
-  const [stageFormOpen, setStageFormOpen] = useState(false);
   const [editingStage, setEditingStage] = useState<{ index: number; label: string } | null>(null);
   const [newStageLabel, setNewStageLabel] = useState("");
   const [pipelineSaving, setPipelineSaving] = useState(false);
@@ -115,14 +171,6 @@ export default function CustomizePage() {
     setCurrentStages(currentStages.filter((_, i) => i !== index).map((s, i) => ({ ...s, sort_order: i })));
   }
 
-  function moveStage(index: number, direction: -1 | 1) {
-    const newIndex = index + direction;
-    if (newIndex < 0 || newIndex >= currentStages.length) return;
-    const arr = [...currentStages];
-    [arr[index], arr[newIndex]] = [arr[newIndex], arr[index]];
-    setCurrentStages(arr.map((s, i) => ({ ...s, sort_order: i })));
-  }
-
   function renameStage(index: number, newLabel: string) {
     setCurrentStages(currentStages.map((s, i) => i === index ? { ...s, stage_label: newLabel } : s));
     setEditingStage(null);
@@ -136,6 +184,257 @@ export default function CustomizePage() {
       loadPipelines();
     } catch (e: unknown) { showToast((e as Error).message, "error"); }
     setPipelineSaving(false);
+  }
+
+  // ── Stage table wiring ──────────────────────────────────────────────────
+  // PipelineStage has no guaranteed `id`, so we map `stage_key` in for dnd.
+  const stageRows: StageRow[] = useMemo(
+    () => currentStages.map((s) => ({ ...s, id: s.id ?? s.stage_key })),
+    [currentStages]
+  );
+
+  const stageColumns: ColumnDef<StageRow>[] = [
+    {
+      id: "drag",
+      header: () => null,
+      cell: ({ row }) => <DragHandle id={row.original.id} />,
+    },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      id: "order",
+      header: "Order",
+      cell: ({ row }) => <span className="text-muted-foreground">{row.index + 1}</span>,
+    },
+    {
+      accessorKey: "stage_label",
+      header: "Stage Name",
+      cell: ({ row }) => <span className="font-medium">{row.original.stage_label}</span>,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "stage_key",
+      header: "Key",
+      cell: ({ row }) => <span className="font-mono text-xs text-muted-foreground">{row.original.stage_key}</span>,
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="flex size-8 text-muted-foreground data-[state=open]:bg-muted" size="icon">
+              <IconDotsVertical />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={() => setEditingStage({ index: row.index, label: row.original.stage_label })}>
+              <Pencil className="h-4 w-4 mr-2" />Rename
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={currentStages.length <= 2}
+              onClick={() => removeStage(row.index)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const [stageRowSelection, setStageRowSelection] = useState({});
+  const [stageColumnVisibility, setStageColumnVisibility] = useState<VisibilityState>({});
+  const [stageSorting, setStageSorting] = useState<SortingState>([]);
+  const [stagePagination, setStagePagination] = useState({ pageIndex: 0, pageSize: 10 });
+  const stageSortableId = useId();
+  const stageSensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+  const stageIds = useMemo<UniqueIdentifier[]>(() => stageRows.map((s) => s.id), [stageRows]);
+
+  const stageTable = useReactTable({
+    data: stageRows,
+    columns: stageColumns,
+    state: { sorting: stageSorting, columnVisibility: stageColumnVisibility, rowSelection: stageRowSelection, pagination: stagePagination },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setStageRowSelection,
+    onSortingChange: setStageSorting,
+    onColumnVisibilityChange: setStageColumnVisibility,
+    onPaginationChange: setStagePagination,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handleStageDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setCurrentStages((prev) => {
+        const ids = prev.map((s) => s.id ?? s.stage_key);
+        const oldIndex = ids.indexOf(active.id as string);
+        const newIndex = ids.indexOf(over.id as string);
+        if (oldIndex < 0 || newIndex < 0) return prev;
+        return arrayMove(prev, oldIndex, newIndex).map((s, i) => ({ ...s, sort_order: i }));
+      });
+    }
+  }
+
+  // ── Custom fields table wiring ─────────────────────────────────────────
+  const fieldColumns: ColumnDef<CustomField>[] = [
+    {
+      id: "drag",
+      header: () => null,
+      cell: ({ row }) => <DragHandle id={row.original.id} />,
+    },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "field_label",
+      header: "Label",
+      cell: ({ row }) => <span className="font-medium">{row.original.field_label}</span>,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "field_name",
+      header: "Field Name",
+      cell: ({ row }) => <span className="text-muted-foreground font-mono text-xs">{row.original.field_name}</span>,
+    },
+    {
+      accessorKey: "field_type",
+      header: "Type",
+      cell: ({ row }) => <Badge variant="outline">{FIELD_TYPE_LABELS[row.original.field_type] || row.original.field_type}</Badge>,
+    },
+    {
+      accessorKey: "required",
+      header: "Required",
+      cell: ({ row }) => (
+        <Badge variant="outline" className="px-1.5 text-muted-foreground">
+          {row.original.required ? (
+            <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+          ) : (
+            <IconLoader />
+          )}
+          {row.original.required ? "Required" : "Optional"}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: "options",
+      header: "Options",
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground line-clamp-1">
+          {(row.original.options || []).join(", ") || "—"}
+        </span>
+      ),
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="flex size-8 text-muted-foreground data-[state=open]:bg-muted" size="icon">
+              <IconDotsVertical />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={() => openEditField(row.original)}>
+              <Pencil className="h-4 w-4 mr-2" />Edit
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => handleDeleteField(row.original.id)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const [fieldData, setFieldData] = useState<CustomField[]>([]);
+  const [fieldRowSelection, setFieldRowSelection] = useState({});
+  const [fieldColumnVisibility, setFieldColumnVisibility] = useState<VisibilityState>({});
+  const [fieldSorting, setFieldSorting] = useState<SortingState>([]);
+  const [fieldPagination, setFieldPagination] = useState({ pageIndex: 0, pageSize: 10 });
+  const fieldSortableId = useId();
+  const fieldSensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+
+  useEffect(() => { setFieldData(filteredFields); }, [fields, activeEntityTab]);
+  const fieldIds = useMemo<UniqueIdentifier[]>(() => fieldData.map((f) => f.id), [fieldData]);
+
+  const fieldTable = useReactTable({
+    data: fieldData,
+    columns: fieldColumns,
+    state: { sorting: fieldSorting, columnVisibility: fieldColumnVisibility, rowSelection: fieldRowSelection, pagination: fieldPagination },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setFieldRowSelection,
+    onSortingChange: setFieldSorting,
+    onColumnVisibilityChange: setFieldColumnVisibility,
+    onPaginationChange: setFieldPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handleFieldDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setFieldData((prev) => {
+        const oldIndex = fieldIds.indexOf(active.id);
+        const newIndex = fieldIds.indexOf(over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
   }
 
   return (
@@ -166,33 +465,86 @@ export default function CustomizePage() {
                     <CardTitle className="text-base">{pt === "lead" ? "Lead" : "Deal"} Pipeline Stages</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-12">Order</TableHead>
-                          <TableHead>Stage Name</TableHead>
-                          <TableHead>Key</TableHead>
-                          <TableHead className="w-32"></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {currentStages.map((s, i) => (
-                          <TableRow key={s.stage_key}>
-                            <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                            <TableCell className="font-medium">{s.stage_label}</TableCell>
-                            <TableCell className="font-mono text-xs text-muted-foreground">{s.stage_key}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-1">
-                                <Button variant="ghost" size="icon" className="h-7 w-7" disabled={i === 0} onClick={() => moveStage(i, -1)}><ArrowUp className="h-3 w-3" /></Button>
-                                <Button variant="ghost" size="icon" className="h-7 w-7" disabled={i === currentStages.length - 1} onClick={() => moveStage(i, 1)}><ArrowDown className="h-3 w-3" /></Button>
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingStage({ index: i, label: s.stage_label })}><Pencil className="h-3 w-3" /></Button>
-                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeStage(i)} disabled={currentStages.length <= 2}><Trash2 className="h-3 w-3" /></Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                    <div className="overflow-hidden rounded-lg border">
+                      <DndContext
+                        collisionDetection={closestCenter}
+                        modifiers={[restrictToVerticalAxis]}
+                        onDragEnd={handleStageDragEnd}
+                        sensors={stageSensors}
+                        id={stageSortableId}
+                      >
+                        <Table>
+                          <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+                            {stageTable.getHeaderGroups().map((headerGroup) => (
+                              <TableRow key={headerGroup.id}>
+                                {headerGroup.headers.map((header) => (
+                                  <TableHead key={header.id} colSpan={header.colSpan}>
+                                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                                  </TableHead>
+                                ))}
+                              </TableRow>
+                            ))}
+                          </TableHeader>
+                          <TableBody className="**:data-[slot=table-cell]:first:w-8">
+                            {stageTable.getRowModel().rows?.length ? (
+                              <SortableContext items={stageIds} strategy={verticalListSortingStrategy}>
+                                {stageTable.getRowModel().rows.map((row) => (
+                                  <DraggableRow key={row.id} row={row} />
+                                ))}
+                              </SortableContext>
+                            ) : (
+                              <TableRow>
+                                <TableCell colSpan={stageColumns.length} className="h-24 text-center text-muted-foreground">
+                                  No stages
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </DndContext>
+                    </div>
+
+                    <div className="flex items-center justify-between px-2">
+                      <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                        {stageTable.getFilteredSelectedRowModel().rows.length} of {stageTable.getFilteredRowModel().rows.length} row(s) selected.
+                      </div>
+                      <div className="flex w-full items-center gap-8 lg:w-fit">
+                        <div className="hidden items-center gap-2 lg:flex">
+                          <Label htmlFor="stage-rows-per-page" className="text-sm font-medium">Rows per page</Label>
+                          <Select value={`${stageTable.getState().pagination.pageSize}`} onValueChange={(value) => stageTable.setPageSize(Number(value))}>
+                            <SelectTrigger className="w-20" id="stage-rows-per-page">
+                              <SelectValue placeholder={stageTable.getState().pagination.pageSize} />
+                            </SelectTrigger>
+                            <SelectContent side="top">
+                              {[10, 20, 30, 40, 50].map((pageSize) => (
+                                <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex w-fit items-center justify-center text-sm font-medium">
+                          Page {stageTable.getState().pagination.pageIndex + 1} of {stageTable.getPageCount() || 1}
+                        </div>
+                        <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                          <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => stageTable.setPageIndex(0)} disabled={!stageTable.getCanPreviousPage()}>
+                            <span className="sr-only">Go to first page</span>
+                            <IconChevronsLeft className="size-4" />
+                          </Button>
+                          <Button variant="outline" className="size-8" size="icon" onClick={() => stageTable.previousPage()} disabled={!stageTable.getCanPreviousPage()}>
+                            <span className="sr-only">Go to previous page</span>
+                            <IconChevronLeft className="size-4" />
+                          </Button>
+                          <Button variant="outline" className="size-8" size="icon" onClick={() => stageTable.nextPage()} disabled={!stageTable.getCanNextPage()}>
+                            <span className="sr-only">Go to next page</span>
+                            <IconChevronRight className="size-4" />
+                          </Button>
+                          <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => stageTable.setPageIndex(stageTable.getPageCount() - 1)} disabled={!stageTable.getCanNextPage()}>
+                            <span className="sr-only">Go to last page</span>
+                            <IconChevronsRight className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
 
                     <div className="flex items-center gap-2">
                       <Input placeholder="New stage name..." value={newStageLabel} onChange={e => setNewStageLabel(e.target.value)} className="max-w-xs" onKeyDown={e => e.key === "Enter" && addStage()} />
@@ -231,45 +583,98 @@ export default function CustomizePage() {
               <TabsContent key={t} value={t}>
                 <Card>
                   <CardHeader><CardTitle className="text-base">Custom Fields for {ENTITY_LABELS[t]}</CardTitle></CardHeader>
-                  <CardContent>
-                    {fieldsLoading ? (
-                      <p className="text-muted-foreground text-center py-8">Loading...</p>
-                    ) : filteredFields.length === 0 ? (
-                      <div className="text-center py-12">
-                        <p className="text-muted-foreground mb-2">No custom fields for {ENTITY_LABELS[t].toLowerCase()}</p>
-                        <Button variant="outline" size="sm" onClick={openCreateField}><Plus className="h-4 w-4 mr-1" /> Add First Field</Button>
+                  <CardContent className="space-y-4">
+                    <div className="overflow-hidden rounded-lg border">
+                      <DndContext
+                        collisionDetection={closestCenter}
+                        modifiers={[restrictToVerticalAxis]}
+                        onDragEnd={handleFieldDragEnd}
+                        sensors={fieldSensors}
+                        id={fieldSortableId}
+                      >
+                        <Table>
+                          <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+                            {fieldTable.getHeaderGroups().map((headerGroup) => (
+                              <TableRow key={headerGroup.id}>
+                                {headerGroup.headers.map((header) => (
+                                  <TableHead key={header.id} colSpan={header.colSpan}>
+                                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                                  </TableHead>
+                                ))}
+                              </TableRow>
+                            ))}
+                          </TableHeader>
+                          <TableBody className="**:data-[slot=table-cell]:first:w-8">
+                            {fieldsLoading ? (
+                              <TableRow>
+                                <TableCell colSpan={fieldColumns.length} className="h-24 text-center text-muted-foreground">
+                                  Loading...
+                                </TableCell>
+                              </TableRow>
+                            ) : fieldTable.getRowModel().rows?.length ? (
+                              <SortableContext items={fieldIds} strategy={verticalListSortingStrategy}>
+                                {fieldTable.getRowModel().rows.map((row) => (
+                                  <DraggableRow key={row.id} row={row} />
+                                ))}
+                              </SortableContext>
+                            ) : (
+                              <TableRow>
+                                <TableCell colSpan={fieldColumns.length} className="h-24 text-center text-muted-foreground">
+                                  <div className="flex flex-col items-center gap-2 py-6">
+                                    <p>No custom fields for {ENTITY_LABELS[t].toLowerCase()}</p>
+                                    <Button variant="outline" size="sm" onClick={openCreateField}>
+                                      <Plus className="h-4 w-4 mr-1" /> Add First Field
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </DndContext>
+                    </div>
+
+                    <div className="flex items-center justify-between px-2">
+                      <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                        {fieldTable.getFilteredSelectedRowModel().rows.length} of {fieldTable.getFilteredRowModel().rows.length} row(s) selected.
                       </div>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Label</TableHead>
-                            <TableHead>Field Name</TableHead>
-                            <TableHead>Type</TableHead>
-                            <TableHead>Required</TableHead>
-                            <TableHead>Options</TableHead>
-                            <TableHead className="w-20"></TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredFields.map(f => (
-                            <TableRow key={f.id}>
-                              <TableCell className="font-medium">{f.field_label}</TableCell>
-                              <TableCell className="text-muted-foreground font-mono text-xs">{f.field_name}</TableCell>
-                              <TableCell><Badge variant="outline">{FIELD_TYPE_LABELS[f.field_type] || f.field_type}</Badge></TableCell>
-                              <TableCell>{f.required ? <Badge variant="default">Required</Badge> : <span className="text-muted-foreground">Optional</span>}</TableCell>
-                              <TableCell className="text-xs text-muted-foreground max-w-32 truncate">{(f.options || []).join(", ") || "—"}</TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-1">
-                                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditField(f)}><Pencil className="h-4 w-4" /></Button>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
+                      <div className="flex w-full items-center gap-8 lg:w-fit">
+                        <div className="hidden items-center gap-2 lg:flex">
+                          <Label htmlFor="field-rows-per-page" className="text-sm font-medium">Rows per page</Label>
+                          <Select value={`${fieldTable.getState().pagination.pageSize}`} onValueChange={(value) => fieldTable.setPageSize(Number(value))}>
+                            <SelectTrigger className="w-20" id="field-rows-per-page">
+                              <SelectValue placeholder={fieldTable.getState().pagination.pageSize} />
+                            </SelectTrigger>
+                            <SelectContent side="top">
+                              {[10, 20, 30, 40, 50].map((pageSize) => (
+                                <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex w-fit items-center justify-center text-sm font-medium">
+                          Page {fieldTable.getState().pagination.pageIndex + 1} of {fieldTable.getPageCount() || 1}
+                        </div>
+                        <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                          <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => fieldTable.setPageIndex(0)} disabled={!fieldTable.getCanPreviousPage()}>
+                            <span className="sr-only">Go to first page</span>
+                            <IconChevronsLeft className="size-4" />
+                          </Button>
+                          <Button variant="outline" className="size-8" size="icon" onClick={() => fieldTable.previousPage()} disabled={!fieldTable.getCanPreviousPage()}>
+                            <span className="sr-only">Go to previous page</span>
+                            <IconChevronLeft className="size-4" />
+                          </Button>
+                          <Button variant="outline" className="size-8" size="icon" onClick={() => fieldTable.nextPage()} disabled={!fieldTable.getCanNextPage()}>
+                            <span className="sr-only">Go to next page</span>
+                            <IconChevronRight className="size-4" />
+                          </Button>
+                          <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => fieldTable.setPageIndex(fieldTable.getPageCount() - 1)} disabled={!fieldTable.getCanNextPage()}>
+                            <span className="sr-only">Go to last page</span>
+                            <IconChevronsRight className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>

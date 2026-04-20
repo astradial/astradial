@@ -67,17 +67,17 @@ export function NavUser({
                 <AvatarImage src={user.avatar} alt={user.name} />
                 <AvatarFallback className="rounded-lg">CN</AvatarFallback>
               </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{orgName}</span>
-                <span className="truncate text-xs text-muted-foreground">
+              <div className="block flex-1 text-left text-sm leading-tight w-full min-w-0 overflow-hidden">
+                <div className="truncate font-medium">{orgName}</div>
+                <div className="truncate text-xs text-muted-foreground">
                   {user.email}
-                </span>
+                </div>
               </div>
-              <MoreVerticalIcon className="ml-auto size-4" />
+
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
+            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={4}
@@ -88,32 +88,32 @@ export function NavUser({
                   <AvatarImage src={user.avatar} alt={user.name} />
                   <AvatarFallback className="rounded-lg">CN</AvatarFallback>
                 </Avatar>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">{user.name}</span>
-                  <span className="truncate text-xs text-muted-foreground">
+                <div className="block flex-1 text-left text-sm leading-tight w-full min-w-0 overflow-hidden">
+                  <div className="truncate font-medium">{user.name}</div>
+                  <div className="truncate text-xs text-muted-foreground">
                     {user.email}
-                  </span>
+                  </div>
                 </div>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem>
-                <UserCircleIcon />
+                {/* <IconUserCircle /> */}
                 Account
               </DropdownMenuItem>
               <DropdownMenuItem>
-                <CreditCardIcon />
+                {/* <IconCreditCard /> */}
                 Billing
               </DropdownMenuItem>
               <DropdownMenuItem>
-                <BellIcon />
+                {/* <IconNotification /> */}
                 Notifications
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout}>
-              <LogOutIcon />
+            <DropdownMenuItem>
+              {/* <IconLogout /> */}
               Log out
             </DropdownMenuItem>
           </DropdownMenuContent>

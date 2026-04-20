@@ -1,20 +1,56 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Plus, MoreHorizontal, Copy, Eye, EyeOff, Key } from "lucide-react";
+import { Plus, Copy, Eye, EyeOff } from "lucide-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
+  IconCircleCheckFilled,
+  IconDotsVertical,
+  IconLoader,
+} from "@tabler/icons-react";
 import { format } from "date-fns";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type UniqueIdentifier,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+  type VisibilityState,
+} from "@tanstack/react-table";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DragHandle, DraggableRow } from "@/components/ui/data-table-parts";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showToast } from "@/components/ui/Toast";
 import { apiKeys, type ApiKey } from "@/lib/workflow/client";
@@ -143,6 +179,284 @@ export default function WebhooksPage() {
 
   const methodColor: Record<string, string> = { GET: "secondary", POST: "default" };
 
+  // ── PBX keys data-table wiring ────────────────────────────────────────
+  const pbxColumns: ColumnDef<PbxApiKey>[] = [
+    { id: "drag", header: () => null, cell: ({ row }) => <DragHandle id={row.original.id} /> },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "name",
+      header: "Name",
+      cell: ({ row }) => <span className="font-medium text-sm">{row.original.name}</span>,
+    },
+    {
+      accessorKey: "api_key",
+      header: "API Key",
+      cell: ({ row }) => {
+        const k = row.original;
+        return (
+          <div className="flex items-center gap-1.5">
+            <code className="text-xs font-mono text-muted-foreground">{revealedKeys.has(k.id) ? k.api_key : maskKey(k.api_key)}</code>
+            <button onClick={() => toggleReveal(k.id)} className="text-muted-foreground hover:text-foreground">
+              {revealedKeys.has(k.id) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </button>
+            <button onClick={() => copyKey(k.api_key)} className="text-muted-foreground hover:text-foreground"><Copy className="h-3.5 w-3.5" /></button>
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "permissions",
+      header: "Permissions",
+      cell: ({ row }) => <Badge variant="secondary" className="text-[10px]">{(row.original.permissions || []).length} perms</Badge>,
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => (
+        <Badge variant="outline" className="px-1.5 text-muted-foreground capitalize">
+          {row.original.status === "active" ? (
+            <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+          ) : (
+            <IconLoader />
+          )}
+          {row.original.status}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: "last_used_at",
+      header: "Last Used",
+      cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.last_used_at ? format(new Date(row.original.last_used_at), "MMM d, h:mm a") : "Never"}</span>,
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="flex size-8 text-muted-foreground data-[state=open]:bg-muted" size="icon">
+              <IconDotsVertical />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={() => toggleReveal(row.original.id)}>
+              {revealedKeys.has(row.original.id) ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
+              {revealedKeys.has(row.original.id) ? "Hide Key" : "Reveal Key"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => copyKey(row.original.api_key)}>
+              <Copy className="h-4 w-4 mr-2" />Copy Key
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => handlePbxRevoke(row.original.id)}
+            >
+              Revoke
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const [pbxData, setPbxData] = useState<PbxApiKey[]>([]);
+  const [pbxRowSelection, setPbxRowSelection] = useState({});
+  const [pbxColumnVisibility, setPbxColumnVisibility] = useState<VisibilityState>({});
+  const [pbxSorting, setPbxSorting] = useState<SortingState>([]);
+  const [pbxPagination, setPbxPagination] = useState({ pageIndex: 0, pageSize: 10 });
+  const pbxSortableId = useId();
+  const pbxSensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+
+  useEffect(() => { setPbxData(pbxKeys); }, [pbxKeys]);
+  const pbxDataIds = useMemo<UniqueIdentifier[]>(() => pbxData.map((k) => k.id), [pbxData]);
+
+  const pbxTable = useReactTable({
+    data: pbxData,
+    columns: pbxColumns,
+    state: { sorting: pbxSorting, columnVisibility: pbxColumnVisibility, rowSelection: pbxRowSelection, pagination: pbxPagination },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setPbxRowSelection,
+    onSortingChange: setPbxSorting,
+    onColumnVisibilityChange: setPbxColumnVisibility,
+    onPaginationChange: setPbxPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handlePbxDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setPbxData((prev) => {
+        const oldIndex = pbxDataIds.indexOf(active.id);
+        const newIndex = pbxDataIds.indexOf(over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
+  }
+
+  // ── Workflow keys data-table wiring ───────────────────────────────────
+  const wfColumns: ColumnDef<ApiKey>[] = [
+    { id: "drag", header: () => null, cell: ({ row }) => <DragHandle id={row.original.id} /> },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "name",
+      header: "Name",
+      cell: ({ row }) => <span className="font-medium text-sm">{row.original.name}</span>,
+    },
+    {
+      accessorKey: "key",
+      header: "Key",
+      cell: ({ row }) => {
+        const k = row.original;
+        return (
+          <div className="flex items-center gap-1.5">
+            <code className="text-xs font-mono text-muted-foreground">{revealedKeys.has(k.id) ? k.key : maskKey(k.key)}</code>
+            <button onClick={() => toggleReveal(k.id)} className="text-muted-foreground hover:text-foreground">
+              {revealedKeys.has(k.id) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </button>
+            <button onClick={() => copyKey(k.key)} className="text-muted-foreground hover:text-foreground"><Copy className="h-3.5 w-3.5" /></button>
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "is_active",
+      header: "Status",
+      cell: ({ row }) => (
+        <Badge variant="outline" className="px-1.5 text-muted-foreground">
+          {row.original.is_active ? (
+            <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+          ) : (
+            <IconLoader />
+          )}
+          {row.original.is_active ? "Active" : "Inactive"}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: "last_used_at",
+      header: "Last Used",
+      cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.last_used_at ? format(new Date(row.original.last_used_at), "MMM d, h:mm a") : "Never"}</span>,
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="flex size-8 text-muted-foreground data-[state=open]:bg-muted" size="icon">
+              <IconDotsVertical />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={() => toggleReveal(row.original.id)}>
+              {revealedKeys.has(row.original.id) ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
+              {revealedKeys.has(row.original.id) ? "Hide Key" : "Reveal Key"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => copyKey(row.original.key)}>
+              <Copy className="h-4 w-4 mr-2" />Copy Key
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleWfToggle(row.original)}>
+              {row.original.is_active ? "Deactivate" : "Activate"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => handleWfDelete(row.original.id)}
+            >
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const [wfData, setWfData] = useState<ApiKey[]>([]);
+  const [wfRowSelection, setWfRowSelection] = useState({});
+  const [wfColumnVisibility, setWfColumnVisibility] = useState<VisibilityState>({});
+  const [wfSorting, setWfSorting] = useState<SortingState>([]);
+  const [wfPagination, setWfPagination] = useState({ pageIndex: 0, pageSize: 10 });
+  const wfSortableId = useId();
+  const wfSensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+
+  useEffect(() => { setWfData(wfKeys); }, [wfKeys]);
+  const wfDataIds = useMemo<UniqueIdentifier[]>(() => wfData.map((k) => k.id), [wfData]);
+
+  const wfTable = useReactTable({
+    data: wfData,
+    columns: wfColumns,
+    state: { sorting: wfSorting, columnVisibility: wfColumnVisibility, rowSelection: wfRowSelection, pagination: wfPagination },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setWfRowSelection,
+    onSortingChange: setWfSorting,
+    onColumnVisibilityChange: setWfColumnVisibility,
+    onPaginationChange: setWfPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handleWfDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setWfData((prev) => {
+        const oldIndex = wfDataIds.indexOf(active.id);
+        const newIndex = wfDataIds.indexOf(over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
+  }
+
   return (
     <div className="p-3 md:p-6 space-y-6">
       <div>
@@ -178,49 +492,88 @@ export default function WebhooksPage() {
             </Card>
           )}
 
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>API Key</TableHead>
-                  <TableHead>Permissions</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Last Used</TableHead>
-                  <TableHead className="w-16"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pbxLoading ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
-                ) : pbxKeys.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No API keys yet. Create one to start integrating.</TableCell></TableRow>
-                ) : pbxKeys.map(k => (
-                  <TableRow key={k.id}>
-                    <TableCell className="font-medium text-sm">{k.name}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <code className="text-xs font-mono text-muted-foreground">{revealedKeys.has(k.id) ? k.api_key : maskKey(k.api_key)}</code>
-                        <button onClick={() => toggleReveal(k.id)} className="text-muted-foreground hover:text-foreground"><Eye className="h-3.5 w-3.5" /></button>
-                        <button onClick={() => copyKey(k.api_key)} className="text-muted-foreground hover:text-foreground"><Copy className="h-3.5 w-3.5" /></button>
-                      </div>
-                    </TableCell>
-                    <TableCell><Badge variant="secondary" className="text-[10px]">{(k.permissions || []).length} perms</Badge></TableCell>
-                    <TableCell><Badge variant={k.status === "active" ? "default" : "secondary"} className="text-xs">{k.status}</Badge></TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{k.last_used_at ? format(new Date(k.last_used_at), "MMM d, h:mm a") : "Never"}</TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-7 w-7 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem className="text-destructive" onClick={() => handlePbxRevoke(k.id)}>Revoke</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
+          <div className="overflow-hidden rounded-lg border">
+            <DndContext
+              collisionDetection={closestCenter}
+              modifiers={[restrictToVerticalAxis]}
+              onDragEnd={handlePbxDragEnd}
+              sensors={pbxSensors}
+              id={pbxSortableId}
+            >
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+                  {pbxTable.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TableHead key={header.id} colSpan={header.colSpan}>
+                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody className="**:data-[slot=table-cell]:first:w-8">
+                  {pbxLoading ? (
+                    <TableSkeleton cols={pbxColumns.length} />
+                  ) : pbxTable.getRowModel().rows?.length ? (
+                    <SortableContext items={pbxDataIds} strategy={verticalListSortingStrategy}>
+                      {pbxTable.getRowModel().rows.map((row) => (
+                        <DraggableRow key={row.id} row={row} />
+                      ))}
+                    </SortableContext>
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={pbxColumns.length} className="h-24 text-center text-muted-foreground">
+                        No API keys yet. Create one to start integrating.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </DndContext>
+          </div>
+
+          <div className="flex items-center justify-between px-2">
+            <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+              {pbxTable.getFilteredSelectedRowModel().rows.length} of {pbxTable.getFilteredRowModel().rows.length} row(s) selected.
+            </div>
+            <div className="flex w-full items-center gap-8 lg:w-fit">
+              <div className="hidden items-center gap-2 lg:flex">
+                <Label htmlFor="pbx-rows-per-page" className="text-sm font-medium">Rows per page</Label>
+                <Select value={`${pbxTable.getState().pagination.pageSize}`} onValueChange={(value) => pbxTable.setPageSize(Number(value))}>
+                  <SelectTrigger className="w-20" id="pbx-rows-per-page">
+                    <SelectValue placeholder={pbxTable.getState().pagination.pageSize} />
+                  </SelectTrigger>
+                  <SelectContent side="top">
+                    {[10, 20, 30, 40, 50].map((pageSize) => (
+                      <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex w-fit items-center justify-center text-sm font-medium">
+                Page {pbxTable.getState().pagination.pageIndex + 1} of {pbxTable.getPageCount() || 1}
+              </div>
+              <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => pbxTable.setPageIndex(0)} disabled={!pbxTable.getCanPreviousPage()}>
+                  <span className="sr-only">Go to first page</span>
+                  <IconChevronsLeft className="size-4" />
+                </Button>
+                <Button variant="outline" className="size-8" size="icon" onClick={() => pbxTable.previousPage()} disabled={!pbxTable.getCanPreviousPage()}>
+                  <span className="sr-only">Go to previous page</span>
+                  <IconChevronLeft className="size-4" />
+                </Button>
+                <Button variant="outline" className="size-8" size="icon" onClick={() => pbxTable.nextPage()} disabled={!pbxTable.getCanNextPage()}>
+                  <span className="sr-only">Go to next page</span>
+                  <IconChevronRight className="size-4" />
+                </Button>
+                <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => pbxTable.setPageIndex(pbxTable.getPageCount() - 1)} disabled={!pbxTable.getCanNextPage()}>
+                  <span className="sr-only">Go to last page</span>
+                  <IconChevronsRight className="size-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
 
           {/* Usage examples */}
           <Card>
@@ -302,48 +655,88 @@ export default function WebhooksPage() {
             </Dialog>
           </div>
 
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Key</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Last Used</TableHead>
-                  <TableHead className="w-16"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {wfLoading ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
-                ) : wfKeys.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No workflow keys</TableCell></TableRow>
-                ) : wfKeys.map(k => (
-                  <TableRow key={k.id}>
-                    <TableCell className="font-medium text-sm">{k.name}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <code className="text-xs font-mono text-muted-foreground">{revealedKeys.has(k.id) ? k.key : maskKey(k.key)}</code>
-                        <button onClick={() => toggleReveal(k.id)} className="text-muted-foreground hover:text-foreground">{revealedKeys.has(k.id) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}</button>
-                        <button onClick={() => copyKey(k.key)} className="text-muted-foreground hover:text-foreground"><Copy className="h-3.5 w-3.5" /></button>
-                      </div>
-                    </TableCell>
-                    <TableCell><Badge variant={k.is_active ? "default" : "secondary"} className="text-xs">{k.is_active ? "Active" : "Inactive"}</Badge></TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{k.last_used_at ? format(new Date(k.last_used_at), "MMM d, h:mm a") : "Never"}</TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-7 w-7 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleWfToggle(k)}>{k.is_active ? "Deactivate" : "Activate"}</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive" onClick={() => handleWfDelete(k.id)}>Delete</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
+          <div className="overflow-hidden rounded-lg border">
+            <DndContext
+              collisionDetection={closestCenter}
+              modifiers={[restrictToVerticalAxis]}
+              onDragEnd={handleWfDragEnd}
+              sensors={wfSensors}
+              id={wfSortableId}
+            >
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+                  {wfTable.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TableHead key={header.id} colSpan={header.colSpan}>
+                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody className="**:data-[slot=table-cell]:first:w-8">
+                  {wfLoading ? (
+                    <TableSkeleton cols={wfColumns.length} />
+                  ) : wfTable.getRowModel().rows?.length ? (
+                    <SortableContext items={wfDataIds} strategy={verticalListSortingStrategy}>
+                      {wfTable.getRowModel().rows.map((row) => (
+                        <DraggableRow key={row.id} row={row} />
+                      ))}
+                    </SortableContext>
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={wfColumns.length} className="h-24 text-center text-muted-foreground">
+                        No workflow keys
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </DndContext>
+          </div>
+
+          <div className="flex items-center justify-between px-2">
+            <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+              {wfTable.getFilteredSelectedRowModel().rows.length} of {wfTable.getFilteredRowModel().rows.length} row(s) selected.
+            </div>
+            <div className="flex w-full items-center gap-8 lg:w-fit">
+              <div className="hidden items-center gap-2 lg:flex">
+                <Label htmlFor="wf-rows-per-page" className="text-sm font-medium">Rows per page</Label>
+                <Select value={`${wfTable.getState().pagination.pageSize}`} onValueChange={(value) => wfTable.setPageSize(Number(value))}>
+                  <SelectTrigger className="w-20" id="wf-rows-per-page">
+                    <SelectValue placeholder={wfTable.getState().pagination.pageSize} />
+                  </SelectTrigger>
+                  <SelectContent side="top">
+                    {[10, 20, 30, 40, 50].map((pageSize) => (
+                      <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex w-fit items-center justify-center text-sm font-medium">
+                Page {wfTable.getState().pagination.pageIndex + 1} of {wfTable.getPageCount() || 1}
+              </div>
+              <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => wfTable.setPageIndex(0)} disabled={!wfTable.getCanPreviousPage()}>
+                  <span className="sr-only">Go to first page</span>
+                  <IconChevronsLeft className="size-4" />
+                </Button>
+                <Button variant="outline" className="size-8" size="icon" onClick={() => wfTable.previousPage()} disabled={!wfTable.getCanPreviousPage()}>
+                  <span className="sr-only">Go to previous page</span>
+                  <IconChevronLeft className="size-4" />
+                </Button>
+                <Button variant="outline" className="size-8" size="icon" onClick={() => wfTable.nextPage()} disabled={!wfTable.getCanNextPage()}>
+                  <span className="sr-only">Go to next page</span>
+                  <IconChevronRight className="size-4" />
+                </Button>
+                <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => wfTable.setPageIndex(wfTable.getPageCount() - 1)} disabled={!wfTable.getCanNextPage()}>
+                  <span className="sr-only">Go to last page</span>
+                  <IconChevronsRight className="size-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
 
           <Card>
             <CardContent className="p-4 space-y-2">

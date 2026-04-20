@@ -1,19 +1,52 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { Plus, Search, Building2, MoreHorizontal, Pencil, Trash2, UserPlus } from "lucide-react";
+import { Plus, Search, Building2, Pencil, Trash2, UserPlus, Eye } from "lucide-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
+  IconDotsVertical,
+} from "@tabler/icons-react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type UniqueIdentifier,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+  type VisibilityState,
+} from "@tanstack/react-table";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DragHandle, DraggableRow } from "@/components/ui/data-table-parts";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { showToast } from "@/components/ui/Toast";
 import { Separator } from "@/components/ui/separator";
@@ -27,7 +60,9 @@ export default function ClientsPage() {
   const { orgId } = useParams<{ orgId: string }>();
   const [data, setData] = useState<Company[]>([]);
   const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
   const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [statData, setStatData] = useState<CrmStats | null>(null);
@@ -48,14 +83,15 @@ export default function ClientsPage() {
   const [assignTarget, setAssignTarget] = useState<Company | null>(null);
   const [assignTo, setAssignTo] = useState("");
 
-  useEffect(() => { load(); loadStats(); loadUsers(); }, [orgId, page, search]);
+  useEffect(() => { load(); loadStats(); loadUsers(); }, [orgId, page, limit, search]);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await companies.list({ page, limit: 25, search: search || undefined });
+      const res = await companies.list({ page, limit, search: search || undefined });
       setData(res.data);
       setTotal(res.total);
+      setPages(res.pages || 1);
     } catch (e: unknown) { showToast((e as Error).message, "error"); }
     setLoading(false);
   }
@@ -132,6 +168,155 @@ export default function ClientsPage() {
     return u ? (u.full_name || u.username) : id.slice(0, 8);
   }
 
+  // ── Data-table wiring ──
+  const columns: ColumnDef<Company>[] = [
+    {
+      id: "drag",
+      header: () => null,
+      cell: ({ row }) => <DragHandle id={row.original.id} />,
+    },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "name",
+      header: "Company",
+      cell: ({ row }) => (
+        <button
+          type="button"
+          onClick={() => openDetail(row.original)}
+          className="flex items-center gap-2 text-left font-medium hover:underline"
+        >
+          <div className="flex items-center justify-center h-8 w-8 rounded-md bg-accent text-accent-foreground text-xs font-semibold">
+            {row.original.name.charAt(0).toUpperCase()}
+          </div>
+          {row.original.name}
+        </button>
+      ),
+      enableHiding: false,
+    },
+    {
+      accessorKey: "industry",
+      header: "Industry",
+      cell: ({ row }) => <span>{row.original.industry || "—"}</span>,
+    },
+    {
+      accessorKey: "size",
+      header: "Size",
+      cell: ({ row }) => row.original.size ? <Badge variant="secondary">{row.original.size}</Badge> : <span>—</span>,
+    },
+    {
+      accessorKey: "phone",
+      header: "Phone",
+      cell: ({ row }) => <span>{row.original.phone || "—"}</span>,
+    },
+    {
+      accessorKey: "email",
+      header: "Email",
+      cell: ({ row }) => <span>{row.original.email || "—"}</span>,
+    },
+    {
+      id: "assigned",
+      header: "Assigned To",
+      cell: ({ row }) => <Badge variant="outline">{getUserName(row.original.assigned_to)}</Badge>,
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Created",
+      cell: ({ row }) => <span className="text-muted-foreground text-xs">{format(new Date(row.original.createdAt), "dd MMM yyyy")}</span>,
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              className="flex size-8 text-muted-foreground data-[state=open]:bg-muted"
+              size="icon"
+            >
+              <IconDotsVertical />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={() => openDetail(row.original)}>
+              <Eye className="h-4 w-4 mr-2" />View Details
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openEdit(row.original)}>
+              <Pencil className="h-4 w-4 mr-2" />Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { setAssignTarget(row.original); setAssignTo(row.original.assigned_to || ""); setAssignOpen(true); }}>
+              <UserPlus className="h-4 w-4 mr-2" />Assign
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => handleDelete(row.original.id)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const [rowSelection, setRowSelection] = useState({});
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const sortableId = useId();
+  const sensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+
+  const dataIds = useMemo<UniqueIdentifier[]>(() => data.map((c) => c.id), [data]);
+
+  const table = useReactTable({
+    data,
+    columns,
+    pageCount: pages,
+    state: { sorting, columnVisibility, rowSelection, pagination: { pageIndex: page - 1, pageSize: limit } },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    manualPagination: true,
+    onRowSelectionChange: setRowSelection,
+    onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setData((prev) => {
+        const oldIndex = dataIds.indexOf(active.id);
+        const newIndex = dataIds.indexOf(over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
+  }
+
   return (
     <div className="p-3 md:p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -161,69 +346,89 @@ export default function ClientsPage() {
       </div>
 
       {/* Table */}
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Company</TableHead>
-              <TableHead>Industry</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Assigned To</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="w-10"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Loading...</TableCell></TableRow>
-            ) : data.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No companies found</TableCell></TableRow>
-            ) : data.map(c => (
-              <TableRow key={c.id} className="cursor-pointer" onClick={() => openDetail(c)}>
-                <TableCell className="font-medium">
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center justify-center h-8 w-8 rounded-md bg-accent text-accent-foreground text-xs font-semibold">
-                      {c.name.charAt(0).toUpperCase()}
-                    </div>
-                    {c.name}
-                  </div>
-                </TableCell>
-                <TableCell>{c.industry || "—"}</TableCell>
-                <TableCell>{c.size ? <Badge variant="secondary">{c.size}</Badge> : "—"}</TableCell>
-                <TableCell>{c.phone || "—"}</TableCell>
-                <TableCell>{c.email || "—"}</TableCell>
-                <TableCell>
-                  <Badge variant="outline">{getUserName(c.assigned_to)}</Badge>
-                </TableCell>
-                <TableCell className="text-muted-foreground text-xs">{format(new Date(c.createdAt), "dd MMM yyyy")}</TableCell>
-                <TableCell onClick={e => e.stopPropagation()}>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => openEdit(c)}><Pencil className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setAssignTarget(c); setAssignTo(c.assigned_to || ""); setAssignOpen(true); }}><UserPlus className="h-4 w-4 mr-2" /> Assign</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(c.id)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Card>
+      <div className="overflow-hidden rounded-lg border">
+        <DndContext
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis]}
+          onDragEnd={handleDragEnd}
+          sensors={sensors}
+          id={sortableId}
+        >
+          <Table>
+            <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <TableHead key={header.id} colSpan={header.colSpan}>
+                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              ))}
+            </TableHeader>
+            <TableBody className="**:data-[slot=table-cell]:first:w-8">
+              {loading ? (
+                <TableSkeleton cols={columns.length} />
+              ) : table.getRowModel().rows?.length ? (
+                <SortableContext items={dataIds} strategy={verticalListSortingStrategy}>
+                  {table.getRowModel().rows.map((row) => (
+                    <DraggableRow key={row.id} row={row} />
+                  ))}
+                </SortableContext>
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+                    No companies found
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </DndContext>
+      </div>
 
       {/* Pagination */}
-      {total > 25 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">{total} companies</p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
-            <Button variant="outline" size="sm" disabled={page * 25 >= total} onClick={() => setPage(p => p + 1)}>Next</Button>
+      <div className="flex items-center justify-between px-2">
+        <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+          {table.getFilteredSelectedRowModel().rows.length} of {data.length} row(s) selected. {total} total.
+        </div>
+        <div className="flex w-full items-center gap-8 lg:w-fit">
+          <div className="hidden items-center gap-2 lg:flex">
+            <Label htmlFor="clients-rows-per-page" className="text-sm font-medium">Rows per page</Label>
+            <Select value={`${limit}`} onValueChange={(value) => { setLimit(Number(value)); setPage(1); }}>
+              <SelectTrigger className="w-20" id="clients-rows-per-page">
+                <SelectValue placeholder={limit} />
+              </SelectTrigger>
+              <SelectContent side="top">
+                {[10, 25, 50, 100].map((pageSize) => (
+                  <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex w-fit items-center justify-center text-sm font-medium">
+            Page {page} of {pages || 1}
+          </div>
+          <div className="ml-auto flex items-center gap-2 lg:ml-0">
+            <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => setPage(1)} disabled={page <= 1}>
+              <span className="sr-only">Go to first page</span>
+              <IconChevronsLeft className="size-4" />
+            </Button>
+            <Button variant="outline" className="size-8" size="icon" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}>
+              <span className="sr-only">Go to previous page</span>
+              <IconChevronLeft className="size-4" />
+            </Button>
+            <Button variant="outline" className="size-8" size="icon" onClick={() => setPage(p => Math.min(pages || 1, p + 1))} disabled={page >= (pages || 1)}>
+              <span className="sr-only">Go to next page</span>
+              <IconChevronRight className="size-4" />
+            </Button>
+            <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => setPage(pages || 1)} disabled={page >= (pages || 1)}>
+              <span className="sr-only">Go to last page</span>
+              <IconChevronsRight className="size-4" />
+            </Button>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Create/Edit Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>

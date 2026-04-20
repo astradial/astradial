@@ -1,11 +1,46 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Plus, QrCode, MoreHorizontal, Phone, Bot, Wifi, Pencil } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { Plus, QrCode, Phone, Bot, Wifi, Pencil } from "lucide-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
+  IconCircleCheckFilled,
+  IconDotsVertical,
+  IconLoader,
+} from "@tabler/icons-react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type UniqueIdentifier,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+  type VisibilityState,
+} from "@tanstack/react-table";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DragHandle, DraggableRow } from "@/components/ui/data-table-parts";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +54,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -128,7 +164,6 @@ export default function UsersPage() {
       showToast("User created — deploying config...", "success");
       setCreateOpen(false);
       setForm({ username: "", email: "", extension: "", full_name: "", password: "", role: "agent", routing_type: "sip", routing_destination: "", phone_number: "", ring_target: "ext" });
-      // Auto-deploy Asterisk config so the new extension is immediately usable
       try {
         await pbxConfig.deploy();
         await pbxConfig.reload();
@@ -155,6 +190,153 @@ export default function UsersPage() {
 
   const routingIcon = (u: PbxUser) => u.routing_type === "ai_agent" ? <Bot className="h-3.5 w-3.5" /> : u.ring_target === "phone" ? <Phone className="h-3.5 w-3.5" /> : <Wifi className="h-3.5 w-3.5" />;
   const routingLabel = (u: PbxUser) => u.routing_type === "ai_agent" ? "AI Bot" : u.ring_target === "phone" ? "Phone" : "SIP";
+
+  // ── Data-table wiring ──────────────────────────────────────────────────
+  const columns: ColumnDef<PbxUser>[] = [
+    {
+      id: "drag",
+      header: () => null,
+      cell: ({ row }) => <DragHandle id={row.original.id} />,
+    },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "extension",
+      header: "Ext",
+      cell: ({ row }) => <span className="font-mono text-sm">{row.original.extension}</span>,
+    },
+    {
+      accessorKey: "full_name",
+      header: "Name",
+      cell: ({ row }) => <span className="font-medium">{row.original.full_name || row.original.username}</span>,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "email",
+      header: "Email",
+      cell: ({ row }) => <span className="text-muted-foreground text-sm">{row.original.email}</span>,
+    },
+    {
+      accessorKey: "role",
+      header: "Role",
+      cell: ({ row }) => <Badge variant="outline" className="text-xs capitalize">{row.original.role}</Badge>,
+    },
+    {
+      id: "routing",
+      header: "Routing",
+      cell: ({ row }) => (
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          {routingIcon(row.original)}
+          {routingLabel(row.original)}
+        </div>
+      ),
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => (
+        <Badge variant="outline" className="px-1.5 text-muted-foreground capitalize">
+          {row.original.status === "active" ? (
+            <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+          ) : (
+            <IconLoader />
+          )}
+          {row.original.status}
+        </Badge>
+      ),
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              className="flex size-8 text-muted-foreground data-[state=open]:bg-muted"
+              size="icon"
+            >
+              <IconDotsVertical />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={() => openEdit(row.original)}>
+              <Pencil className="h-4 w-4 mr-2" />Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setQrUser(row.original)}>
+              <QrCode className="h-4 w-4 mr-2" />SIP QR Code
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => handleDelete(row.original.id)}
+            >
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const [data, setData] = useState<PbxUser[]>([]);
+  const [rowSelection, setRowSelection] = useState({});
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
+  const sortableId = useId();
+  const sensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+
+  useEffect(() => { setData(userList); }, [userList]);
+  const dataIds = useMemo<UniqueIdentifier[]>(() => data.map((u) => u.id), [data]);
+
+  const table = useReactTable({
+    data,
+    columns,
+    state: { sorting, columnVisibility, rowSelection, pagination },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
+    onPaginationChange: setPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setData((prev) => {
+        const oldIndex = dataIds.indexOf(active.id);
+        const newIndex = dataIds.indexOf(over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
+  }
 
   return (
     <div className="p-3 md:p-6 space-y-6">
@@ -225,46 +407,87 @@ export default function UsersPage() {
         </Dialog>
       </div>
 
-      <div className="border rounded-lg">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-20">Ext</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Routing</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="w-16"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableSkeleton cols={7} />
-            ) : userList.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No users yet</TableCell></TableRow>
-            ) : userList.map((user) => (
-              <TableRow key={user.id}>
-                <TableCell className="font-mono text-sm">{user.extension}</TableCell>
-                <TableCell className="font-medium">{user.full_name || user.username}</TableCell>
-                <TableCell className="text-muted-foreground text-sm">{user.email}</TableCell>
-                <TableCell><Badge variant="outline" className="text-xs capitalize">{user.role}</Badge></TableCell>
-                <TableCell><div className="flex items-center gap-1.5 text-sm text-muted-foreground">{routingIcon(user)}{routingLabel(user)}</div></TableCell>
-                <TableCell><Badge variant={user.status === "active" ? "default" : "secondary"} className="text-xs">{user.status}</Badge></TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-7 w-7 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => openEdit(user)}><Pencil className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setQrUser(user)}><QrCode className="h-4 w-4 mr-2" />SIP QR Code</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(user.id)}>Delete</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      <div className="overflow-hidden rounded-lg border">
+        <DndContext
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis]}
+          onDragEnd={handleDragEnd}
+          sensors={sensors}
+          id={sortableId}
+        >
+          <Table>
+            <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <TableHead key={header.id} colSpan={header.colSpan}>
+                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              ))}
+            </TableHeader>
+            <TableBody className="**:data-[slot=table-cell]:first:w-8">
+              {loading ? (
+                <TableSkeleton cols={columns.length} />
+              ) : table.getRowModel().rows?.length ? (
+                <SortableContext items={dataIds} strategy={verticalListSortingStrategy}>
+                  {table.getRowModel().rows.map((row) => (
+                    <DraggableRow key={row.id} row={row} />
+                  ))}
+                </SortableContext>
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+                    No users yet
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </DndContext>
+      </div>
+
+      <div className="flex items-center justify-between px-2">
+        <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+          {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s) selected.
+        </div>
+        <div className="flex w-full items-center gap-8 lg:w-fit">
+          <div className="hidden items-center gap-2 lg:flex">
+            <Label htmlFor="rows-per-page" className="text-sm font-medium">Rows per page</Label>
+            <Select value={`${table.getState().pagination.pageSize}`} onValueChange={(value) => table.setPageSize(Number(value))}>
+              <SelectTrigger className="w-20" id="rows-per-page">
+                <SelectValue placeholder={table.getState().pagination.pageSize} />
+              </SelectTrigger>
+              <SelectContent side="top">
+                {[10, 20, 30, 40, 50].map((pageSize) => (
+                  <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex w-fit items-center justify-center text-sm font-medium">
+            Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount() || 1}
+          </div>
+          <div className="ml-auto flex items-center gap-2 lg:ml-0">
+            <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>
+              <span className="sr-only">Go to first page</span>
+              <IconChevronsLeft className="size-4" />
+            </Button>
+            <Button variant="outline" className="size-8" size="icon" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+              <span className="sr-only">Go to previous page</span>
+              <IconChevronLeft className="size-4" />
+            </Button>
+            <Button variant="outline" className="size-8" size="icon" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+              <span className="sr-only">Go to next page</span>
+              <IconChevronRight className="size-4" />
+            </Button>
+            <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()}>
+              <span className="sr-only">Go to last page</span>
+              <IconChevronsRight className="size-4" />
+            </Button>
+          </div>
+        </div>
       </div>
 
       {qrUser && <SipQrDialog user={qrUser} onClose={() => setQrUser(null)} />}

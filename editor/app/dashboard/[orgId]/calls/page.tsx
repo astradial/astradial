@@ -1,12 +1,46 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useId, useMemo, useState, useCallback, useRef } from "react";
 import { format } from "date-fns";
-import { Phone, PhoneOff, Pause, ArrowRightLeft, ChevronLeft, ChevronRight, Play, Download, X, RefreshCw, BookOpen, Plus, Trash2, Ear, Mic, UserPlus, MoreHorizontal } from "lucide-react";
+import { Phone, PhoneOff, ArrowRightLeft, Play, Download, RefreshCw, BookOpen, Plus, Trash2, Ear, Mic, UserPlus } from "lucide-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
+  IconCircleCheckFilled,
+  IconDotsVertical,
+  IconLoader,
+} from "@tabler/icons-react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type UniqueIdentifier,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+  type VisibilityState,
+} from "@tanstack/react-table";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DragHandle, DraggableRow } from "@/components/ui/data-table-parts";
 import {
   Dialog,
   DialogContent,
@@ -17,9 +51,19 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -31,6 +75,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import {
   Table,
   TableBody,
@@ -42,7 +87,7 @@ import {
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showToast } from "@/components/ui/Toast";
-import { calls as pbxCalls, users as pbxUsers, queues as pbxQueues, dids as pbxDids, clickToCall, type PbxUser, type PbxQueue, type PbxDid, type LiveCall, type ActiveCall, type CallHistoryItem, type CallJourney } from "@/lib/pbx/client";
+import { calls as pbxCalls, users as pbxUsers, queues as pbxQueues, dids as pbxDids, clickToCall, type PbxUser, type PbxQueue, type PbxDid, type CallHistoryItem, type CallJourney } from "@/lib/pbx/client";
 import {
   AudioPlayerButton,
   AudioPlayerDuration,
@@ -51,6 +96,7 @@ import {
   AudioPlayerTime,
   useAudioPlayer,
 } from "@/components/ui/audio-player";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 function AutoPlayTrack({ src, id }: { src: string; id: string }) {
   const { play } = useAudioPlayer();
@@ -72,6 +118,7 @@ function formatDuration(secs: number) {
 
 export default function CallsPage() {
   const { orgId } = useParams<{ orgId: string }>();
+  const isMobile = useIsMobile();
 
   // Live calls state
   const [liveCalls, setLiveCalls] = useState<Record<string, unknown>[]>([]);
@@ -81,14 +128,15 @@ export default function CallsPage() {
   const [logs, setLogs] = useState<CallHistoryItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
-  const [expandedCall, setExpandedCall] = useState<string | null>(null);
-  const [journey, setJourney] = useState<CallJourney | null>(null);
-  const [journeyLoading, setJourneyLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [limit, setLimit] = useState(20);
   const [directionFilter, setDirectionFilter] = useState<string>("");
 
-  // Audio player
+  // Journey drawer state
+  const [drawerCall, setDrawerCall] = useState<CallHistoryItem | null>(null);
+  const [journey, setJourney] = useState<CallJourney | null>(null);
+  const [journeyLoading, setJourneyLoading] = useState(false);
   const [playingLog, setPlayingLog] = useState<(CallHistoryItem & { recording_url: string }) | null>(null);
 
   // Transfer dialog
@@ -148,12 +196,12 @@ export default function CallsPage() {
   }, []);
 
   // Load call history from PBX API
-  const loadHistory = useCallback(async (p = 1) => {
+  const loadHistory = useCallback(async (p = 1, lim = limit) => {
     setHistoryLoading(true);
     try {
       const result = await pbxCalls.history({
         page: p,
-        limit: 20,
+        limit: lim,
         direction: directionFilter || undefined,
       });
       setLogs(result.items);
@@ -165,7 +213,7 @@ export default function CallsPage() {
     } finally {
       setHistoryLoading(false);
     }
-  }, [orgId, directionFilter]);
+  }, [orgId, directionFilter, limit]);
 
   useEffect(() => {
     loadHistory(1);
@@ -254,13 +302,6 @@ export default function CallsPage() {
     }
   }
 
-  function nextPage() {
-    if (hasMore) {
-      setPage((p) => p + 1);
-      loadHistory();
-    }
-  }
-
   const filteredUsers = userList.filter((u) =>
     `${u.full_name || ""} ${u.username} ${u.extension} ${u.phone_number || ""}`.toLowerCase().includes(userSearch.toLowerCase())
   );
@@ -269,6 +310,239 @@ export default function CallsPage() {
   function cleanPhone(val: string) {
     const digits = val.replace(/\D/g, "");
     return digits.length > 10 ? digits.slice(-10) : digits;
+  }
+
+  // Open journey drawer — load journey for the clicked CDR row
+  const openJourney = useCallback(async (log: CallHistoryItem) => {
+    setDrawerCall(log);
+    setJourney(null);
+    setJourneyLoading(true);
+    try {
+      const lid = log.linkedid || log.call_id;
+      const j = await pbxCalls.journey(lid);
+      setJourney(j);
+    } catch {
+      setJourney(null);
+    } finally {
+      setJourneyLoading(false);
+    }
+  }, []);
+
+  // Play recording (sets playingLog that renders inside the drawer)
+  const playRecording = useCallback((log: CallHistoryItem) => {
+    if (!log.recording_url) return;
+    const token = typeof window !== "undefined" ? localStorage.getItem("pbx_org_token") || "" : "";
+    setPlayingLog({ ...log, recording_url: `/api/pbx/calls/${log.id}/recording?token=${token}` });
+  }, []);
+
+  // ── Call History data-table wiring ──────────────────────────────────────
+  const columns: ColumnDef<CallHistoryItem>[] = useMemo(() => [
+    {
+      id: "drag",
+      header: () => null,
+      cell: ({ row }) => <DragHandle id={row.original.id} />,
+    },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "from_number",
+      header: "From",
+      cell: ({ row }) => <span className="text-sm">{row.original.from_number || "---"}</span>,
+    },
+    {
+      accessorKey: "to_number",
+      header: "To",
+      cell: ({ row }) => <span className="text-sm">{row.original.to_number || "---"}</span>,
+    },
+    {
+      accessorKey: "talk_time",
+      header: "Duration",
+      cell: ({ row }) => <span className="text-sm">{formatDuration(row.original.talk_time || 0)}</span>,
+    },
+    {
+      accessorKey: "direction",
+      header: "Direction",
+      cell: ({ row }) => (
+        <Badge variant="outline" className="text-xs capitalize">
+          {row.original.direction || "---"}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => (
+        <Badge variant="outline" className="px-1.5 text-muted-foreground capitalize">
+          {row.original.status === "ANSWERED" ? (
+            <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+          ) : (
+            <IconLoader />
+          )}
+          {row.original.status || "---"}
+        </Badge>
+      ),
+    },
+    {
+      id: "recording",
+      header: "Recording",
+      cell: ({ row }) => {
+        const log = row.original;
+        if (!log.recording_url) return <span className="text-xs text-muted-foreground">---</span>;
+        const role = typeof window !== "undefined" ? localStorage.getItem("user_role") : null;
+        const canListen = !role || ["owner", "admin", "manager"].includes(role);
+        const canDownload = !role || ["owner", "admin"].includes(role);
+        return (
+          <div className="flex items-center gap-1">
+            {canListen ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 text-xs"
+                onClick={(e) => { e.stopPropagation(); playRecording(log); }}
+              >
+                <Play className="h-3 w-3" />Play
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 text-xs opacity-40"
+                onClick={(e) => { e.stopPropagation(); showToast("You don't have permission to access recordings", "error"); }}
+              >
+                <Play className="h-3 w-3" />Play
+              </Button>
+            )}
+            {canDownload && (
+              <a
+                href={`/api/pbx/calls/${log.id}/recording?token=${typeof window !== "undefined" ? localStorage.getItem("pbx_org_token") || "" : ""}`}
+                download
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                  <Download className="h-3 w-3" />
+                </Button>
+              </a>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "started_at",
+      header: () => <div className="text-right">Time</div>,
+      cell: ({ row }) => (
+        <div className="text-right text-sm text-muted-foreground">
+          {row.original.started_at ? format(new Date(row.original.started_at), "MMM d, h:mm a") : "---"}
+        </div>
+      ),
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => {
+        const log = row.original;
+        const role = typeof window !== "undefined" ? localStorage.getItem("user_role") : null;
+        const canListen = !role || ["owner", "admin", "manager"].includes(role);
+        const canDownload = !role || ["owner", "admin"].includes(role);
+        const token = typeof window !== "undefined" ? localStorage.getItem("pbx_org_token") || "" : "";
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="flex size-8 text-muted-foreground data-[state=open]:bg-muted"
+                size="icon"
+              >
+                <IconDotsVertical />
+                <span className="sr-only">Open menu</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={() => openJourney(log)}>
+                View Journey
+              </DropdownMenuItem>
+              {log.recording_url && canListen && (
+                <DropdownMenuItem onClick={() => playRecording(log)}>
+                  <Play className="h-4 w-4 mr-2" />Play Recording
+                </DropdownMenuItem>
+              )}
+              {log.recording_url && canDownload && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <a href={`/api/pbx/calls/${log.id}/recording?token=${token}`} download>
+                      <Download className="h-4 w-4 mr-2" />Download Recording
+                    </a>
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    },
+  ], [openJourney, playRecording]);
+
+  const [data, setData] = useState<CallHistoryItem[]>([]);
+  const [rowSelection, setRowSelection] = useState({});
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const sortableId = useId();
+  const sensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+
+  useEffect(() => { setData(logs); }, [logs]);
+  const dataIds = useMemo<UniqueIdentifier[]>(() => data.map((l) => l.id), [data]);
+
+  const table = useReactTable({
+    data,
+    columns,
+    state: {
+      sorting,
+      columnVisibility,
+      rowSelection,
+      pagination: { pageIndex: page - 1, pageSize: limit },
+    },
+    manualPagination: true,
+    pageCount: totalPages,
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setData((prev) => {
+        const oldIndex = dataIds.indexOf(active.id);
+        const newIndex = dataIds.indexOf(over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
   }
 
   return (
@@ -495,7 +769,7 @@ export default function CallsPage() {
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="outline" size="sm" className="h-7 w-7 p-0">
-                                <MoreHorizontal className="h-3.5 w-3.5" />
+                                <IconDotsVertical className="h-3.5 w-3.5" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
@@ -513,7 +787,7 @@ export default function CallsPage() {
                                   Stop Monitoring
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem className="text-destructive" onClick={() => handleHangup(String(call.channel_id))}>
+                              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleHangup(String(call.channel_id))}>
                                 <PhoneOff className="h-4 w-4 mr-2" />Hangup
                               </DropdownMenuItem>
                             </DropdownMenuContent>
@@ -546,181 +820,221 @@ export default function CallsPage() {
             </Button>
           </div>
 
-          <div className="border rounded-lg flex-1 min-h-0 overflow-y-auto">
-            <Table>
-              <TableHeader className="sticky top-0 bg-background z-10 shadow-[0_1px_0_0] shadow-border">
-                <TableRow>
-                  <TableHead>From</TableHead>
-                  <TableHead>To</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Direction</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Recording</TableHead>
-                  <TableHead className="text-right">Time</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {historyLoading ? (
-                  <TableSkeleton cols={7} />
-                ) : logs.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No call records</TableCell></TableRow>
-                ) : logs.map((log) => (<>
-                  <TableRow key={log.id} className="cursor-pointer hover:bg-muted/50" onClick={async () => {
-                    const lid = (log as any).linkedid || log.call_id;
-                    if (expandedCall === lid) { setExpandedCall(null); setJourney(null); return; }
-                    setExpandedCall(lid);
-                    setJourneyLoading(true);
-                    try { const j = await pbxCalls.journey(lid); setJourney(j); } catch { setJourney(null); }
-                    finally { setJourneyLoading(false); }
-                  }}>
-                    <TableCell className="text-sm">{log.from_number || "---"}</TableCell>
-                    <TableCell className="text-sm">{log.to_number || "---"}</TableCell>
-                    {/* Show talk_time (billsec) rather than duration (billsec+ring) so the
-                        displayed value matches the recording audio length. NO ANSWER calls
-                        will show 0s here — the Status column already conveys they weren't
-                        picked up. */}
-                    <TableCell className="text-sm">{formatDuration(log.talk_time || 0)}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs capitalize">{log.direction || "---"}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={log.status === "ANSWERED" || log.status === "completed" ? "default" : "secondary"} className="text-xs uppercase">
-                        {log.status || "---"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {/* Gate on recording_url (set to NULL by the backend when billsec=0)
-                          rather than recording_file (pre-filled at originate time before we
-                          know if the call will be answered). Prevents a broken Play button
-                          on NO ANSWER calls where no audio was ever recorded. */}
-                      {log.recording_url ? (() => {
-                        const role = typeof window !== "undefined" ? localStorage.getItem("user_role") : null;
-                        const canListen = !role || ["owner", "admin", "manager"].includes(role);
-                        const canDownload = !role || ["owner", "admin"].includes(role);
-                        return (
-                          <div className="flex items-center gap-1">
-                            {canListen ? (
-                              <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs" onClick={() => { const token = typeof window !== "undefined" ? localStorage.getItem("pbx_org_token") || "" : ""; setPlayingLog({ ...log, recording_url: `/api/pbx/calls/${log.id}/recording?token=${token}` }); }}>
-                                <Play className="h-3 w-3" />Play
-                              </Button>
-                            ) : (
-                              <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs opacity-40" onClick={() => showToast("You don't have permission to access recordings", "error")}>
-                                <Play className="h-3 w-3" />Play
-                              </Button>
-                            )}
-                            {canDownload && (
-                              <a href={`/api/pbx/calls/${log.id}/recording?token=${typeof window !== "undefined" ? localStorage.getItem("pbx_org_token") || "" : ""}`} download>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                                  <Download className="h-3 w-3" />
-                                </Button>
-                              </a>
-                            )}
-                          </div>
-                        );
-                      })() : (
-                        <span className="text-xs text-muted-foreground">---</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right text-sm text-muted-foreground">
-                      {log.started_at ? format(new Date(log.started_at), "MMM d, h:mm a") : "---"}
-                    </TableCell>
-                  </TableRow>
-                  {expandedCall === ((log as any).linkedid || log.call_id) && (
+          <div className="overflow-hidden rounded-lg border flex-1 min-h-0 overflow-y-auto">
+            <DndContext
+              collisionDetection={closestCenter}
+              modifiers={[restrictToVerticalAxis]}
+              onDragEnd={handleDragEnd}
+              sensors={sensors}
+              id={sortableId}
+            >
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TableHead key={header.id} colSpan={header.colSpan}>
+                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody className="**:data-[slot=table-cell]:first:w-8">
+                  {historyLoading ? (
+                    <TableSkeleton cols={columns.length} />
+                  ) : table.getRowModel().rows?.length ? (
+                    <SortableContext items={dataIds} strategy={verticalListSortingStrategy}>
+                      {table.getRowModel().rows.map((row) => (
+                        <DraggableRow key={row.id} row={row} />
+                      ))}
+                    </SortableContext>
+                  ) : (
                     <TableRow>
-                      <TableCell colSpan={7} className="bg-muted/30 p-4">
-                        {journeyLoading ? (
-                          <p className="text-sm text-muted-foreground">Loading call journey...</p>
-                        ) : journey ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-4 text-sm">
-                              <span className="font-medium">Call Journey</span>
-                              <Badge variant={journey.status === "answered" ? "default" : "secondary"}>{journey.status}</Badge>
-                              {journey.answered_by && <span className="text-muted-foreground">Answered by ext {journey.answered_by}</span>}
-                              <span className="text-muted-foreground">{journey.total_duration}s total</span>
-                            </div>
-                            <div className="space-y-1">
-                              {journey.steps.filter(s => !s.channel.includes("UnicastRTP")).map((step, i) => (
-                                <div key={i} className="flex items-center gap-3 text-xs border-l-2 border-muted-foreground/20 pl-3 py-1">
-                                  <span className="text-muted-foreground w-16 shrink-0">{format(new Date(step.time), "h:mm:ss a")}</span>
-                                  <span className="font-medium w-28 shrink-0">{step.action}</span>
-                                  <Badge variant={step.status === "ANSWERED" ? "default" : "secondary"} className="text-[10px]">{step.status}</Badge>
-                                  {step.duration > 0 && <span className="text-muted-foreground">{step.duration}s</span>}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">No journey data</p>
-                        )}
+                      <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+                        No call records
                       </TableCell>
                     </TableRow>
                   )}
-                </>))}
-              </TableBody>
-            </Table>
+                </TableBody>
+              </Table>
+            </DndContext>
           </div>
 
-          {/* Pagination — fixed at bottom */}
-          <div className="flex items-center justify-between pt-3 pb-2 shrink-0">
-            <p className="text-xs text-muted-foreground">Page {page} of {totalPages}</p>
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" className="h-7" disabled={page <= 1} onClick={() => loadHistory(page - 1)}>
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </Button>
-              <Button variant="outline" size="sm" className="h-7" disabled={!hasMore} onClick={() => loadHistory(page + 1)}>
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
+          <div className="flex items-center justify-between px-2 pt-3 pb-2 shrink-0">
+            <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+              {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s) selected.
+            </div>
+            <div className="flex w-full items-center gap-8 lg:w-fit">
+              <div className="hidden items-center gap-2 lg:flex">
+                <Label htmlFor="rows-per-page" className="text-sm font-medium">Rows per page</Label>
+                <Select
+                  value={`${limit}`}
+                  onValueChange={(value) => {
+                    const newLimit = Number(value);
+                    setLimit(newLimit);
+                    loadHistory(1, newLimit);
+                  }}
+                >
+                  <SelectTrigger className="w-20" id="rows-per-page">
+                    <SelectValue placeholder={limit} />
+                  </SelectTrigger>
+                  <SelectContent side="top">
+                    {[10, 20, 30, 40, 50].map((pageSize) => (
+                      <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex w-fit items-center justify-center text-sm font-medium">
+                Page {page} of {totalPages || 1}
+              </div>
+              <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                <Button
+                  variant="outline"
+                  className="hidden h-8 w-8 p-0 lg:flex"
+                  onClick={() => loadHistory(1)}
+                  disabled={page <= 1 || historyLoading}
+                >
+                  <span className="sr-only">Go to first page</span>
+                  <IconChevronsLeft className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="size-8"
+                  size="icon"
+                  onClick={() => loadHistory(page - 1)}
+                  disabled={page <= 1 || historyLoading}
+                >
+                  <span className="sr-only">Go to previous page</span>
+                  <IconChevronLeft className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="size-8"
+                  size="icon"
+                  onClick={() => loadHistory(page + 1)}
+                  disabled={!hasMore || historyLoading}
+                >
+                  <span className="sr-only">Go to next page</span>
+                  <IconChevronRight className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="hidden size-8 lg:flex"
+                  size="icon"
+                  onClick={() => loadHistory(totalPages)}
+                  disabled={page >= totalPages || historyLoading}
+                >
+                  <span className="sr-only">Go to last page</span>
+                  <IconChevronsRight className="size-4" />
+                </Button>
+              </div>
             </div>
           </div>
         </TabsContent>
       </Tabs>
 
-      {/* Audio Player Popup */}
-      {playingLog && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg">
-          <div className="bg-card border rounded-xl shadow-lg p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-sm">
-                <span className="font-medium">{playingLog.from_number || "Unknown"}</span>
-                <span className="text-muted-foreground mx-1.5">&rarr;</span>
-                <span>{playingLog.to_number || "---"}</span>
-                <span className="text-muted-foreground ml-2 text-xs">
-                  {playingLog.started_at ? format(new Date(playingLog.started_at), "MMM d, h:mm a") : ""}
-                </span>
-                {playingLog.duration > 0 && (
-                  <span className="text-muted-foreground ml-2 text-xs">{formatDuration(playingLog.duration)}</span>
-                )}
-              </div>
-              <div className="flex items-center gap-1">
-                <a href={playingLog.recording_url} download>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                    <Download className="h-3.5 w-3.5" />
-                  </Button>
-                </a>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setPlayingLog(null)}>
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-            <AudioPlayerProvider key={playingLog.id}>
-              <AutoPlayTrack src={playingLog.recording_url} id={playingLog.id} />
-              <div className="flex items-center gap-3">
-                <AudioPlayerButton
-                  item={{ id: playingLog.id, src: playingLog.recording_url }}
-                  size="sm"
-                  className="h-8 w-8 shrink-0"
-                />
-                <AudioPlayerProgress className="flex-1" />
-                <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0 tabular-nums">
-                  <AudioPlayerTime />
-                  <span>/</span>
-                  <AudioPlayerDuration fallbackSeconds={playingLog.duration} />
+      {/* Journey + Recording Drawer */}
+      <Drawer
+        direction={isMobile ? "bottom" : "right"}
+        open={!!drawerCall}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDrawerCall(null);
+            setJourney(null);
+            setPlayingLog(null);
+          }
+        }}
+      >
+        <DrawerContent>
+          <DrawerHeader className="gap-1">
+            <DrawerTitle>
+              {drawerCall?.from_number || "---"} → {drawerCall?.to_number || "---"}
+            </DrawerTitle>
+            <DrawerDescription>
+              {drawerCall?.started_at ? format(new Date(drawerCall.started_at), "MMM d, h:mm a") : "Call details"}
+            </DrawerDescription>
+          </DrawerHeader>
+          <div className="flex flex-col gap-4 overflow-y-auto px-4 text-sm pb-4">
+            {/* Journey */}
+            {journeyLoading ? (
+              <p className="text-sm text-muted-foreground">Loading call journey...</p>
+            ) : journey ? (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <span className="font-medium">Call Journey</span>
+                  <Badge variant={journey.status === "answered" ? "default" : "secondary"}>{journey.status}</Badge>
+                  {journey.answered_by && <span className="text-muted-foreground">Answered by ext {journey.answered_by}</span>}
+                  <span className="text-muted-foreground">{journey.total_duration}s total</span>
+                </div>
+                <div className="space-y-1">
+                  {journey.steps.filter(s => !s.channel.includes("UnicastRTP")).map((step, i) => (
+                    <div key={i} className="flex items-center gap-3 text-xs border-l-2 border-muted-foreground/20 pl-3 py-1">
+                      <span className="text-muted-foreground w-16 shrink-0">{format(new Date(step.time), "h:mm:ss a")}</span>
+                      <span className="font-medium w-28 shrink-0">{step.action}</span>
+                      <Badge variant={step.status === "ANSWERED" ? "default" : "secondary"} className="text-[10px]">{step.status}</Badge>
+                      {step.duration > 0 && <span className="text-muted-foreground">{step.duration}s</span>}
+                    </div>
+                  ))}
                 </div>
               </div>
-            </AudioPlayerProvider>
+            ) : drawerCall ? (
+              <p className="text-sm text-muted-foreground">No journey data</p>
+            ) : null}
+
+            <Separator />
+
+            {/* Recording player */}
+            {playingLog ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Recording</span>
+                  <a href={playingLog.recording_url} download>
+                    <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs">
+                      <Download className="h-3.5 w-3.5" />
+                      Download
+                    </Button>
+                  </a>
+                </div>
+                <AudioPlayerProvider key={playingLog.id}>
+                  <AutoPlayTrack src={playingLog.recording_url} id={playingLog.id} />
+                  <div className="flex items-center gap-3">
+                    <AudioPlayerButton
+                      item={{ id: playingLog.id, src: playingLog.recording_url }}
+                      size="sm"
+                      className="h-8 w-8 shrink-0"
+                    />
+                    <AudioPlayerProgress className="flex-1" />
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0 tabular-nums">
+                      <AudioPlayerTime />
+                      <span>/</span>
+                      <AudioPlayerDuration fallbackSeconds={playingLog.duration} />
+                    </div>
+                  </div>
+                </AudioPlayerProvider>
+              </div>
+            ) : drawerCall?.recording_url ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-fit gap-1.5 text-xs"
+                onClick={() => drawerCall && playRecording(drawerCall)}
+              >
+                <Play className="h-3.5 w-3.5" />
+                Play Recording
+              </Button>
+            ) : (
+              <p className="text-xs text-muted-foreground">No recording available</p>
+            )}
           </div>
-        </div>
-      )}
+          <DrawerFooter>
+            <DrawerClose asChild>
+              <Button variant="outline">Close</Button>
+            </DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
 
       {/* Transfer Dialog */}
       <Dialog open={!!transferChannel} onOpenChange={(open) => !open && setTransferChannel(null)}>

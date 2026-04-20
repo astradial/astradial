@@ -1,24 +1,58 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { format } from "date-fns";
-import { Plus, MoreHorizontal, Phone, ShoppingCart, Clock, Check, X } from "lucide-react";
+import { Plus, Phone, ShoppingCart, Clock } from "lucide-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
+  IconCircleCheckFilled,
+  IconDotsVertical,
+  IconLoader,
+} from "@tabler/icons-react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type UniqueIdentifier,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+  type VisibilityState,
+} from "@tanstack/react-table";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DragHandle, DraggableRow } from "@/components/ui/data-table-parts";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showToast } from "@/components/ui/Toast";
 import { didPool, type PoolDid, type MyDidsResponse } from "@/lib/did-pool/client";
-import { Textarea } from "@/components/ui/textarea";
 import { dids, users, queues, type PbxUser, type PbxQueue } from "@/lib/pbx/client";
 
 export default function DidsPage() {
@@ -171,6 +205,136 @@ export default function DidsPage() {
     return num;
   }
 
+  // ── Data-table wiring (assigned numbers) ───────────────────────────────
+  const columns: ColumnDef<PoolDid>[] = useMemo(() => [
+    {
+      id: "drag",
+      header: () => null,
+      cell: ({ row }) => <DragHandle id={row.original.id} />,
+    },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "number",
+      header: "Number",
+      cell: ({ row }) => <span className="font-mono text-sm">{formatNumber(row.original.number)}</span>,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "description",
+      header: "Description",
+      cell: ({ row }) => <span>{row.original.description || "—"}</span>,
+    },
+    {
+      accessorKey: "routing_type",
+      header: "Routing",
+      cell: ({ row }) => (
+        row.original.routing_type
+          ? <Badge variant="outline" className="text-xs capitalize">{row.original.routing_type}</Badge>
+          : <Badge variant="secondary" className="text-xs">Not configured</Badge>
+      ),
+    },
+    {
+      accessorKey: "routing_destination",
+      header: "Destination",
+      cell: ({ row }) => <span className="font-mono text-sm max-w-[200px] truncate block">{row.original.routing_destination || "—"}</span>,
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => (
+        <Badge variant="outline" className="px-1.5 text-muted-foreground capitalize">
+          {row.original.status === "active" ? (
+            <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+          ) : (
+            <IconLoader />
+          )}
+          {row.original.status}
+        </Badge>
+      ),
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              className="flex size-8 text-muted-foreground data-[state=open]:bg-muted"
+              size="icon"
+            >
+              <IconDotsVertical />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onClick={() => openEdit(row.original)}>Configure Routing</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], []);
+
+  const [data, setData] = useState<PoolDid[]>([]);
+  const [rowSelection, setRowSelection] = useState({});
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
+  const sortableId = useId();
+  const sensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+
+  useEffect(() => { setData(myData.assigned); }, [myData.assigned]);
+  const dataIds = useMemo<UniqueIdentifier[]>(() => data.map((d) => d.id), [data]);
+
+  const table = useReactTable({
+    data,
+    columns,
+    state: { sorting, columnVisibility, rowSelection, pagination },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
+    onPaginationChange: setPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setData((prev) => {
+        const oldIndex = dataIds.indexOf(active.id);
+        const newIndex = dataIds.indexOf(over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
+  }
+
   return (
     <div className="p-3 md:p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -245,45 +409,90 @@ export default function DidsPage() {
           )}
 
           {/* Assigned numbers */}
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Number</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Routing</TableHead>
-                  <TableHead>Destination</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-16"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
-                ) : myData.assigned.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No numbers assigned. Go to "Buy a Number" to get started.</TableCell></TableRow>
-                ) : myData.assigned.map(did => (
-                  <TableRow key={did.id}>
-                    <TableCell className="font-mono text-sm">{formatNumber(did.number)}</TableCell>
-                    <TableCell>{did.description || "—"}</TableCell>
-                    <TableCell>
-                      {did.routing_type ? <Badge variant="outline" className="text-xs capitalize">{did.routing_type}</Badge> : <Badge variant="secondary" className="text-xs">Not configured</Badge>}
-                    </TableCell>
-                    <TableCell className="font-mono text-sm max-w-[200px] truncate">{did.routing_destination || "—"}</TableCell>
-                    <TableCell><Badge variant={did.status === "active" ? "default" : "secondary"} className="text-xs">{did.status}</Badge></TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-7 w-7 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEdit(did)}>Configure Routing</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
+          <div className="space-y-4">
+            <div className="overflow-hidden rounded-lg border">
+              <DndContext
+                collisionDetection={closestCenter}
+                modifiers={[restrictToVerticalAxis]}
+                onDragEnd={handleDragEnd}
+                sensors={sensors}
+                id={sortableId}
+              >
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+                    {table.getHeaderGroups().map((headerGroup) => (
+                      <TableRow key={headerGroup.id}>
+                        {headerGroup.headers.map((header) => (
+                          <TableHead key={header.id} colSpan={header.colSpan}>
+                            {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableHeader>
+                  <TableBody className="**:data-[slot=table-cell]:first:w-8">
+                    {loading ? (
+                      <TableSkeleton cols={columns.length} />
+                    ) : table.getRowModel().rows?.length ? (
+                      <SortableContext items={dataIds} strategy={verticalListSortingStrategy}>
+                        {table.getRowModel().rows.map((row) => (
+                          <DraggableRow key={row.id} row={row} />
+                        ))}
+                      </SortableContext>
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+                          No numbers assigned. Go to &quot;Buy a Number&quot; to get started.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </DndContext>
+            </div>
+
+            <div className="flex items-center justify-between px-2">
+              <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s) selected.
+              </div>
+              <div className="flex w-full items-center gap-8 lg:w-fit">
+                <div className="hidden items-center gap-2 lg:flex">
+                  <Label htmlFor="rows-per-page" className="text-sm font-medium">Rows per page</Label>
+                  <Select value={`${table.getState().pagination.pageSize}`} onValueChange={(value) => table.setPageSize(Number(value))}>
+                    <SelectTrigger className="w-20" id="rows-per-page">
+                      <SelectValue placeholder={table.getState().pagination.pageSize} />
+                    </SelectTrigger>
+                    <SelectContent side="top">
+                      {[10, 20, 30, 40, 50].map((pageSize) => (
+                        <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex w-fit items-center justify-center text-sm font-medium">
+                  Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount() || 1}
+                </div>
+                <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                  <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>
+                    <span className="sr-only">Go to first page</span>
+                    <IconChevronsLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+                    <span className="sr-only">Go to previous page</span>
+                    <IconChevronLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+                    <span className="sr-only">Go to next page</span>
+                    <IconChevronRight className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()}>
+                    <span className="sr-only">Go to last page</span>
+                    <IconChevronsRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
         </TabsContent>
 
         {/* ── BUY A NUMBER TAB ── */}

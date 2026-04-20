@@ -1,19 +1,71 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { format } from "date-fns";
 import { BadgeCheck, Key, Phone, FileText, MessageSquare, RefreshCw } from "lucide-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
+  IconCircleCheckFilled,
+  IconDotsVertical,
+  IconLoader,
+} from "@tabler/icons-react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type UniqueIdentifier,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+  type VisibilityState,
+} from "@tanstack/react-table";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DragHandle, DraggableRow } from "@/components/ui/data-table-parts";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showToast } from "@/components/ui/Toast";
 import { msg91, type Msg91Config, type Msg91Number, type Msg91Template } from "@/lib/msg91/client";
+
+type TemplateRow = Msg91Template & { id: string };
+type LogRow = Record<string, unknown> & { id: string };
 
 export default function WhatsAppPage() {
   const { orgId } = useParams<{ orgId: string }>();
@@ -79,12 +131,275 @@ export default function WhatsAppPage() {
     finally { setLoadingLogs(false); }
   }
 
-  function statusColor(status: string) {
-    if (status === "read") return "bg-green-600 text-white";
-    if (status === "delivered") return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
-    if (status === "sent") return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
-    if (status === "failed") return "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300";
-    return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
+  // ── Templates table wiring ──────────────────────────────────────────
+  const templateRows: TemplateRow[] = useMemo(
+    () => templates.map((t, i) => ({ ...t, id: String(t.name || `tpl-${i}`) + `-${i}` })),
+    [templates]
+  );
+
+  const templateColumns: ColumnDef<TemplateRow>[] = [
+    { id: "drag", header: () => null, cell: ({ row }) => <DragHandle id={row.original.id} /> },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "name",
+      header: "Name",
+      cell: ({ row }) => <span className="font-medium text-sm">{String(row.original.name || "—")}</span>,
+      enableHiding: false,
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: ({ row }) => {
+        const langs = (row.original as Record<string, unknown>).languages as Record<string, unknown>[] || [];
+        const fl = langs[0] || {};
+        const status = String(fl.status || "");
+        const isApproved = status === "APPROVED";
+        return (
+          <Badge variant="outline" className="px-1.5 text-muted-foreground">
+            {isApproved ? (
+              <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+            ) : (
+              <IconLoader />
+            )}
+            {status || "—"}
+          </Badge>
+        );
+      },
+    },
+    {
+      id: "language",
+      header: "Language",
+      cell: ({ row }) => {
+        const langs = (row.original as Record<string, unknown>).languages as Record<string, unknown>[] || [];
+        const fl = langs[0] || {};
+        return <span className="text-xs">{String(fl.language || "—")}</span>;
+      },
+    },
+    {
+      id: "components",
+      header: "Components",
+      cell: ({ row }) => {
+        const langs = (row.original as Record<string, unknown>).languages as Record<string, unknown>[] || [];
+        const fl = langs[0] || {};
+        const vars = (fl.variables as string[]) || [];
+        return <span className="text-xs text-muted-foreground">{vars.length > 0 ? vars.join(", ") : "No variables"}</span>;
+      },
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="flex size-8 text-muted-foreground data-[state=open]:bg-muted" size="icon">
+              <IconDotsVertical />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem
+              onClick={() => {
+                navigator.clipboard.writeText(String(row.original.name || ""));
+                showToast("Name copied", "success");
+              }}
+            >
+              Copy Name
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const [templateData, setTemplateData] = useState<TemplateRow[]>([]);
+  const [templateRowSelection, setTemplateRowSelection] = useState({});
+  const [templateColumnVisibility, setTemplateColumnVisibility] = useState<VisibilityState>({});
+  const [templateSorting, setTemplateSorting] = useState<SortingState>([]);
+  const [templatePagination, setTemplatePagination] = useState({ pageIndex: 0, pageSize: 10 });
+  const templateSortableId = useId();
+  const templateSensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+
+  useEffect(() => { setTemplateData(templateRows); }, [templateRows]);
+  const templateDataIds = useMemo<UniqueIdentifier[]>(() => templateData.map((t) => t.id), [templateData]);
+
+  const templateTable = useReactTable({
+    data: templateData,
+    columns: templateColumns,
+    state: { sorting: templateSorting, columnVisibility: templateColumnVisibility, rowSelection: templateRowSelection, pagination: templatePagination },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setTemplateRowSelection,
+    onSortingChange: setTemplateSorting,
+    onColumnVisibilityChange: setTemplateColumnVisibility,
+    onPaginationChange: setTemplatePagination,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handleTemplateDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setTemplateData((prev) => {
+        const oldIndex = templateDataIds.indexOf(active.id);
+        const newIndex = templateDataIds.indexOf(over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
+  }
+
+  // ── Logs table wiring ────────────────────────────────────────────────
+  const logRows: LogRow[] = useMemo(
+    () => logs.map((l, i) => ({ ...l, id: `log-${i}-${String(l.requestId || l.requestedAt || i)}` })),
+    [logs]
+  );
+
+  const logColumns: ColumnDef<LogRow>[] = [
+    { id: "drag", header: () => null, cell: ({ row }) => <DragHandle id={row.original.id} /> },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "customerNumber",
+      header: "Customer Number",
+      cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.customerNumber || "—")}</span>,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "templateName",
+      header: "Template Name",
+      cell: ({ row }) => <span className="text-sm">{String(row.original.templateName || "—")}</span>,
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => {
+        const st = String(row.original.status || "—");
+        const isDelivered = st === "delivered" || st === "read";
+        return (
+          <Badge variant="outline" className="px-1.5 text-muted-foreground capitalize">
+            {isDelivered ? (
+              <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+            ) : (
+              <IconLoader />
+            )}
+            {st}
+          </Badge>
+        );
+      },
+    },
+    {
+      accessorKey: "requestedAt",
+      header: "Requested At",
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground">
+          {row.original.requestedAt ? format(new Date(String(row.original.requestedAt)), "h:mm a") : "—"}
+        </span>
+      ),
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="flex size-8 text-muted-foreground data-[state=open]:bg-muted" size="icon">
+              <IconDotsVertical />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem
+              onClick={() => {
+                navigator.clipboard.writeText(String(row.original.customerNumber || ""));
+                showToast("Number copied", "success");
+              }}
+            >
+              Copy Number
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const [logData, setLogData] = useState<LogRow[]>([]);
+  const [logRowSelection, setLogRowSelection] = useState({});
+  const [logColumnVisibility, setLogColumnVisibility] = useState<VisibilityState>({});
+  const [logSorting, setLogSorting] = useState<SortingState>([]);
+  const [logPagination, setLogPagination] = useState({ pageIndex: 0, pageSize: 10 });
+  const logSortableId = useId();
+  const logSensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+
+  useEffect(() => { setLogData(logRows); }, [logRows]);
+  const logDataIds = useMemo<UniqueIdentifier[]>(() => logData.map((l) => l.id), [logData]);
+
+  const logTable = useReactTable({
+    data: logData,
+    columns: logColumns,
+    state: { sorting: logSorting, columnVisibility: logColumnVisibility, rowSelection: logRowSelection, pagination: logPagination },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setLogRowSelection,
+    onSortingChange: setLogSorting,
+    onColumnVisibilityChange: setLogColumnVisibility,
+    onPaginationChange: setLogPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handleLogDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setLogData((prev) => {
+        const oldIndex = logDataIds.indexOf(active.id);
+        const newIndex = logDataIds.indexOf(over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
   }
 
   return (
@@ -147,7 +462,7 @@ export default function WhatsAppPage() {
                     ))}
                   </div>
                 ) : numbers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4">Click "Fetch Numbers" to load available WhatsApp numbers.</p>
+                  <p className="text-sm text-muted-foreground py-4">Click &quot;Fetch Numbers&quot; to load available WhatsApp numbers.</p>
                 ) : (
                   <div className="space-y-2">
                     {numbers.map((n, i) => {
@@ -177,38 +492,89 @@ export default function WhatsAppPage() {
                 {loadingTemplates ? "Loading..." : "Fetch Templates"}
               </Button>
             </div>
-            <div className="border rounded-lg flex-1 min-h-0 overflow-y-auto">
-              <Table>
-                <TableHeader className="sticky top-0 bg-background z-10 shadow-[0_1px_0_0] shadow-border">
-                  <TableRow>
-                    <TableHead className="w-[30%]">Name</TableHead>
-                    <TableHead className="w-[15%]">Status</TableHead>
-                    <TableHead className="w-[15%]">Language</TableHead>
-                    <TableHead className="w-[40%]">Components</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loadingTemplates ? (
-                    <TableSkeleton cols={4} />
-                  ) : templates.length === 0 ? (
-                    <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                      {selectedNumber ? "Click 'Fetch Templates' to load" : "Select a number first (Phone Numbers tab)"}
-                    </TableCell></TableRow>
-                  ) : templates.map((t, i) => {
-                    const langs = (t as Record<string, unknown>).languages as Record<string, unknown>[] || [];
-                    const fl = langs[0] || {};
-                    const vars = (fl.variables as string[]) || [];
-                    return (
-                      <TableRow key={i}>
-                        <TableCell className="font-medium text-sm">{String(t.name || "—")}</TableCell>
-                        <TableCell><Badge variant={String(fl.status) === "APPROVED" ? "default" : "secondary"} className="text-[10px]">{String(fl.status || "—")}</Badge></TableCell>
-                        <TableCell className="text-xs">{String(fl.language || "—")}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{vars.length > 0 ? vars.join(", ") : "No variables"}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+            <div className="overflow-hidden rounded-lg border flex-1 min-h-0 flex flex-col">
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <DndContext
+                  collisionDetection={closestCenter}
+                  modifiers={[restrictToVerticalAxis]}
+                  onDragEnd={handleTemplateDragEnd}
+                  sensors={templateSensors}
+                  id={templateSortableId}
+                >
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+                      {templateTable.getHeaderGroups().map((headerGroup) => (
+                        <TableRow key={headerGroup.id}>
+                          {headerGroup.headers.map((header) => (
+                            <TableHead key={header.id} colSpan={header.colSpan}>
+                              {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                            </TableHead>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableHeader>
+                    <TableBody className="**:data-[slot=table-cell]:first:w-8">
+                      {loadingTemplates ? (
+                        <TableSkeleton cols={templateColumns.length} />
+                      ) : templateTable.getRowModel().rows?.length ? (
+                        <SortableContext items={templateDataIds} strategy={verticalListSortingStrategy}>
+                          {templateTable.getRowModel().rows.map((row) => (
+                            <DraggableRow key={row.id} row={row} />
+                          ))}
+                        </SortableContext>
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={templateColumns.length} className="h-24 text-center text-muted-foreground">
+                            {selectedNumber ? "Click 'Fetch Templates' to load" : "Select a number first (Phone Numbers tab)"}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </DndContext>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between px-2 mt-3 shrink-0">
+              <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                {templateTable.getFilteredSelectedRowModel().rows.length} of {templateTable.getFilteredRowModel().rows.length} row(s) selected.
+              </div>
+              <div className="flex w-full items-center gap-8 lg:w-fit">
+                <div className="hidden items-center gap-2 lg:flex">
+                  <Label htmlFor="tpl-rows-per-page" className="text-sm font-medium">Rows per page</Label>
+                  <Select value={`${templateTable.getState().pagination.pageSize}`} onValueChange={(value) => templateTable.setPageSize(Number(value))}>
+                    <SelectTrigger className="w-20" id="tpl-rows-per-page">
+                      <SelectValue placeholder={templateTable.getState().pagination.pageSize} />
+                    </SelectTrigger>
+                    <SelectContent side="top">
+                      {[10, 20, 30, 40, 50].map((pageSize) => (
+                        <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex w-fit items-center justify-center text-sm font-medium">
+                  Page {templateTable.getState().pagination.pageIndex + 1} of {templateTable.getPageCount() || 1}
+                </div>
+                <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                  <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => templateTable.setPageIndex(0)} disabled={!templateTable.getCanPreviousPage()}>
+                    <span className="sr-only">Go to first page</span>
+                    <IconChevronsLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => templateTable.previousPage()} disabled={!templateTable.getCanPreviousPage()}>
+                    <span className="sr-only">Go to previous page</span>
+                    <IconChevronLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => templateTable.nextPage()} disabled={!templateTable.getCanNextPage()}>
+                    <span className="sr-only">Go to next page</span>
+                    <IconChevronRight className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => templateTable.setPageIndex(templateTable.getPageCount() - 1)} disabled={!templateTable.getCanNextPage()}>
+                    <span className="sr-only">Go to last page</span>
+                    <IconChevronsRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
           </TabsContent>
 
@@ -224,34 +590,89 @@ export default function WhatsAppPage() {
                 </Button>
               </div>
             </div>
-            <div className="border rounded-lg flex-1 min-h-0 overflow-y-auto">
-              <Table>
-                <TableHeader className="sticky top-0 bg-background z-10 shadow-[0_1px_0_0] shadow-border">
-                  <TableRow>
-                    <TableHead className="w-[30%]">Customer Number</TableHead>
-                    <TableHead className="w-[25%]">Template Name</TableHead>
-                    <TableHead className="w-[20%]">Status</TableHead>
-                    <TableHead className="w-[25%] text-right">Requested At</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loadingLogs ? (
-                    <TableSkeleton cols={4} />
-                  ) : logs.length === 0 ? (
-                    <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Select a date and click "Fetch Logs"</TableCell></TableRow>
-                  ) : logs.map((l, i) => {
-                    const st = String(l.status || "—");
-                    return (
-                      <TableRow key={i}>
-                        <TableCell className="font-mono text-sm">{String(l.customerNumber || "—")}</TableCell>
-                        <TableCell className="text-sm">{String(l.templateName || "—")}</TableCell>
-                        <TableCell><span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${statusColor(st)}`}>{st}</span></TableCell>
-                        <TableCell className="text-right text-xs text-muted-foreground">{l.requestedAt ? format(new Date(String(l.requestedAt)), "h:mm a") : "—"}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+            <div className="overflow-hidden rounded-lg border flex-1 min-h-0 flex flex-col">
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <DndContext
+                  collisionDetection={closestCenter}
+                  modifiers={[restrictToVerticalAxis]}
+                  onDragEnd={handleLogDragEnd}
+                  sensors={logSensors}
+                  id={logSortableId}
+                >
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+                      {logTable.getHeaderGroups().map((headerGroup) => (
+                        <TableRow key={headerGroup.id}>
+                          {headerGroup.headers.map((header) => (
+                            <TableHead key={header.id} colSpan={header.colSpan}>
+                              {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                            </TableHead>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableHeader>
+                    <TableBody className="**:data-[slot=table-cell]:first:w-8">
+                      {loadingLogs ? (
+                        <TableSkeleton cols={logColumns.length} />
+                      ) : logTable.getRowModel().rows?.length ? (
+                        <SortableContext items={logDataIds} strategy={verticalListSortingStrategy}>
+                          {logTable.getRowModel().rows.map((row) => (
+                            <DraggableRow key={row.id} row={row} />
+                          ))}
+                        </SortableContext>
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={logColumns.length} className="h-24 text-center text-muted-foreground">
+                            Select a date and click &quot;Fetch Logs&quot;
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </DndContext>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between px-2 mt-3 shrink-0">
+              <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                {logTable.getFilteredSelectedRowModel().rows.length} of {logTable.getFilteredRowModel().rows.length} row(s) selected.
+              </div>
+              <div className="flex w-full items-center gap-8 lg:w-fit">
+                <div className="hidden items-center gap-2 lg:flex">
+                  <Label htmlFor="log-rows-per-page" className="text-sm font-medium">Rows per page</Label>
+                  <Select value={`${logTable.getState().pagination.pageSize}`} onValueChange={(value) => logTable.setPageSize(Number(value))}>
+                    <SelectTrigger className="w-20" id="log-rows-per-page">
+                      <SelectValue placeholder={logTable.getState().pagination.pageSize} />
+                    </SelectTrigger>
+                    <SelectContent side="top">
+                      {[10, 20, 30, 40, 50].map((pageSize) => (
+                        <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex w-fit items-center justify-center text-sm font-medium">
+                  Page {logTable.getState().pagination.pageIndex + 1} of {logTable.getPageCount() || 1}
+                </div>
+                <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                  <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => logTable.setPageIndex(0)} disabled={!logTable.getCanPreviousPage()}>
+                    <span className="sr-only">Go to first page</span>
+                    <IconChevronsLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => logTable.previousPage()} disabled={!logTable.getCanPreviousPage()}>
+                    <span className="sr-only">Go to previous page</span>
+                    <IconChevronLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => logTable.nextPage()} disabled={!logTable.getCanNextPage()}>
+                    <span className="sr-only">Go to next page</span>
+                    <IconChevronRight className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => logTable.setPageIndex(logTable.getPageCount() - 1)} disabled={!logTable.getCanNextPage()}>
+                    <span className="sr-only">Go to last page</span>
+                    <IconChevronsRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
           </TabsContent>
         </Tabs>

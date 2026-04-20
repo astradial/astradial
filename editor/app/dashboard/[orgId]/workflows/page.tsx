@@ -1,12 +1,47 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Plus, Minus, Workflow, Zap, Clock, CalendarClock, Webhook, MoreHorizontal, Play, History, Copy, ChevronDown } from "lucide-react";
+import { Plus, Minus, Workflow, Zap, Clock, CalendarClock, Webhook, Play, History, Copy, ChevronDown, Pencil, Trash } from "lucide-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
+  IconCircleCheckFilled,
+  IconDotsVertical,
+  IconLoader,
+} from "@tabler/icons-react";
 import { format } from "date-fns";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type UniqueIdentifier,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+  type VisibilityState,
+} from "@tanstack/react-table";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DragHandle, DraggableRow } from "@/components/ui/data-table-parts";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +55,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -202,6 +238,343 @@ export default function WorkflowsPage() {
     }
   }
 
+  // ── Workflows data-table wiring ─────────────────────────────────────
+  const wfColumns: ColumnDef<WorkflowType>[] = [
+    { id: "drag", header: () => null, cell: ({ row }) => <DragHandle id={row.original.id} /> },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "name",
+      header: "Name",
+      cell: ({ row }) => {
+        const wf = row.original;
+        return (
+          <button
+            className="text-left"
+            onClick={() => router.push(`/dashboard/${orgId}/workflows/${wf.id}`)}
+          >
+            <div className="font-medium hover:underline">{wf.name}</div>
+            {wf.description && <div className="text-xs text-muted-foreground">{wf.description}</div>}
+          </button>
+        );
+      },
+      enableHiding: false,
+    },
+    {
+      id: "wf_id",
+      header: "ID",
+      cell: ({ row }) => (
+        <div className="flex items-center gap-1">
+          <code className="text-xs text-muted-foreground font-mono">{row.original.id.slice(0, 5)}...{row.original.id.slice(-5)}</code>
+          <button
+            className="text-muted-foreground hover:text-foreground"
+            onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(row.original.id); showToast("ID copied", "success"); }}
+          >
+            <Copy className="h-3 w-3" />
+          </button>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "trigger_type",
+      header: "Trigger",
+      cell: ({ row }) => {
+        const TriggerIcon = triggerIcons[row.original.trigger_type] || Workflow;
+        return (
+          <Badge variant="outline" className="text-xs gap-1">
+            <TriggerIcon className="h-3 w-3" />
+            {row.original.trigger_type}
+          </Badge>
+        );
+      },
+    },
+    {
+      accessorKey: "is_active",
+      header: "Status",
+      cell: ({ row }) => (
+        <Badge variant="outline" className="px-1.5 text-muted-foreground">
+          {row.original.is_active ? (
+            <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+          ) : (
+            <IconLoader />
+          )}
+          {row.original.is_active ? "Active" : "Inactive"}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: "created_at",
+      header: "Created",
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{format(new Date(row.original.created_at), "MMM d, yyyy")}</span>,
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="flex size-8 text-muted-foreground data-[state=open]:bg-muted" size="icon">
+              <IconDotsVertical />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onClick={() => router.push(`/dashboard/${orgId}/workflows/${row.original.id}`)}>
+              <Pencil className="h-4 w-4 mr-2" />Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleExecute(row.original.id)}>
+              <Play className="h-4 w-4 mr-2" />Test Run
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/workflow/trigger/${row.original.id}`); showToast("Trigger URL copied", "success"); }}>
+              <Copy className="h-4 w-4 mr-2" />Copy Trigger URL
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(row.original.id); showToast("ID copied", "success"); }}>
+              <Copy className="h-4 w-4 mr-2" />Copy ID
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => handleDelete(row.original.id)}
+            >
+              <Trash className="h-4 w-4 mr-2" />Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const [wfData, setWfData] = useState<WorkflowType[]>([]);
+  const [wfRowSelection, setWfRowSelection] = useState({});
+  const [wfColumnVisibility, setWfColumnVisibility] = useState<VisibilityState>({});
+  const [wfSorting, setWfSorting] = useState<SortingState>([]);
+  const [wfPagination, setWfPagination] = useState({ pageIndex: 0, pageSize: 10 });
+  const wfSortableId = useId();
+  const wfSensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+
+  useEffect(() => { setWfData(workflowList); }, [workflowList]);
+  const wfDataIds = useMemo<UniqueIdentifier[]>(() => wfData.map((w) => w.id), [wfData]);
+
+  const wfTable = useReactTable({
+    data: wfData,
+    columns: wfColumns,
+    state: { sorting: wfSorting, columnVisibility: wfColumnVisibility, rowSelection: wfRowSelection, pagination: wfPagination },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setWfRowSelection,
+    onSortingChange: setWfSorting,
+    onColumnVisibilityChange: setWfColumnVisibility,
+    onPaginationChange: setWfPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handleWfDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setWfData((prev) => {
+        const oldIndex = wfDataIds.indexOf(active.id);
+        const newIndex = wfDataIds.indexOf(over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
+  }
+
+  // ── Scheduled jobs data-table wiring ────────────────────────────────
+  const scheduledSorted = useMemo(
+    () => [...scheduled].sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime()),
+    [scheduled]
+  );
+
+  const jobColumns: ColumnDef<ScheduledJob>[] = [
+    { id: "drag", header: () => null, cell: ({ row }) => <DragHandle id={row.original.id} /> },
+    {
+      id: "select",
+      header: ({ table }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "workflow_name",
+      header: "Workflow",
+      cell: ({ row }) => {
+        const job = row.original;
+        const triggerData = typeof job.trigger_data === "string" ? JSON.parse(job.trigger_data) : (job.trigger_data || {});
+        return (
+          <div>
+            <div className="font-medium">{job.workflow_name || "Unknown"}</div>
+            {triggerData._node_label && (
+              <div className="text-xs text-muted-foreground">{String(triggerData._node_label)}</div>
+            )}
+          </div>
+        );
+      },
+      enableHiding: false,
+    },
+    {
+      accessorKey: "scheduled_at",
+      header: "Scheduled At",
+      cell: ({ row }) => <span className="text-sm">{format(new Date(row.original.scheduled_at), "MMM d, yyyy h:mm a")}</span>,
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => {
+        const job = row.original;
+        const scheduledAt = new Date(job.scheduled_at);
+        const isOverdue = scheduledAt < new Date() && (job.status === "pending" || job.status === "queued");
+        const isActive = job.status === "queued" || job.status === "pending";
+        return (
+          <Badge
+            variant={isOverdue ? "destructive" : "outline"}
+            className="px-1.5 text-muted-foreground capitalize"
+          >
+            {isActive && !isOverdue ? (
+              <IconLoader />
+            ) : job.status === "executed" ? (
+              <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+            ) : (
+              <IconLoader />
+            )}
+            {isOverdue ? "Overdue" : job.status}
+          </Badge>
+        );
+      },
+    },
+    {
+      id: "trigger_data",
+      header: "Trigger Data",
+      cell: ({ row }) => {
+        const job = row.original;
+        const triggerData = typeof job.trigger_data === "string" ? JSON.parse(job.trigger_data) : (job.trigger_data || {});
+        return (
+          <div className="text-sm text-muted-foreground">
+            {triggerData.name && <span>{String(triggerData.name)}</span>}
+            {triggerData.name && triggerData.phone && <span> &middot; </span>}
+            {triggerData.phone && <span>{String(triggerData.phone)}</span>}
+            {!triggerData.name && !triggerData.phone && <span className="text-xs">--</span>}
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "repeat_until",
+      header: "Repeat Until",
+      cell: ({ row }) => (
+        <span className="text-sm text-muted-foreground">
+          {row.original.repeat_until ? format(new Date(row.original.repeat_until), "MMM d, yyyy") : "--"}
+        </span>
+      ),
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => {
+        const job = row.original;
+        const isActive = job.status === "queued" || job.status === "pending";
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="flex size-8 text-muted-foreground data-[state=open]:bg-muted" size="icon">
+                <IconDotsVertical />
+                <span className="sr-only">Open menu</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              {isActive ? (
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => cancelScheduledJob(job.id)}
+                >
+                  Cancel
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem disabled>No actions</DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    },
+  ];
+
+  const [jobRowSelection, setJobRowSelection] = useState({});
+  const [jobColumnVisibility, setJobColumnVisibility] = useState<VisibilityState>({});
+  const [jobSorting, setJobSorting] = useState<SortingState>([]);
+  const [jobPagination, setJobPagination] = useState({ pageIndex: 0, pageSize: 10 });
+  const jobSortableId = useId();
+  const jobSensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor), useSensor(KeyboardSensor));
+
+  const [jobData, setJobData] = useState<ScheduledJob[]>([]);
+  useEffect(() => { setJobData(scheduledSorted); }, [scheduledSorted]);
+  const jobDataIds = useMemo<UniqueIdentifier[]>(() => jobData.map((j) => j.id), [jobData]);
+
+  const jobTable = useReactTable({
+    data: jobData,
+    columns: jobColumns,
+    state: { sorting: jobSorting, columnVisibility: jobColumnVisibility, rowSelection: jobRowSelection, pagination: jobPagination },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setJobRowSelection,
+    onSortingChange: setJobSorting,
+    onColumnVisibilityChange: setJobColumnVisibility,
+    onPaginationChange: setJobPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  function handleJobDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      setJobData((prev) => {
+        const oldIndex = jobDataIds.indexOf(active.id);
+        const newIndex = jobDataIds.indexOf(over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
+  }
+
   return (
     <div className="p-3 md:p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -296,79 +669,87 @@ export default function WorkflowsPage() {
 
         <TabsContent value="workflows" className="space-y-6 mt-4">
           {/* Workflow list */}
-          <div className="border rounded-lg">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Trigger</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="w-24">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableSkeleton cols={6} />
-                ) : workflowList.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No workflows yet. Click "New Workflow" to create one.</TableCell></TableRow>
-                ) : workflowList.map((wf) => {
-                  const TriggerIcon = triggerIcons[wf.trigger_type] || Workflow;
-                  return (
-                    <TableRow key={wf.id} className="cursor-pointer" onClick={() => router.push(`/dashboard/${orgId}/workflows/${wf.id}`)}>
-                      <TableCell>
-                        <div className="font-medium">{wf.name}</div>
-                        {wf.description && <div className="text-xs text-muted-foreground">{wf.description}</div>}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <code className="text-xs text-muted-foreground font-mono">{wf.id.slice(0, 5)}...{wf.id.slice(-5)}</code>
-                          <button
-                            className="text-muted-foreground hover:text-foreground"
-                            onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(wf.id); showToast("ID copied", "success"); }}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs gap-1">
-                          <TriggerIcon className="h-3 w-3" />
-                          {wf.trigger_type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={wf.is_active ? "default" : "secondary"} className="text-xs">
-                          {wf.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {format(new Date(wf.created_at), "MMM d, yyyy")}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                          <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handleExecute(wf.id)} title="Test run">
-                            <Play className="h-3 w-3" />
-                          </Button>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><MoreHorizontal className="h-4 w-4" /></Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => router.push(`/dashboard/${orgId}/workflows/${wf.id}`)}>Edit</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/workflow/trigger/${wf.id}`); showToast("Trigger URL copied", "success"); }}>Copy Trigger URL</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(wf.id); showToast("ID copied", "success"); }}>Copy ID</DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(wf.id)}>Delete</DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
+          <div className="overflow-hidden rounded-lg border">
+            <DndContext
+              collisionDetection={closestCenter}
+              modifiers={[restrictToVerticalAxis]}
+              onDragEnd={handleWfDragEnd}
+              sensors={wfSensors}
+              id={wfSortableId}
+            >
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+                  {wfTable.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TableHead key={header.id} colSpan={header.colSpan}>
+                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody className="**:data-[slot=table-cell]:first:w-8">
+                  {loading ? (
+                    <TableSkeleton cols={wfColumns.length} />
+                  ) : wfTable.getRowModel().rows?.length ? (
+                    <SortableContext items={wfDataIds} strategy={verticalListSortingStrategy}>
+                      {wfTable.getRowModel().rows.map((row) => (
+                        <DraggableRow key={row.id} row={row} />
+                      ))}
+                    </SortableContext>
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={wfColumns.length} className="h-24 text-center text-muted-foreground">
+                        No workflows yet. Click &quot;New Workflow&quot; to create one.
                       </TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                  )}
+                </TableBody>
+              </Table>
+            </DndContext>
+          </div>
+
+          <div className="flex items-center justify-between px-2">
+            <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+              {wfTable.getFilteredSelectedRowModel().rows.length} of {wfTable.getFilteredRowModel().rows.length} row(s) selected.
+            </div>
+            <div className="flex w-full items-center gap-8 lg:w-fit">
+              <div className="hidden items-center gap-2 lg:flex">
+                <Label htmlFor="wf-rows-per-page" className="text-sm font-medium">Rows per page</Label>
+                <Select value={`${wfTable.getState().pagination.pageSize}`} onValueChange={(value) => wfTable.setPageSize(Number(value))}>
+                  <SelectTrigger className="w-20" id="wf-rows-per-page">
+                    <SelectValue placeholder={wfTable.getState().pagination.pageSize} />
+                  </SelectTrigger>
+                  <SelectContent side="top">
+                    {[10, 20, 30, 40, 50].map((pageSize) => (
+                      <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex w-fit items-center justify-center text-sm font-medium">
+                Page {wfTable.getState().pagination.pageIndex + 1} of {wfTable.getPageCount() || 1}
+              </div>
+              <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => wfTable.setPageIndex(0)} disabled={!wfTable.getCanPreviousPage()}>
+                  <span className="sr-only">Go to first page</span>
+                  <IconChevronsLeft className="size-4" />
+                </Button>
+                <Button variant="outline" className="size-8" size="icon" onClick={() => wfTable.previousPage()} disabled={!wfTable.getCanPreviousPage()}>
+                  <span className="sr-only">Go to previous page</span>
+                  <IconChevronLeft className="size-4" />
+                </Button>
+                <Button variant="outline" className="size-8" size="icon" onClick={() => wfTable.nextPage()} disabled={!wfTable.getCanNextPage()}>
+                  <span className="sr-only">Go to next page</span>
+                  <IconChevronRight className="size-4" />
+                </Button>
+                <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => wfTable.setPageIndex(wfTable.getPageCount() - 1)} disabled={!wfTable.getCanNextPage()}>
+                  <span className="sr-only">Go to last page</span>
+                  <IconChevronsRight className="size-4" />
+                </Button>
+              </div>
+            </div>
           </div>
 
           {/* Webhook URL info */}
@@ -427,80 +808,94 @@ export default function WorkflowsPage() {
               </Button>
             </div>
           </div>
-          <div className="border rounded-lg">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Workflow</TableHead>
-                  <TableHead>Scheduled At</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Trigger Data</TableHead>
-                  <TableHead>Repeat Until</TableHead>
-                  <TableHead className="w-20 text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {scheduledLoading ? (
-                  <TableSkeleton cols={6} />
-                ) : scheduled.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No scheduled jobs</TableCell></TableRow>
-                ) : [...scheduled].sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime()).map((job) => {
-                  const triggerData = typeof job.trigger_data === "string" ? JSON.parse(job.trigger_data) : (job.trigger_data || {});
-                  const scheduledAt = new Date(job.scheduled_at);
-                  const isOverdue = scheduledAt < new Date() && (job.status === "pending" || job.status === "queued");
-                  const repeatUntil = job.repeat_until;
-                  return (
-                    <TableRow key={job.id}>
-                      <TableCell>
-                        <div className="font-medium">{job.workflow_name || "Unknown"}</div>
-                        {triggerData._node_label && (
-                          <div className="text-xs text-muted-foreground">{triggerData._node_label}</div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {format(scheduledAt, "MMM d, yyyy h:mm a")}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={
-                          isOverdue ? "destructive" :
-                          job.status === "queued" || job.status === "pending" ? "default" :
-                          "secondary"
-                        } className="text-xs">
-                          {isOverdue ? "Overdue" : job.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {triggerData.name && <span>{triggerData.name}</span>}
-                        {triggerData.name && triggerData.phone && <span> &middot; </span>}
-                        {triggerData.phone && <span>{triggerData.phone}</span>}
-                        {!triggerData.name && !triggerData.phone && <span className="text-xs">--</span>}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {repeatUntil ? format(new Date(repeatUntil), "MMM d, yyyy") : "--"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {(job.status === "queued" || job.status === "pending") && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => cancelScheduledJob(job.id)}
-                            className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
-                          >
-                            Cancel
-                          </Button>
-                        )}
+          <div className="overflow-hidden rounded-lg border">
+            <DndContext
+              collisionDetection={closestCenter}
+              modifiers={[restrictToVerticalAxis]}
+              onDragEnd={handleJobDragEnd}
+              sensors={jobSensors}
+              id={jobSortableId}
+            >
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur">
+                  {jobTable.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TableHead key={header.id} colSpan={header.colSpan}>
+                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody className="**:data-[slot=table-cell]:first:w-8">
+                  {scheduledLoading ? (
+                    <TableSkeleton cols={jobColumns.length} />
+                  ) : jobTable.getRowModel().rows?.length ? (
+                    <SortableContext items={jobDataIds} strategy={verticalListSortingStrategy}>
+                      {jobTable.getRowModel().rows.map((row) => (
+                        <DraggableRow key={row.id} row={row} />
+                      ))}
+                    </SortableContext>
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={jobColumns.length} className="h-24 text-center text-muted-foreground">
+                        No scheduled jobs
                       </TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                  )}
+                </TableBody>
+              </Table>
+            </DndContext>
           </div>
-          {/* Pagination controls */}
+
+          <div className="flex items-center justify-between px-2 mt-3">
+            <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+              {jobTable.getFilteredSelectedRowModel().rows.length} of {jobTable.getFilteredRowModel().rows.length} row(s) selected.
+            </div>
+            <div className="flex w-full items-center gap-8 lg:w-fit">
+              <div className="hidden items-center gap-2 lg:flex">
+                <Label htmlFor="job-rows-per-page" className="text-sm font-medium">Rows per page</Label>
+                <Select value={`${jobTable.getState().pagination.pageSize}`} onValueChange={(value) => jobTable.setPageSize(Number(value))}>
+                  <SelectTrigger className="w-20" id="job-rows-per-page">
+                    <SelectValue placeholder={jobTable.getState().pagination.pageSize} />
+                  </SelectTrigger>
+                  <SelectContent side="top">
+                    {[10, 20, 30, 40, 50].map((pageSize) => (
+                      <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex w-fit items-center justify-center text-sm font-medium">
+                Page {jobTable.getState().pagination.pageIndex + 1} of {jobTable.getPageCount() || 1}
+              </div>
+              <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => jobTable.setPageIndex(0)} disabled={!jobTable.getCanPreviousPage()}>
+                  <span className="sr-only">Go to first page</span>
+                  <IconChevronsLeft className="size-4" />
+                </Button>
+                <Button variant="outline" className="size-8" size="icon" onClick={() => jobTable.previousPage()} disabled={!jobTable.getCanPreviousPage()}>
+                  <span className="sr-only">Go to previous page</span>
+                  <IconChevronLeft className="size-4" />
+                </Button>
+                <Button variant="outline" className="size-8" size="icon" onClick={() => jobTable.nextPage()} disabled={!jobTable.getCanNextPage()}>
+                  <span className="sr-only">Go to next page</span>
+                  <IconChevronRight className="size-4" />
+                </Button>
+                <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => jobTable.setPageIndex(jobTable.getPageCount() - 1)} disabled={!jobTable.getCanNextPage()}>
+                  <span className="sr-only">Go to last page</span>
+                  <IconChevronsRight className="size-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Server-side pagination controls (retained — pages through scheduled API) */}
           {scheduledTotalPages > 1 && (
             <div className="flex items-center justify-between mt-3">
               <span className="text-xs text-muted-foreground">
-                Page {scheduledPage} of {scheduledTotalPages}
+                Server page {scheduledPage} of {scheduledTotalPages}
               </span>
               <div className="flex gap-2">
                 <Button
