@@ -43,12 +43,14 @@ function handleLogout() {
 
 export function NavUser({
   user,
+  orgName,
 }: {
   user: {
     name: string
     email: string
     avatar: string
   }
+  orgName: string
 }) {
   const { isMobile } = useSidebar()
 
@@ -66,7 +68,7 @@ export function NavUser({
                 <AvatarFallback className="rounded-lg">CN</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{user.name}</span>
+                <span className="truncate font-medium">{orgName}</span>
                 <span className="truncate text-xs text-muted-foreground">
                   {user.email}
                 </span>

@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { ShieldCheck, Lightbulb, CircleAlert, BookOpen } from "lucide-react"
+import Link from "next/link"
 
 import {
   SidebarGroup,
@@ -32,10 +33,10 @@ export function NavHelp({
           <SidebarMenu>
               <SidebarMenuItem key={"Role Permissions"}>
                 <SidebarMenuButton asChild>
-                  <a href={`/dashboard/${orgId}/roles`}>
+                  <Link href={`/dashboard/${orgId}/roles`}>
                     <ShieldCheck />
                     <span>Role Permissions</span>
-                  </a>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem key={"Request Feature"}>

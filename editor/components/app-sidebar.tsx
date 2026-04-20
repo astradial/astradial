@@ -54,7 +54,7 @@ const userEmail = typeof window !== "undefined"
 
 const data = {
   user: {
-    name: userEmail,
+    name: "",
     email: userEmail,
     avatar: "/avatars/shadcn.jpg",
   },
@@ -149,7 +149,7 @@ const data = {
   ],
 }
 
-export function AppSidebar({ orgId, ...props }: { orgId: string } & React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({ orgId, orgName, ...props }: { orgId: string, orgName: string } & React.ComponentProps<typeof Sidebar>) {
   const basePath = `/dashboard/${orgId}`;
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -185,7 +185,7 @@ export function AppSidebar({ orgId, ...props }: { orgId: string } & React.Compon
       </SidebarContent>
       <SidebarFooter>
         <NavHelp orgId={orgId} title="Help" />
-        <NavUser user={data.user} />
+        <NavUser user={data.user} orgName={orgName} />
       </SidebarFooter>
     </Sidebar>
   )

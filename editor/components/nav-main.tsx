@@ -37,9 +37,11 @@ export function NavMain({
         <div className="pl-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</div>
           {items.map((item) => (
             <SidebarMenuItem key={item.name}>
-              <SidebarMenuButton tooltip={item.name} onClick={() => window.location.href = basePath + item.url}>
-                {item.icon && <item.icon />}
-                <span>{item.name}</span>
+              <SidebarMenuButton tooltip={item.name} asChild>
+                <Link href={basePath + item.url}>
+                  {item.icon && <item.icon />}
+                  <span>{item.name}</span>
+                </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}

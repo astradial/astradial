@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 import {
   FolderIcon,
   MoreHorizontalIcon,
@@ -50,10 +51,10 @@ export function NavDocuments({
         {showMore && items.map((item) => (
           <SidebarMenuItem key={item.name}>
             <SidebarMenuButton asChild>
-              <a href={basePath + item.url}>
+              <Link href={basePath + item.url}>
                 <item.icon />
                 <span>{item.name}</span>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         ))}

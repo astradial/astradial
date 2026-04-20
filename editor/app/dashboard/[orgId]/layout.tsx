@@ -89,7 +89,7 @@ export default function OrgLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider>
-      <AppSidebar orgId={orgId} variant="inset" />
+      <AppSidebar orgId={orgId} orgName={orgName} variant="inset" />
       <SidebarInset>
         <SiteHeader />
         <div className="flex flex-1 flex-col">
