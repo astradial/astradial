@@ -58,39 +58,61 @@ const data = {
     email: userEmail,
     avatar: "/avatars/shadcn.jpg",
   },
-  navMain: [
+
+  navAnalytics: [
     {
-      name: "Home",
+      name: "Dashboard",
       url: "/overview",
       icon: LayoutDashboard,
     },
+    {
+      name: "Calls",
+      url: "/calls",
+      icon: PhoneCall,
+    },
+  ],
+
+  navConfigure: [
     {
       name: "Users",
       url: "/users",
       icon: Users,
     },
     {
+      name: "Departments",
+      url: "/departments",
+      icon: ListOrdered,
+    },
+    {
       name: "Super Human",
       url: "/bots",
       icon: Sparkles,
-    },
-    {
-      name: "Queues",
-      url: "/queues",
-      icon: ListOrdered,
     },
   ],
 
   navMonitor: [
     {
-      name: "Calls",
-      url: "/calls",
-      icon: PhoneCall,
-    },
-    {
       name: "Tickets",
       url: "/tickets",
       icon: Ticket,
+    },
+    {
+      name: "Workflows",
+      url: "/workflows",
+      icon: Workflow,
+    },
+  ],
+
+  navAutomate: [
+    {
+      name: "WhatsApp",
+      url: "/whatsapp",
+      icon: MessageCircle,
+    },
+    {
+      name: "API & Webhooks",
+      url: "/webhooks",
+      icon: Webhook,
     },
   ],
 
@@ -114,24 +136,6 @@ const data = {
       name: "Customize",
       url: "/crm/customize",
       icon: SlidersHorizontal,
-    },
-  ],
-
-  navAutomate: [
-    {
-      name: "Workflows",
-      url: "/workflows",
-      icon: Workflow,
-    },
-    {
-      name: "WhatsApp",
-      url: "/whatsapp",
-      icon: MessageCircle,
-    },
-    {
-      name: "API & Webhooks",
-      url: "/webhooks",
-      icon: Webhook,
     },
   ],
 
@@ -177,10 +181,11 @@ export function AppSidebar({ orgId, orgName, ...props }: { orgId: string, orgNam
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain orgId={orgId} title="Configure" items={data.navMain} />
-        <NavSecondary orgId={orgId} title="Automate" items={data.navAutomate} />
-        <NavSecondary orgId={orgId} title="Deploy" items={data.navDeploy} />
+        <NavMain orgId={orgId} title="Analytics" items={data.navAnalytics} />
+        <NavMain orgId={orgId} title="Configure" items={data.navConfigure} />
         <NavSecondary orgId={orgId} title="Monitor" items={data.navMonitor} />
+        <NavSecondary orgId={orgId} title="Plugins" items={data.navAutomate} />
+        <NavSecondary orgId={orgId} title="Deploy" items={data.navDeploy} />
         <NavDocuments orgId={orgId} title="CRM" items={data.navCRM} />
       </SidebarContent>
       <SidebarFooter>

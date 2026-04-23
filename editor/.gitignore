@@ -28,3 +28,7 @@ credentials.txt
 *.credentials
 service-account*.json
 google-credentials.json
+
+
+# TypeScript cache
+*.tsbuildinfo

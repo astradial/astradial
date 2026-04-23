@@ -397,7 +397,7 @@ export default function QueuesPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Queues</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Departments</h1>
             <p className="text-sm text-muted-foreground">Manage call queues, hold music, and greetings</p>
           </div>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
