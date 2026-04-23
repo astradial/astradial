@@ -1,0 +1,27 @@
+# CODEOWNERS for astradial/astradial
+# https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners — requested as reviewers on any PR
+*                           @harisuryaa @MUTHUMANIKANDAN11
+
+# API backend
+/api/                       @harisuryaa @MUTHUMANIKANDAN11
+
+# Editor frontend
+/editor/                    @harisuryaa
+
+# Asterisk PBX configs
+/asterisk/                  @harisuryaa
+
+# AI voice bot gateway
+/pipecat-flow/              @harisuryaa
+
+# Workflow engine
+/workflow-engine/           @harisuryaa
+
+# Docker & CI
+/docker-compose.yml         @harisuryaa @MUTHUMANIKANDAN11
+/.github/                   @harisuryaa @MUTHUMANIKANDAN11
+
+# Docs & community
+/*.md                       @harisuryaa
