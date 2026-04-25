@@ -43,6 +43,7 @@ import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { showToast } from "@/components/ui/Toast";
 import { users, config as pbxConfig, type PbxUser } from "@/lib/pbx/client";
 import { SipQrDialog } from "@/components/users/SipQrDialog";
+import { PasswordInput } from "@/components/ui/password-input";
 
 export default function UsersPage() {
   const { orgId } = useParams<{ orgId: string }>();
@@ -182,7 +183,7 @@ export default function UsersPage() {
                 <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="john@example.com" /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label>Password</Label><Input type="text" autoComplete="off" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min 6 chars" /></div>
+                <div className="space-y-1.5"><Label>Password</Label><PasswordInput autoComplete="off" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min 6 chars" /></div>
                 <div className="space-y-1.5"><Label>Role</Label>
                   <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as PbxUser["role"] })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -294,7 +295,7 @@ export default function UsersPage() {
                 </Select>
               </div>
             </div>
-            <div className="space-y-1.5"><Label>New Password (leave blank to keep)</Label><Input type="text" autoComplete="off" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} placeholder="Leave blank to keep current" /></div>
+            <div className="space-y-1.5"><Label>New Password (leave blank to keep)</Label><PasswordInput autoComplete="off" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} placeholder="Leave blank to keep current" /></div>
             <Separator />
             <div className="space-y-1.5"><Label>Call Routing</Label>
               <Select value={editForm.routing_type === "ai_agent" ? "ai_agent" : editForm.ring_target === "phone" ? "phone" : "sip"} onValueChange={(v) => {
