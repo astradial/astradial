@@ -4909,11 +4909,11 @@ app.post('/api/v1/auth/request-org', async (req, res) => {
     const nameExists = await Organization.findOne({ where: { name: org_name } });
     if (nameExists) return res.status(409).json({ error: 'Organisation name already taken.' });
 
-    // Create org as suspended (pending admin approval)
+    // Self-serve org creation: auto-active so the requester can sign in immediately.
     const apiSecret = uuidv4();
     const org = await Organization.create({
       name: org_name,
-      status: 'suspended',
+      status: 'active',
       api_secret: await bcrypt.hash(apiSecret, 12),
       contact_info: {
         email: email,
@@ -4933,10 +4933,10 @@ app.post('/api/v1/auth/request-org', async (req, res) => {
     );
 
     res.status(201).json({
-      message: 'Organisation requested! Admin will review and approve shortly.',
+      message: 'Organisation created. You can sign in now.',
       org_id: org.id,
       org_name: org.name,
-      status: 'pending_approval',
+      status: 'active',
     });
   } catch (e) {
     console.error('request-org error:', e.message);
