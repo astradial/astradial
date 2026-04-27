@@ -43,9 +43,6 @@ async function autoDeploy(orgId) {
       const org = await Organization.findByPk(orgId);
       if (org) await configService.deployOrganizationConfiguration(orgId, org.name);
     }
-    // Gateway routing is deployed inside deployOrganizationConfiguration,
-    // but also deploy standalone in case orgId is null
-    await configService.deployGatewayRouting();
     await configService.reloadAsteriskConfiguration();
     console.log('✅ Auto-deploy completed after DID change');
   } catch (e) {

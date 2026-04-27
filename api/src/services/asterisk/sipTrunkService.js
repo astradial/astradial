@@ -82,9 +82,8 @@ class SipTrunkService {
     config += `transport=transport-${trunk.transport}\n`;
 
     // Authentication order: username/auth_username only (no IP matching).
-    // IP-based inbound matching is handled by the system-level tata_gateway
-    // endpoint. Per-org trunks are for OUTBOUND dialing — they should NOT
-    // create identify rules that collide with tata_gateway's IP match.
+    // Per-org trunks identify by SIP credentials, not source IP, so multiple
+    // orgs can use the same provider without identify-rule collisions.
     config += `identify_by=username,auth_username\n`;
 
     // Allow OPTIONS without authentication (for keepalive/health checks)
@@ -178,15 +177,14 @@ class SipTrunkService {
     }
 
     // Identify configuration — DISABLED for per-org trunks.
-    // The system-level tata_gateway endpoint handles all inbound IP
-    // matching from the gateway tunnel. Per-org
-    // trunks adding their own identify rules with a matching gateway IP
-    // would collide and steal inbound Tata calls, routing them into
-    // the wrong org context. This was a recurring prod bug.
+    // Per-org trunks identify by SIP credentials (username/auth_username),
+    // not by source IP. Adding identify rules here can cause collisions
+    // when two orgs share the same upstream provider IP, sending calls
+    // into the wrong org's context.
     //
-    // If a future use case needs per-org IP matching (e.g., a client
-    // with their own SIP trunk on a unique IP), add it as an explicit
-    // opt-in setting on the trunk, not a default for all peer2peer.
+    // If a future use case needs per-org IP matching (e.g., a client with
+    // a unique provider IP), add it as an explicit opt-in setting on the
+    // trunk, not a default for all peer2peer.
 
     return config;
   }
