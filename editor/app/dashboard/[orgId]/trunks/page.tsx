@@ -88,7 +88,7 @@ export default function TrunksPage() {
             <DialogHeader><DialogTitle>Create Trunk</DialogTitle><DialogDescription>Connect a SIP carrier</DialogDescription></DialogHeader>
             <div className="space-y-4 py-2">
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Tata SIP" /></div>
+                <div className="space-y-1.5"><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="My SIP Provider" /></div>
                 <div className="space-y-1.5"><Label>Host</Label><Input value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} placeholder="sip.provider.com" /></div>
               </div>
               <div className="grid grid-cols-3 gap-3">

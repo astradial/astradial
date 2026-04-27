@@ -50,13 +50,6 @@ class ConfigDeploymentService {
       // Update main configuration files with includes
       await this.ensureIncludesInMainConfigs(sanitizedOrgName);
 
-      // Deploy gateway inbound routing (Tata DID → org mapping)
-      try {
-        await this.deployGatewayRouting();
-      } catch (gwError) {
-        console.warn('⚠️  Warning: Failed to deploy gateway routing:', gwError.message);
-      }
-
       // Deploy Music on Hold configuration (system-wide)
       let mohDeployed = false;
       try {
@@ -562,75 +555,6 @@ exten => _X.,1,NoOp(Unrouted DID: \${EXTEN})
 
     } catch (error) {
       console.error('Error listing organization configurations:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Generate and deploy the Tata gateway inbound routing from the database.
-   * Replaces the static ext_tata_gateway.conf with DID→org routing derived
-   * from all assigned DIDs in the did_numbers table.
-   */
-  async deployGatewayRouting() {
-    try {
-      console.log('🌐 Generating gateway inbound routing from database...');
-
-      const assignedDids = await DidNumber.findAll({
-        where: { pool_status: 'assigned', status: 'active' },
-        include: [{ model: Organization, as: 'organization', attributes: ['id', 'name', 'context_prefix'] }],
-        order: [['number', 'ASC']],
-      });
-
-      const orgDids = {};
-      for (const did of assignedDids) {
-        if (!did.organization) continue;
-        const orgId = did.organization.id;
-        if (!orgDids[orgId]) orgDids[orgId] = { org: did.organization, dids: [] };
-        orgDids[orgId].dids.push(did);
-      }
-
-      let config = '';
-      config += '; Auto-generated Tata Gateway Inbound Routing\n';
-      config += `; Generated at: ${new Date().toISOString()}\n`;
-      config += '; DO NOT EDIT — regenerated on every config deploy\n\n';
-
-      config += '[tata-inbound]\n';
-      config += 'exten => _+9180659780XX,1,NoOp(Tata Inbound: ${EXTEN} from ${CALLERID(all)})\n';
-      config += 'same => n,Set(DID_CLEAN=${EXTEN:1})\n';
-      config += 'same => n,Goto(tata-did-route,${DID_CLEAN},1)\n\n';
-      config += 'exten => _9180659780XX,1,NoOp(Tata Inbound (no plus): ${EXTEN})\n';
-      config += 'same => n,Set(DID_CLEAN=${EXTEN})\n';
-      config += 'same => n,Goto(tata-did-route,${DID_CLEAN},1)\n\n';
-      config += 'exten => _X.,1,NoOp(Tata Inbound - Unmatched: ${EXTEN})\n';
-      config += 'same => n,Playback(number-not-in-service)\n';
-      config += 'same => n,Hangup()\n\n';
-
-      config += '[tata-did-route]\n';
-      config += '; DID-to-Organization routing (auto-generated from DB)\n';
-
-      for (const [, { org, dids }] of Object.entries(orgDids)) {
-        config += `\n; === ${org.name} (${org.context_prefix}_) ===\n`;
-        for (const did of dids) {
-          const cleanNum = did.number.replace(/[^0-9]/g, '');
-          config += `exten => ${cleanNum},1,Goto(${org.context_prefix}_incoming,${cleanNum},1)\n`;
-        }
-      }
-
-      config += '\n; Catch-all for unassigned DIDs\n';
-      config += 'exten => _X.,1,NoOp(Unassigned DID: ${EXTEN})\n';
-      config += 'same => n,Answer()\n';
-      config += 'same => n,Playback(number-not-in-service)\n';
-      config += 'same => n,Hangup()\n';
-
-      const gatewayFilePath = path.join(this.asteriskConfigPath, 'ext_tata_gateway.conf');
-      await this.writeConfigFile(gatewayFilePath, config);
-
-      const didCount = assignedDids.length;
-      const orgCount = Object.keys(orgDids).length;
-      console.log(`✅ Gateway routing deployed: ${didCount} DIDs across ${orgCount} orgs`);
-      return { success: true, didCount, orgCount };
-    } catch (error) {
-      console.error('❌ Error deploying gateway routing:', error);
       throw error;
     }
   }

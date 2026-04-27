@@ -244,25 +244,12 @@ class DialplanGenerator {
     const subroutineName = `did_${cleanNumber}`;
     let routing = `; DID ${did.number} - ${did.description}\n`;
 
-    // Multiple patterns to catch the DID from different sources
+    // Match the DID in the two formats SIP providers commonly deliver.
     // Pattern 1: Direct number match (e.g., 15550123456)
     routing += `exten => ${cleanNumber},1,Gosub(${org.context_prefix}_incoming_sub,${subroutineName},1(${did.id},${did.number}))\n`;
 
-    // Pattern 2: Number with + prefix
+    // Pattern 2: Number with + prefix (e.g., +15550123456)
     routing += `exten => +${cleanNumber},1,Gosub(${org.context_prefix}_incoming_sub,${subroutineName},1(${did.id},${did.number}))\n`;
-
-    // Pattern 3: With country code 91 (NUC/Tata sends this)
-    routing += `exten => 91${cleanNumber},1,Gosub(${org.context_prefix}_incoming_sub,${subroutineName},1(${did.id},${did.number}))\n`;
-
-    // Pattern 4: With +91 prefix
-
-    // Pattern 5 & 6: Without leading 0 — NUC sends +91{number without 0 prefix}
-    const numWithout0 = cleanNumber.replace(/^0+/, "");
-    if (numWithout0 !== cleanNumber) {
-      routing += `exten => 91${numWithout0},1,Gosub(${org.context_prefix}_incoming_sub,${subroutineName},1(${did.id},${did.number}))\n`;
-      routing += `exten => +91${numWithout0},1,Gosub(${org.context_prefix}_incoming_sub,${subroutineName},1(${did.id},${did.number}))\n`;
-    }
-    routing += `exten => +91${cleanNumber},1,Gosub(${org.context_prefix}_incoming_sub,${subroutineName},1(${did.id},${did.number}))\n`;
 
     routing += `exten => ${cleanNumber},n,Hangup()\n`;
     routing += `exten => +${cleanNumber},n,Hangup()\n\n`;

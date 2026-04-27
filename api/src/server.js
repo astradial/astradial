@@ -5305,13 +5305,11 @@ app.use((req, res) => {
               }
               continue;
             }
-            // Determine direction. The original classifier relied on the
-            // channel name containing "trunk", which matches per-org outbound
-            // trunk endpoints (e.g. PJSIP/org_mna9x47k_trunk-...) but NOT the
-            // shared tata_gateway endpoint that receives calls from the NUC
-            // WireGuard tunnel on the staging cloud. Treat any CDR whose
-            // dcontext ends with "_incoming" as inbound as a safety net so
-            // staging's Tata-dispatch pipeline is picked up by the poller.
+            // Determine direction. The classifier looks at the channel name
+            // for "trunk" (matches per-org outbound trunk endpoints), but
+            // some inbound flows arrive on a non-trunk channel; treat any
+            // CDR whose dcontext ends with "_incoming" as inbound as a
+            // safety net so all inbound dispatch paths are picked up.
             let direction = 'internal';
             const ch = r.channel || '';
             const ctx = r.dcontext || '';
