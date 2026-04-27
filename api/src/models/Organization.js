@@ -81,20 +81,19 @@ module.exports = (sequelize) => {
     timestamps: true,
     underscored: true,
     hooks: {
-      beforeCreate: async (org) => {
-        // Generate API key if not provided
+      beforeValidate: async (org) => {
+        // allowNull:false validates before beforeCreate, so populate here.
         if (!org.api_key) {
           org.api_key = `org_${uuidv4().replace(/-/g, '')}`;
         }
-        // Generate API secret and hash it
+        if (!org.context_prefix) {
+          org.context_prefix = `org_${Date.now().toString(36)}`;
+        }
+      },
+      beforeCreate: async (org) => {
         if (!org.api_secret) {
           const secret = uuidv4();
           org.api_secret = await bcrypt.hash(secret, process.env.BCRYPT_ROUNDS || 12);
-        }
-        // Generate context prefix if not provided
-        if (!org.context_prefix) {
-          const timestamp = Date.now().toString(36);
-          org.context_prefix = `org_${timestamp}`;
         }
       },
       beforeUpdate: async (org) => {
