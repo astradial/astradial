@@ -1,0 +1,12 @@
+node_modules
+.env
+.env.local
+.env.*.local
+*.log
+.git
+.gitignore
+README.md
+firebase-sa-key.json
+recordings/
+coverage/
+.DS_Store
