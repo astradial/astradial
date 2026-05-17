@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { showToast } from "@/components/ui/Toast";
-import { orgs as gwOrgs, setAdminKey, type Org } from "@/lib/gateway/client";
+import { auth as authProvider } from "@/lib/auth";
+import { useAuthStore, isImpersonatingAdmin } from "@/lib/auth/authStore";
+import { orgs as gwOrgs, type Org } from "@/lib/gateway/client";
 import { config as pbxConfig, orgs as pbxOrgs, type PbxOrg } from "@/lib/pbx/client";
 
 export default function SettingsPage() {
@@ -51,12 +53,22 @@ export default function SettingsPage() {
   }
 
   function handleLogout() {
-    setAdminKey("");
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("gateway_admin_key");
+    if (typeof window === "undefined") {
+      router.push("/dashboard");
+      return;
+    }
+    if (isImpersonatingAdmin()) {
+      localStorage.removeItem("pbx_org_token");
+      localStorage.removeItem("pbx_org_token_exp");
       localStorage.removeItem("pbx_api_key");
       localStorage.removeItem("org_access");
+      localStorage.removeItem("user_role");
+      localStorage.removeItem("user_permissions");
+      router.push("/dashboard");
+      return;
     }
+    useAuthStore.getState().logout();
+    authProvider.signOut().catch((err) => console.warn("[settings] signOut failed:", err?.code || err));
     router.push("/dashboard");
   }
 

@@ -81,7 +81,7 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=pbx_api_db
 DB_USER=pbx_api
-DB_PASSWORD=pbx_secure_password
+DB_PASSWORD=<your-strong-password-here>
 DB_DIALECT=mysql
 ```
 

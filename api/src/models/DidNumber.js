@@ -32,7 +32,7 @@ module.exports = (sequelize) => {
       type: DataTypes.STRING,
       allowNull: true,
     },
-    recording_enabled: { type: DataTypes.BOOLEAN, defaultValue: false },
+    recording_enabled: { type: DataTypes.BOOLEAN, defaultValue: true },
     status: {
       type: DataTypes.ENUM('active', 'inactive'),
       defaultValue: 'active'
@@ -40,6 +40,18 @@ module.exports = (sequelize) => {
     pool_status: {
       type: DataTypes.ENUM('available', 'pending', 'assigned', 'reserved'),
       defaultValue: 'available',
+    },
+    routing_environment: {
+      type: DataTypes.ENUM('prod', 'staging', 'oss'),
+      allowNull: false,
+      defaultValue: 'prod',
+      comment: "Which environment this DID's inbound calls land in. Read by the prod tata-did-route generator: 'prod' = local Goto, 'staging' = Dial to cloud-endpoint-stage, 'oss' = reserved (handled on NUC for now).",
+    },
+    is_default: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment: "Marks this DID as the org's default outbound caller ID. At most one per org should be true. Used when a user has no outbound_did set.",
     },
     requested_by_org: {
       type: DataTypes.UUID,

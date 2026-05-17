@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type ToastType = "success" | "error" | "info";
+type ToastType = "success" | "error" | "info" | "warning";
 
 type Toast = {
   id: string;
@@ -48,7 +48,9 @@ export default function ToastContainer() {
               ? "border-red-400 bg-red-50 text-red-900 dark:bg-red-950 dark:text-red-100"
               : toast.type === "success"
                 ? "border-green-400 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100"
-                : "border-blue-400 bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
+                : toast.type === "warning"
+                  ? "border-amber-400 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100"
+                  : "border-blue-400 bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
           }`}
         >
           {toast.message}

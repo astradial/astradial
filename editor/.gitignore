@@ -28,3 +28,14 @@ credentials.txt
 *.credentials
 service-account*.json
 google-credentials.json
+
+# Local backups (never commit — dev-deploy.sh already excludes these)
+*.backup*
+*.bak
+*.bak-*
+
+# TypeScript incremental build cache (regenerated, ~400KB noise)
+*.tsbuildinfo
+
+# Accidental literal-@ folder from path-alias autocomplete gone wrong
+/@/

@@ -50,6 +50,13 @@ class ConfigDeploymentService {
       // Update main configuration files with includes
       await this.ensureIncludesInMainConfigs(sanitizedOrgName);
 
+      // Deploy gateway inbound routing (Tata DID → org mapping)
+      try {
+        await this.deployGatewayRouting();
+      } catch (gwError) {
+        console.warn('⚠️  Warning: Failed to deploy gateway routing:', gwError.message);
+      }
+
       // Deploy Music on Hold configuration (system-wide)
       let mohDeployed = false;
       try {
@@ -167,43 +174,16 @@ class ConfigDeploymentService {
   }
 
   /**
-   * Write configuration file — local or remote via SSH
+   * Write configuration file with proper permissions
    */
   async writeConfigFile(filePath, content) {
-    const sshHost = process.env.ASTERISK_SSH_HOST;
-    const sshUser = process.env.ASTERISK_SSH_USER || 'root';
-    const sshKey = process.env.ASTERISK_SSH_KEY || '';
-
-    // Remote deployment via SSH
-    if (sshHost) {
-      try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
-        // Write to local temp, then SCP to remote
-        const tempPath = `/tmp/${path.basename(filePath)}`;
-        await fs.writeFile(tempPath, content);
-
-        const sshOpts = sshKey ? `-i ${sshKey}` : '';
-        const scpCmd = `scp -o StrictHostKeyChecking=no ${sshOpts} "${tempPath}" ${sshUser}@${sshHost}:${filePath}`;
-        await execAsync(scpCmd);
-
-        console.log(`✅ Written config file (SSH → ${sshHost}): ${filePath}`);
-        return;
-      } catch (error) {
-        console.error(`❌ SSH write failed for ${filePath}:`, error.message);
-        throw error;
-      }
-    }
-
-    // Local deployment
     try {
       await fs.writeFile(filePath, content, { mode: 0o644 });
       console.log(`✅ Written config file: ${filePath}`);
     } catch (error) {
       if (error.code === 'EACCES') {
         console.warn(`⚠️ Permission denied writing to ${filePath}. Trying with sudo...`);
+        // Write to temp file first, then move with sudo
         const tempPath = `/tmp/${path.basename(filePath)}`;
         await fs.writeFile(tempPath, content);
 
@@ -223,7 +203,13 @@ class ConfigDeploymentService {
   }
 
   /**
-   * Ensure include statements exist in main configuration files
+   * Ensure include statements exist in main configuration files.
+   * Also self-heals the main files on every call:
+   *   - prunes #include lines pointing at per-org files that no longer exist on disk
+   *     (prevents Asterisk sorcery parse errors after an org is deleted outside
+   *     removeOrganizationConfiguration, or when an org's file moves)
+   *   - collapses runs of blank "organisation-specific" comment lines that
+   *     accumulated before the dedupe check was in place
    */
   async ensureIncludesInMainConfigs(orgName) {
     try {
@@ -232,6 +218,12 @@ class ConfigDeploymentService {
       const pjsipMainPath = path.join(this.asteriskConfigPath, 'pjsip.conf');
       const extensionsMainPath = path.join(this.asteriskConfigPath, 'extensions.conf');
       const queuesMainPath = path.join(this.asteriskConfigPath, 'queues.conf');
+
+      // Self-heal BEFORE appending — otherwise a new include sits next to stale
+      // ones that would break sorcery on reload.
+      await this.pruneStaleIncludesFromFile(pjsipMainPath, /^#include\s+"?(\/etc\/asterisk\/)?(pjsip_[^\s"]+\.conf)"?/);
+      await this.pruneStaleIncludesFromFile(extensionsMainPath, /^#include\s+"?(\/etc\/asterisk\/)?(ext_[^\s"]+\.conf)"?/);
+      await this.pruneStaleIncludesFromFile(queuesMainPath, /^#include\s+"?(\/etc\/asterisk\/)?(queues_[^\s"]+\.conf)"?/);
 
       // Check and add PJSIP include (use absolute path)
       await this.ensureIncludeInFile(
@@ -266,36 +258,85 @@ class ConfigDeploymentService {
   }
 
   /**
+   * Remove #include lines from a main config whose referenced per-org file no
+   * longer exists on disk, and collapse runs of leading blank comment-only
+   * lines that accumulated from earlier versions of ensureIncludeInFile.
+   *
+   * The regex captures the filename in group 2 (group 1 is the optional
+   * "/etc/asterisk/" prefix). Lines that don't look like an org include are
+   * left untouched.
+   */
+  async pruneStaleIncludesFromFile(filePath, includeRegex) {
+    try {
+      let content;
+      try {
+        content = await fs.readFile(filePath, 'utf8');
+      } catch (error) {
+        if (error.code === 'ENOENT') return; // main file missing — nothing to prune
+        if (error.code === 'EACCES') {
+          const { exec } = require('child_process');
+          const { promisify } = require('util');
+          const execAsync = promisify(exec);
+          const { stdout } = await execAsync(`sudo cat "${filePath}"`);
+          content = stdout;
+        } else {
+          throw error;
+        }
+      }
+
+      const lines = content.split('\n');
+      const kept = [];
+      const removed = [];
+      for (const line of lines) {
+        const m = line.match(includeRegex);
+        if (!m) { kept.push(line); continue; }
+        const fname = m[2];
+        const absPath = path.join(this.asteriskConfigPath, fname);
+        let exists = false;
+        try { await fs.access(absPath); exists = true; } catch { exists = false; }
+        if (exists) kept.push(line);
+        else removed.push(fname);
+      }
+
+      if (removed.length === 0) return;
+
+      // Also squash any run of 3+ consecutive blank/comment-only "Organization-specific"
+      // lines that built up before the dedupe check was in place.
+      const squashed = [];
+      let lastWasOrgComment = false;
+      for (const line of kept) {
+        const isOrgComment = /^\s*;\s*Organization-specific\b/i.test(line);
+        if (isOrgComment && lastWasOrgComment) continue;
+        squashed.push(line);
+        lastWasOrgComment = isOrgComment;
+      }
+
+      await this.writeConfigFile(filePath, squashed.join('\n'));
+      console.log(`🧹 Pruned ${removed.length} stale include(s) from ${filePath}: ${removed.join(', ')}`);
+    } catch (error) {
+      // Pruning is best-effort — never block deploy on it.
+      console.warn(`⚠️  Could not prune stale includes from ${filePath}: ${error.message}`);
+    }
+  }
+
+  /**
    * Ensure include statement exists in configuration file
    */
   async ensureIncludeInFile(filePath, includeStatement, comment) {
     try {
-      const { exec } = require('child_process');
-      const { promisify } = require('util');
-      const execAsync = promisify(exec);
-
-      const sshHost = process.env.ASTERISK_SSH_HOST;
-      const sshUser = process.env.ASTERISK_SSH_USER || 'root';
-      const sshKey = process.env.ASTERISK_SSH_KEY || '';
-
       let content;
-      if (sshHost) {
-        // Read remote file via SSH
-        const sshOpts = sshKey ? `-i ${sshKey}` : '';
-        try {
-          const { stdout } = await execAsync(`ssh -o StrictHostKeyChecking=no ${sshOpts} ${sshUser}@${sshHost} "cat ${filePath}"`);
+      try {
+        content = await fs.readFile(filePath, 'utf8');
+      } catch (error) {
+        if (error.code === 'EACCES') {
+          // Try reading with cat via sudo
+          const { exec } = require('child_process');
+          const { promisify } = require('util');
+          const execAsync = promisify(exec);
+          const { stdout } = await execAsync(`sudo cat "${filePath}"`);
           content = stdout;
-        } catch { content = ''; }
-      } else {
-        try {
-          content = await fs.readFile(filePath, 'utf8');
-        } catch (error) {
-          if (error.code === 'EACCES') {
-            const { stdout } = await execAsync(`sudo cat "${filePath}"`);
-            content = stdout;
-          } else {
-            throw error;
-          }
+        } else {
+          throw error;
         }
       }
 
@@ -560,6 +601,153 @@ exten => _X.,1,NoOp(Unrouted DID: \${EXTEN})
   }
 
   /**
+   * Generate and deploy the Tata gateway inbound routing from the database.
+   * Replaces the static ext_tata_gateway.conf with DID→org routing derived
+   * from all assigned DIDs in the did_numbers table.
+   */
+  async deployGatewayRouting() {
+    try {
+      console.log('🌐 Generating gateway inbound routing from database...');
+
+      const assignedDids = await DidNumber.findAll({
+        where: { pool_status: 'assigned', status: 'active' },
+        include: [{ model: Organization, as: 'organization', attributes: ['id', 'name', 'context_prefix'] }],
+        order: [['number', 'ASC']],
+      });
+
+      const env = process.env.ASTRADIAL_ENV === 'staging' ? 'staging' : 'prod';
+      const config = ConfigDeploymentService.buildGatewayRoutingConfig({
+        assignedDids,
+        env,
+        generatedAt: new Date(),
+      });
+
+      const gatewayFilePath = path.join(this.asteriskConfigPath, 'ext_tata_gateway.conf');
+      await this.writeConfigFile(gatewayFilePath, config);
+
+      const orgCount = new Set(assignedDids.filter(d => d.organization).map(d => d.organization.id)).size;
+      const didCount = assignedDids.length;
+      console.log(`✅ Gateway routing deployed: ${didCount} DIDs across ${orgCount} orgs`);
+      return { success: true, didCount, orgCount };
+    } catch (error) {
+      console.error('❌ Error deploying gateway routing:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Pure string builder for ext_tata_gateway.conf — kept static + side-effect-free
+   * so it can be unit-tested without a DB.
+   *
+   * `tata-inbound` is a pass-through context: any DID coming from the gateway
+   * is normalized (strip leading `+`) and handed to `tata-did-route`. The
+   * dispatcher itself decides whether a given DID is known. Pass-through means
+   * a new Tata range (or any future change to the DID pool) needs no edits to
+   * this generator — just add DIDs in the admin pool. Earlier the patterns
+   * were hardcoded to `_+9180659780XX` and a new range (8065080700-29) silently
+   * 404'd until both NUC and cloud configs were hand-patched.
+   */
+  static buildGatewayRoutingConfig({ assignedDids, env, generatedAt }) {
+    const orgDids = {};
+    const orphanDids = []; // assigned but no org (typically routing_environment='staging' with org_id=NULL on prod)
+    for (const did of assignedDids) {
+      if (!did.organization) {
+        orphanDids.push(did);
+        continue;
+      }
+      const orgId = did.organization.id;
+      if (!orgDids[orgId]) orgDids[orgId] = { org: did.organization, dids: [] };
+      orgDids[orgId].dids.push(did);
+    }
+
+    let config = '';
+    config += '; Auto-generated Tata Gateway Inbound Routing\n';
+    config += `; Generated at: ${(generatedAt || new Date()).toISOString()}\n`;
+    config += '; DO NOT EDIT — regenerated on every config deploy\n\n';
+
+    config += '[tata-inbound]\n';
+    config += '; Pass-through: any DID from the gateway is normalized (strip +) and\n';
+    config += '; handed to tata-did-route. Unknown DIDs hit tata-did-route\'s own _X.\n';
+    config += '; catch-all (plays number-not-in-service). New DID ranges need no edits here.\n';
+    config += 'exten => _+X.,1,NoOp(Tata Inbound: ${EXTEN} from ${CALLERID(all)})\n';
+    config += 'same => n,Set(DID_CLEAN=${EXTEN:1})\n';
+    config += 'same => n,Goto(tata-did-route,${DID_CLEAN},1)\n\n';
+    config += 'exten => _X.,1,NoOp(Tata Inbound (no plus): ${EXTEN})\n';
+    config += 'same => n,Set(DID_CLEAN=${EXTEN})\n';
+    config += 'same => n,Goto(tata-did-route,${DID_CLEAN},1)\n\n';
+
+    config += '[tata-did-route]\n';
+    config += '; DID-to-Organization routing (auto-generated from DB)\n';
+
+    // The dispatcher generator runs on every environment. A DID's
+    // routing_environment column says where its calls SHOULD land. If we
+    // are that environment, route locally. If we're prod and the DID is
+    // marked 'staging', forward over the WireGuard endpoint. Anything
+    // else falls back to local Goto (defensive — won't normally happen).
+    // Indian DIDs come in two equivalent formats: local (08...) and
+    // international (91... / +91...). Tata always sends inbound as
+    // "918065978XXX" but customers may dial either format; normalize by
+    // emitting both routing entries for the same logical DID.
+    function indianAliases(num) {
+      const aliases = [num];
+      if (num.length === 11 && num.startsWith('0')) aliases.push('91' + num.substring(1));
+      if (num.length === 12 && num.startsWith('91')) aliases.push('0' + num.substring(2));
+      return aliases;
+    }
+    for (const [, { org, dids }] of Object.entries(orgDids)) {
+      config += `\n; === ${org.name} (${org.context_prefix}_) ===\n`;
+      for (const did of dids) {
+        const cleanNum = did.number.replace(/[^0-9]/g, '');
+        const didEnv = did.routing_environment || 'prod';
+        for (const alias of indianAliases(cleanNum)) {
+          if (didEnv === env) {
+            // Local: this is where the call should land
+            config += `exten => ${alias},1,Goto(${org.context_prefix}_incoming,${alias},1)\n`;
+          } else if (env === 'prod' && didEnv === 'staging') {
+            // Forward prod -> staging via the WireGuard PJSIP endpoint
+            config += `exten => ${alias},1,NoOp(DID ${alias} -> staging cloud)\n`;
+            config += `exten => ${alias},n,Dial(PJSIP/${alias}@cloud-endpoint-stage,120)\n`;
+            config += `exten => ${alias},n,Hangup()\n`;
+          } else {
+            // Defensive fallback (e.g. didEnv='prod' on a staging-only DB);
+            // route locally and log on the channel.
+            config += `exten => ${alias},1,NoOp(DID ${alias} routing_environment=${didEnv} but we are ${env}; routing locally)\n`;
+            config += `exten => ${alias},n,Goto(${org.context_prefix}_incoming,${alias},1)\n`;
+          }
+        }
+      }
+    }
+
+    // Orphan staging-flagged DIDs — assigned DIDs with routing_environment='staging'
+    // but no owning org on this environment. Happens on prod when the staging
+    // tenant only exists on staging: prod just needs to forward the call.
+    const orphanStagingDids = orphanDids.filter(d => (d.routing_environment || 'prod') === 'staging');
+    if (env === 'prod' && orphanStagingDids.length > 0) {
+      config += '\n; === Staging-forwarded DIDs (no owning org on prod) ===\n';
+      for (const did of orphanStagingDids) {
+        const cleanNum = did.number.replace(/[^0-9]/g, '');
+        for (const alias of indianAliases(cleanNum)) {
+          config += `exten => ${alias},1,NoOp(DID ${alias} -> staging cloud)\n`;
+          config += `exten => ${alias},n,Dial(PJSIP/${alias}@cloud-endpoint-stage,120)\n`;
+          config += `exten => ${alias},n,Hangup()\n`;
+        }
+      }
+    }
+    const skippedOrphans = orphanDids.length - orphanStagingDids.length;
+    if (skippedOrphans > 0) {
+      console.warn(`⚠️  ${skippedOrphans} assigned DID(s) with no org_id and non-staging routing_environment — skipped from dispatcher`);
+    }
+
+    config += '\n; Catch-all for unassigned DIDs\n';
+    config += 'exten => _X.,1,NoOp(Unassigned DID: ${EXTEN})\n';
+    config += 'same => n,Answer()\n';
+    config += 'same => n,Playback(number-not-in-service)\n';
+    config += 'same => n,Hangup()\n';
+
+    return config;
+  }
+
+  /**
    * Reload Asterisk configuration.
    * Note: `core reload` does NOT reliably re-read static members from queues.conf,
    * so we explicitly reload app_queue afterwards. Verified 2026-04-10: without the
@@ -574,21 +762,27 @@ exten => _X.,1,NoOp(Unrouted DID: \${EXTEN})
       const { promisify } = require('util');
       const execAsync = promisify(exec);
 
-      const sshHost = process.env.ASTERISK_SSH_HOST;
-      const sshUser = process.env.ASTERISK_SSH_USER || 'root';
-      const sshKey = process.env.ASTERISK_SSH_KEY || '';
+      // Reload everything (dialplan, pjsip, musiconhold, etc.)
+      await execAsync('asterisk -rx "core reload"');
+      // Explicitly reload app_queue so queues.conf static member changes take effect
+      await execAsync('asterisk -rx "module reload app_queue.so"');
 
-      if (sshHost) {
-        // Remote reload via SSH
-        const sshOpts = sshKey ? `-i ${sshKey}` : '';
-        await execAsync(`ssh -o StrictHostKeyChecking=no ${sshOpts} ${sshUser}@${sshHost} 'asterisk -rx "core reload" && asterisk -rx "module reload app_queue.so"'`);
-      } else {
-        // Local reload
-        await execAsync('asterisk -rx "core reload"');
-        await execAsync('asterisk -rx "module reload app_queue.so"');
+      // Seed `Custom:qm<id>` device states to NOT_INUSE. These Custom
+      // devices are used as the state_interface for queue members whose
+      // dial path goes via a trunk (ring_target='phone' or
+      // routing_type='ai_agent'), where there's no PJSIP endpoint for
+      // Asterisk to track. Unseeded, they sit at UNKNOWN and `linear`
+      // queue strategy can skip them between rounds — caused the
+      // 2026-05-15 Thangavelu Hospital incident where Raman never got
+      // a ring. Seeding here makes them available immediately after
+      // every deploy + every Asterisk restart that triggers a reload.
+      try {
+        await this.seedQueueMemberDevstates();
+      } catch (seedErr) {
+        console.warn('⚠️ devstate seed failed (queues may take one round to warm up):', seedErr.message);
       }
 
-      console.log('✅ Asterisk configuration reloaded (core + app_queue)');
+      console.log('✅ Asterisk configuration reloaded (core + app_queue + devstate seed)');
 
       return { success: true, message: 'Asterisk configuration reloaded' };
 
@@ -596,6 +790,46 @@ exten => _X.,1,NoOp(Unrouted DID: \${EXTEN})
       console.error('Error reloading Asterisk configuration:', error);
       throw error;
     }
+  }
+
+  /**
+   * Publish DEVICE_STATE=NOT_INUSE for every queue_members.id whose
+   * state_interface starts with `Custom:` (i.e., phone-target or
+   * ai_agent members). Idempotent and cheap — runs per-deploy.
+   */
+  async seedQueueMemberDevstates() {
+    const { sequelize } = require('../../models');
+    // A queue member uses `Custom:qm<id>` as state_interface when the
+    // user's dial target has no PJSIP endpoint to monitor — that is,
+    // ring_target='phone' (external dial via trunk) or
+    // routing_type='ai_agent' (Stasis handoff). Mirror the same
+    // condition from queueService.generateQueueMemberString so this
+    // stays in sync if the generator ever changes its placement.
+    const rows = await sequelize.query(
+      "SELECT qm.id FROM queue_members qm " +
+      "JOIN users u ON qm.user_id = u.id " +
+      "WHERE u.status = 'active' AND " +
+      "  (u.ring_target = 'phone' OR u.routing_type = 'ai_agent')",
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    if (rows.length === 0) return;
+
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+
+    let ok = 0;
+    for (const row of rows) {
+      // Local channel handle is `qm` + member.id with hyphens removed.
+      const dev = 'Custom:qm' + row.id.replace(/-/g, '');
+      try {
+        await execAsync(`asterisk -rx "devstate change ${dev} NOT_INUSE"`);
+        ok++;
+      } catch (e) {
+        console.warn(`devstate change ${dev} failed: ${e.message}`);
+      }
+    }
+    console.log(`📡 Seeded ${ok}/${rows.length} Custom:qm devstates to NOT_INUSE`);
   }
 }
 

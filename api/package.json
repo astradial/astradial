@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "check:routes": "node scripts/check-routes.js",
+    "test": "node --test tests/*.test.js"
   },
   "keywords": [
     "pbx",
@@ -33,7 +34,7 @@
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
     "express-validator": "^7.2.1",
-    "helmet": "^8.1.0",
+    "firebase-admin": "^13.8.0",
     "ioredis": "^5.7.0",
     "js-yaml": "^4.1.0",
     "jsonwebtoken": "^9.0.2",
@@ -45,6 +46,7 @@
     "morgan": "^1.10.1",
     "multer": "^2.1.1",
     "mysql2": "^3.15.0",
+    "node-cron": "^4.2.1",
     "redis": "^5.8.2",
     "sequelize": "^6.37.7",
     "swagger-jsdoc": "^6.2.8",

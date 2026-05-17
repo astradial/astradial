@@ -93,11 +93,13 @@ export default function BotEditorPage() {
   }, [handleSave]);
 
   if (!loaded) {
-    return <div className="flex min-h-screen items-center justify-center bg-background text-foreground">Loading bot...</div>;
+    return <div className="flex h-full items-center justify-center bg-background text-foreground">Loading bot...</div>;
   }
 
   return (
-    <div className="fixed inset-0 bg-background flex flex-col">
+    // Renders inside the dashboard tab (sidebar stays visible). Was
+    // `fixed inset-0` — changed so it behaves like the IVR builder.
+    <div className="flex h-full flex-col bg-background">
       {/* Top bar */}
       <div className="flex items-center justify-between border-b px-3 py-1.5 bg-background z-50">
         <div className="flex items-center gap-3">

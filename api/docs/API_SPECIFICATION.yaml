@@ -41,11 +41,11 @@ info:
   version: 1.0.0
   contact:
     name: Astradial Support
-    email: cats@astradial.com
+    email: support@astradial.com
     url: https://astradial.com
 
 servers:
-  - url: https://devpbx.astradial.com/api/v1
+  - url: https://api.example.com/api/v1
     description: Production API
 
 security:
@@ -106,9 +106,9 @@ tags:
       **How:** Upload audio via `POST /moh/upload` (accepts mp3, wav, ogg, flac, m4a, aac — auto-converts to Asterisk format). Assign to a queue with `PUT /queues/{id}/moh`.
   - name: IVR
     description: |
-      **What:** Interactive Voice Response menus (Coming Soon).
-      **Why:** IVR enables automated call routing via DTMF keypress menus.
-      **How:** Not yet implemented via API. The IVR model exists in the database for future use.
+      **What:** Interactive Voice Response menus — automated keypad-driven call routing.
+      **Why:** Route callers to the right queue, extension, or agent without a human operator. Press 1 for sales, 2 for support, etc.
+      **How:** Create an IVR with `POST /ivrs`, generate a TTS greeting with `POST /ivrs/{id}/generate-greeting`, save menu options with `PUT /ivrs/{id}/menu`, then publish with `POST /ivrs/{id}/publish` to push changes to the live dialplan.
   - name: Outbound Routes
     description: |
       **What:** Rules that determine which SIP trunk handles outgoing calls based on dialed number patterns.
@@ -141,7 +141,7 @@ components:
       type: apiKey
       in: header
       name: X-API-Key
-      description: Organization API key (e.g., `org_1938b72364514e389ca31473a59efc00`)
+      description: Organization API key (e.g., `org_<32-char-hex>`)
     ApiSecretAuth:
       type: apiKey
       in: header
@@ -514,6 +514,150 @@ components:
         updatedAt:
           type: string
           format: date-time
+
+    Ivr:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "2d7a59e9-4304-4032-a0c1-f8df2429751c"
+        org_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "Main Menu"
+        extension:
+          type: string
+          example: "7001"
+        description:
+          type: string
+          nullable: true
+        greeting_prompt:
+          type: string
+          nullable: true
+          description: Filename (without extension) of the generated TTS audio under /var/lib/asterisk/sounds/greetings/
+          example: "greeting_ivr_2d7a59e9-4304-4032-a0c1-f8df2429751c"
+        greeting_text:
+          type: string
+          nullable: true
+          description: Source text last used to generate the greeting
+        greeting_language:
+          type: string
+          default: en-IN
+          example: "en-IN"
+        greeting_voice:
+          type: string
+          default: en-IN-Wavenet-D
+          example: "en-IN-Wavenet-D"
+        timeout:
+          type: integer
+          default: 10
+          description: Seconds to wait for a digit after the greeting plays. 0 = wait forever.
+        max_retries:
+          type: integer
+          default: 3
+          description: Number of greeting repeats before hangup. UI restricts to 1, 2, or 3.
+          minimum: 1
+          maximum: 3
+        invalid_prompt:
+          type: string
+          nullable: true
+        timeout_prompt:
+          type: string
+          nullable: true
+        enable_direct_dial:
+          type: boolean
+          default: false
+          description: When true, callers can dial any 4-digit extension directly from inside the IVR.
+        status:
+          type: string
+          enum: [active, inactive]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    IvrInput:
+      type: object
+      required: [name, extension]
+      properties:
+        name:
+          type: string
+        extension:
+          type: string
+          pattern: '^[0-9]{3,4}$'
+        description:
+          type: string
+        timeout:
+          type: integer
+          default: 10
+        max_retries:
+          type: integer
+          minimum: 1
+          maximum: 3
+          default: 3
+        enable_direct_dial:
+          type: boolean
+        greeting_language:
+          type: string
+          default: en-IN
+        greeting_voice:
+          type: string
+          default: en-IN-Wavenet-D
+        status:
+          type: string
+          enum: [active, inactive]
+
+    IvrMenuOption:
+      type: object
+      required: [digit, action_type]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        ivr_id:
+          type: string
+          format: uuid
+          readOnly: true
+        digit:
+          type: string
+          pattern: '^[0-9*#]$'
+          description: A single DTMF digit 0-9, * or #
+        action_type:
+          type: string
+          enum: [extension, queue, ivr, voicemail, hangup, callback, ai_agent]
+        action_destination:
+          type: string
+          nullable: true
+          description: |
+            Format depends on action_type:
+            - extension: extension number (e.g. "1001")
+            - queue: queue number (e.g. "5001")
+            - ivr: UUID of another IVR
+            - voicemail: mailbox extension
+            - hangup / callback: null
+            - ai_agent: WebSocket URL or AI agent user UUID
+        description:
+          type: string
+          nullable: true
+        order:
+          type: integer
+          default: 0
+
+    IvrWithMenu:
+      allOf:
+        - $ref: '#/components/schemas/Ivr'
+        - type: object
+          properties:
+            menuOptions:
+              type: array
+              items:
+                $ref: '#/components/schemas/IvrMenuOption'
 
     Queue:
       type: object
@@ -2663,6 +2807,109 @@ paths:
               schema:
                 $ref: '#/components/schemas/User'
 
+  /users/registrations:
+    get:
+      security:
+        - BearerAuth: []
+      tags: [Users]
+      summary: Live PJSIP registration state for all users in the org
+      description: |
+        Returns the live PJSIP registration state for every user in the
+        organization. The backend joins the user list from the database
+        with the parsed output of `pjsip show contacts` from Asterisk
+        and returns a per-user row.
+
+        The Asterisk CLI call is cached server-side for 30s so heavy
+        polling (e.g. 24 users × 30s polling per operator) does not
+        re-shell the CLI on every request. Pass `force=1` to bypass the
+        cache.
+
+        If Asterisk is unreachable (transient outage, pjsip module not
+        loaded, dev env without Asterisk) the route still returns 200
+        with `asterisk_unreachable: true` and every user marked
+        `status: "unknown"` so the UI can render a degraded-state
+        banner instead of falsely showing all phones as registered.
+
+        Must be declared in server.js BEFORE `/users/{userId}` because
+        Express matches routes in registration order; otherwise
+        "registrations" would be matched as a `:id` path parameter.
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/users/registrations \
+          -H "Authorization: Bearer YOUR_ORG_TOKEN"
+        ```
+      parameters:
+        - name: force
+          in: query
+          required: false
+          description: Set to `1` or `true` to bypass the 30s server-side cache and re-shell `pjsip show contacts`.
+          schema:
+            type: string
+            enum: ["1", "true"]
+      responses:
+        '200':
+          description: Per-user registration state (always 200, even when Asterisk is unreachable — check `asterisk_unreachable`)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registrations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id:
+                          type: string
+                          format: uuid
+                        extension:
+                          type: string
+                          example: "1001"
+                        asterisk_endpoint:
+                          type: string
+                          example: "org_acme_1001"
+                        registered:
+                          type: boolean
+                          description: True iff `status` is `reachable` or `nonqual` (a registered contact exists).
+                        status:
+                          type: string
+                          enum: [reachable, unreachable, nonqual, unregistered, unknown]
+                          description: |
+                            reachable     - registered + qualify OK.
+                            nonqual       - registered but qualify pending / RTT unknown (typical NAT-keepalive gap).
+                            unreachable   - registered but qualify failed (phone disconnected).
+                            unregistered  - no contact in Asterisk table (authoritative).
+                            unknown       - Asterisk was unreachable; we have NO information about this user.
+                        contact_ip:
+                          type: string
+                          nullable: true
+                          example: "192.168.0.76"
+                        contact_port:
+                          type: integer
+                          nullable: true
+                          example: 5060
+                        rtt_ms:
+                          type: integer
+                          nullable: true
+                          example: 24
+                        last_check_at:
+                          type: string
+                          format: date-time
+                  fetched_at:
+                    type: string
+                    format: date-time
+                  from_cache:
+                    type: boolean
+                  count:
+                    type: integer
+                  asterisk_unreachable:
+                    type: boolean
+                    description: 'True iff the underlying pjsip show contacts call failed. When true, all rows have status=unknown.'
+                  asterisk_error:
+                    type: string
+                    nullable: true
+
   /users/{userId}:
     get:
       security:
@@ -3615,6 +3862,332 @@ paths:
                     type: string
         '404':
           description: Queue not found
+
+  # IVR (Interactive Voice Response)
+  /ivrs:
+    get:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [IVR]
+      summary: List IVRs
+      description: |
+        List all IVRs in your organization. IVRs are interactive voice menus that callers navigate with DTMF keypresses.
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/ivrs \
+          -H "X-API-Key: YOUR_API_KEY"
+        ```
+      responses:
+        '200':
+          description: List of IVRs for your org
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Ivr'
+    post:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [IVR]
+      summary: Create an IVR
+      description: |
+        Create a new IVR. After creating, call `/ivrs/{id}/generate-greeting` to produce the greeting audio, `/ivrs/{id}/menu` to save menu options, and `/ivrs/{id}/publish` to push to the live dialplan.
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/ivrs \
+          -H "X-API-Key: YOUR_API_KEY" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "name": "Main Menu",
+            "extension": "7099",
+            "description": "Primary reception IVR",
+            "timeout": 10,
+            "max_retries": 3,
+            "greeting_language": "en-IN",
+            "greeting_voice": "en-IN-Wavenet-D"
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IvrInput'
+      responses:
+        '201':
+          description: IVR created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ivr'
+        '409':
+          description: Extension already in use within this org
+
+  /ivrs/{ivrId}:
+    parameters:
+      - name: ivrId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [IVR]
+      summary: Get an IVR with menu options
+      description: |
+        Returns a single IVR including its menu options in the `menuOptions` array.
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/ivrs/IVR_UUID \
+          -H "X-API-Key: YOUR_API_KEY"
+        ```
+      responses:
+        '200':
+          description: IVR with menu options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IvrWithMenu'
+        '404':
+          description: IVR not found in your org
+    put:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [IVR]
+      summary: Update an IVR
+      description: |
+        Update IVR settings. All fields optional. Does NOT regenerate the dialplan — call `/ivrs/{id}/publish` after.
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/ivrs/IVR_UUID \
+          -H "X-API-Key: YOUR_API_KEY" \
+          -H "Content-Type: application/json" \
+          -d '{ "timeout": 15, "max_retries": 2 }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IvrInput'
+      responses:
+        '200':
+          description: Updated IVR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ivr'
+    delete:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [IVR]
+      summary: Delete an IVR
+      description: |
+        Delete the IVR, cascade-deletes its menu options, removes the greeting `.wav`. Any DID routed to this IVR will lose its destination — calls will return "number not in service" until you reroute.
+
+        **Example curl:**
+        ```bash
+        curl -X DELETE ${YOUR_SERVER_URL}/api/v1/ivrs/IVR_UUID \
+          -H "X-API-Key: YOUR_API_KEY"
+        ```
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: IVR not found
+
+  /ivrs/{ivrId}/menu:
+    parameters:
+      - name: ivrId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [IVR]
+      summary: Save menu options
+      description: |
+        Replace ALL menu options for this IVR atomically. Each option maps a digit (0-9, *, #) to an action (extension, queue, ivr, voicemail, hangup, callback, ai_agent).
+
+        For `action_type=ivr`, the destination MUST be another IVR's UUID, not its extension.
+
+        **Example curl:**
+        ```bash
+        curl -X PUT ${YOUR_SERVER_URL}/api/v1/ivrs/IVR_UUID/menu \
+          -H "X-API-Key: YOUR_API_KEY" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "options": [
+              { "digit": "1", "action_type": "queue", "action_destination": "5001", "description": "Sales", "order": 1 },
+              { "digit": "2", "action_type": "extension", "action_destination": "1001", "description": "Reception", "order": 2 },
+              { "digit": "0", "action_type": "hangup", "action_destination": null, "description": "End call", "order": 3 }
+            ]
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [options]
+              properties:
+                options:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/IvrMenuOption'
+      responses:
+        '200':
+          description: Menu saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IvrWithMenu'
+
+  /ivrs/{ivrId}/generate-greeting:
+    parameters:
+      - name: ivrId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [IVR]
+      summary: Generate TTS greeting
+      description: |
+        Call Google Cloud TTS to synthesize audio from text. Writes a `.wav` file to the server at `/var/lib/asterisk/sounds/greetings/greeting_ivr_<id>.wav` and stores the filename on the IVR record. Does NOT publish — call `/ivrs/{id}/publish` to make the new greeting live.
+
+        Any voice from [cloud.google.com/text-to-speech/docs/voices](https://cloud.google.com/text-to-speech/docs/voices) is supported.
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/ivrs/IVR_UUID/generate-greeting \
+          -H "X-API-Key: YOUR_API_KEY" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "text": "Welcome to Acme. Press 1 for sales, 2 for support.",
+            "language": "en-IN",
+            "voice": "en-IN-Wavenet-D"
+          }'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  description: Source text for TTS (keep under 40 words for best audio quality)
+                language:
+                  type: string
+                  default: en-IN
+                voice:
+                  type: string
+                  default: en-IN-Wavenet-D
+      responses:
+        '200':
+          description: Greeting generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  greeting_prompt: { type: string }
+                  language: { type: string }
+                  voice: { type: string }
+
+  /ivrs/{ivrId}/greeting-audio:
+    parameters:
+      - name: ivrId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [IVR]
+      summary: Download the greeting audio
+      description: |
+        Returns the raw `.wav` bytes for this IVR's greeting. Useful for UI playback or automated QA.
+
+        **Example curl:**
+        ```bash
+        curl -X GET ${YOUR_SERVER_URL}/api/v1/ivrs/IVR_UUID/greeting-audio \
+          -H "X-API-Key: YOUR_API_KEY" \
+          --output greeting.wav
+        ```
+      responses:
+        '200':
+          description: Audio file
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: No greeting has been generated for this IVR yet
+
+  /ivrs/{ivrId}/publish:
+    parameters:
+      - name: ivrId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      tags: [IVR]
+      summary: Publish the IVR (deploy to live dialplan)
+      description: |
+        Regenerate the entire org's Asterisk dialplan and reload. Any DIDs routed to this IVR will start ringing it on the next inbound call.
+
+        Publish is idempotent. Note it regenerates the whole org's config — any pending changes to queues, users, or other IVRs will go live at the same time.
+
+        **Example curl:**
+        ```bash
+        curl -X POST ${YOUR_SERVER_URL}/api/v1/ivrs/IVR_UUID/publish \
+          -H "X-API-Key: YOUR_API_KEY"
+        ```
+      responses:
+        '200':
+          description: Dialplan regenerated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  message: { type: string }
 
   # Outbound Route Management
   /outbound-routes:

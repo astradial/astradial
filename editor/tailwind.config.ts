@@ -7,7 +7,16 @@ export default {
     './lib/**/*.{ts,tsx}',
   ],
   theme: {
-    extend: {}
+    extend: {
+      animation: {
+        shine: "shine 1s forwards",
+      },
+      keyframes: {
+        shine: {
+          "100%": { left: "150%" },
+        },
+      },
+    },
   },
   plugins: [],
 } satisfies Config;

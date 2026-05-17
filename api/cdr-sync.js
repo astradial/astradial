@@ -3,7 +3,7 @@ const fs = require("fs");
 const { Sequelize } = require("sequelize");
 
 const CSV_PATH = "/var/log/asterisk/cdr-csv/Master.csv";
-const LOGSUPDATE_URL = process.env.LOGSUPDATE_URL || "https://events.astradial.com";
+const LOGSUPDATE_URL = process.env.LOGSUPDATE_URL || "https://events.example.com";
 const POLL_INTERVAL = 10000;
 
 require("dotenv").config();
@@ -49,7 +49,13 @@ async function processNewLines() {
       const f = parseCSVLine(line);
       if (f.length < 16) continue;
 
-      const accountcode = f[0], src = f[1], dst = f[2], clid = f[4];
+      // Asterisk Master.csv field layout:
+      //   0 accountcode | 1 src | 2 dst | 3 dcontext | 4 clid | 5 channel
+      //   6 dstchannel | 7 lastapp | 8 lastdata | 9 start | 10 answer
+      //   11 end | 12 duration | 13 billsec | 14 disposition | 15 amaflags
+      //   16 uniqueid | 17 userfield (we repurpose for recordingfile)
+      // dcontext (f[3]) is the strongest signal for direction — see below.
+      const accountcode = f[0], src = f[1], dst = f[2], dcontext = f[3], clid = f[4];
       const channel = f[5], dstchannel = f[6];
       const start = f[9], answer = f[10], end = f[11];
       const duration = f[12], billsec = f[13], disposition = f[14];
@@ -73,13 +79,34 @@ async function processNewLines() {
       }
       if (!orgId || orgId.length < 10) continue;
 
-      // Direction
+      // Direction. Previously this only matched channels whose name
+      // contained the literal substring "trunk" — but Tata's PJSIP
+      // endpoint is named `tata_gateway`, so every Tata-inbound call
+      // fell through to `direction='internal'`, which the
+      // auto-ticket classifier silently skips. No tickets created.
+      // Fix uses dcontext as the primary signal: Asterisk routes all
+      // inbound calls through `*_incoming` / `*_incoming_sub` /
+      // `tata-inbound` contexts, none of which apply to internal or
+      // outbound calls. Channel-name match remains as a fallback for
+      // CDRs where dcontext is missing.
       let direction = "internal";
       const srcDigits = src.replace(/\D/g, "");
       const dstDigits = dst.replace(/\D/g, "");
-      if (channel.includes("trunk") && srcDigits.length >= 7) direction = "inbound";
-      else if (srcDigits.length <= 5 && dstDigits.length >= 7) direction = "outbound";
-      else if ((dstchannel || "").includes("trunk")) direction = "outbound";
+      const ctx = String(dcontext || "");
+      const ch = String(channel || "");
+      const dch = String(dstchannel || "");
+      if (ctx.includes("incoming") || ctx.includes("inbound")) {
+        direction = "inbound";
+      } else if (ctx.includes("outbound") || dch.includes("trunk") || dch.includes("gateway")) {
+        direction = "outbound";
+      } else if ((ch.includes("trunk") || ch.includes("gateway")) && srcDigits.length >= 7) {
+        // Channel-name fallback: trunk/gateway PJSIP coming in with an
+        // external caller-id is an inbound call. Covers CDRs where
+        // dcontext didn't get populated (rare).
+        direction = "inbound";
+      } else if (srcDigits.length <= 5 && dstDigits.length >= 7) {
+        direction = "outbound";
+      }
 
       const statusMap = { ANSWERED: "completed", "NO ANSWER": "no_answer", BUSY: "busy", FAILED: "failed", CONGESTION: "failed" };
       const status = statusMap[disposition] || "failed";
@@ -101,11 +128,46 @@ async function processNewLines() {
         continue;
       }
 
-      // POST to LogsUpdate for Firebase
+      // POST to LogsUpdate for Firebase.
+      //
+      // The upstream auto-ticket classifier maps disposition → ticket
+      // creation: NO ANSWER inbound → missed_call (or queue_timeout
+      // when context is a queue), ANSWERED inbound → "human answered,
+      // skip". But for an inbound call that hits an IVR or queue and
+      // is never bridged to a real member (caller hung up while
+      // listening to the greeting or in queue), Asterisk still records
+      // ANSWERED because the channel was Answer()ed for the IVR
+      // greeting. From the customer's perspective these ARE missed
+      // calls — they should get tickets.
+      //
+      // Detect this case (no member bridged) and POST disposition as
+      // "NO ANSWER" so the classifier's existing missed-call rule
+      // fires. Signals:
+      //   - direction = inbound
+      //   - disposition = ANSWERED (Answer() ran for greeting/queue)
+      //   - dstchannel empty OR doesn't look like a member channel
+      //     (PJSIP/<endpoint>-… for softphones, or a Local/Dial leg)
+      // Local DB row keeps the original disposition so call logs
+      // accurately reflect what happened.
+      let classifierDisposition = disposition;
+      if (direction === "inbound" && disposition === "ANSWERED") {
+        const bridged = dch && dch.trim() && !dch.startsWith("Local/qm");
+        // Local/qm<...> targets are the per-queue helper context
+        // (PR #180): they're set as dstchannel but the underlying
+        // Dial may have failed without bridging. Use lastapp as a
+        // tiebreaker — if the call ended while WaitExten / Background
+        // / Playback / Queue was the last app, no human picked up.
+        const lastappStr = String(f[7] || "").toLowerCase();
+        const stillInGreeting = ["waitexten", "background", "playback", "queue"].includes(lastappStr);
+        if (!bridged || stillInGreeting) {
+          classifierDisposition = "NO ANSWER";
+        }
+      }
       try {
         const payload = JSON.stringify({
           call_id: uniqueid, phone_number: src, source: src, destination: dst,
-          caller_id_name: clid, direction, disposition,
+          caller_id_name: clid, direction,
+          disposition: classifierDisposition,
           duration: dur, total_duration: totalDur,
           recording_url: "", recording_file: recordingfile,
           channel, unique_id: uniqueid, answered_by: dst,

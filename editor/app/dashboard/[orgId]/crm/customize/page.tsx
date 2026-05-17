@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,8 @@ export default function CustomizePage() {
   const [editing, setEditing] = useState<CustomField | null>(null);
   const [form, setForm] = useState({ field_label: "", field_type: "text", required: false, options: "" });
   const [saving, setSaving] = useState(false);
+  const [fieldsPage, setFieldsPage] = useState(1);
+  const [fieldsPageSize, setFieldsPageSize] = useState(10);
 
   // ── Pipeline state ──
   const [leadStages, setLeadStages] = useState<PipelineStage[]>(DEFAULT_LEAD_STAGES);
@@ -47,6 +49,8 @@ export default function CustomizePage() {
   const [editingStage, setEditingStage] = useState<{ index: number; label: string } | null>(null);
   const [newStageLabel, setNewStageLabel] = useState("");
   const [pipelineSaving, setPipelineSaving] = useState(false);
+  const [pipelinePage, setPipelinePage] = useState(1);
+  const [pipelinePageSize, setPipelinePageSize] = useState(10);
 
   useEffect(() => { loadFields(); loadPipelines(); }, [orgId]);
 
@@ -166,9 +170,11 @@ export default function CustomizePage() {
                     <CardTitle className="text-base">{pt === "lead" ? "Lead" : "Deal"} Pipeline Stages</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
+                    <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
+                      <div className="overflow-auto flex-1 relative">
+                        <Table>
+                          <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                            <TableRow className="border-b-border/50 hover:bg-transparent">
                           <TableHead className="w-12">Order</TableHead>
                           <TableHead>Stage Name</TableHead>
                           <TableHead>Key</TableHead>
@@ -176,7 +182,7 @@ export default function CustomizePage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {currentStages.map((s, i) => (
+                        {currentStages.slice((pipelinePage - 1) * pipelinePageSize, pipelinePage * pipelinePageSize).map((s, i) => (
                           <TableRow key={s.stage_key}>
                             <TableCell className="text-muted-foreground">{i + 1}</TableCell>
                             <TableCell className="font-medium">{s.stage_label}</TableCell>
@@ -191,8 +197,53 @@ export default function CustomizePage() {
                             </TableCell>
                           </TableRow>
                         ))}
-                      </TableBody>
-                    </Table>
+                        </TableBody>
+                      </Table>
+                      </div>
+                      {currentStages.length > 10 && (
+                        <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
+                          <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                            Showing {(pipelinePage - 1) * pipelinePageSize + 1}–{Math.min(pipelinePage * pipelinePageSize, currentStages.length)} of {currentStages.length} entries
+                          </div>
+                          <div className="flex w-full items-center gap-8 lg:w-fit">
+                            <div className="hidden items-center gap-2 lg:flex">
+                              <Label className="text-sm font-medium">Rows per page</Label>
+                              <Select value={`${pipelinePageSize}`} onValueChange={(value) => { setPipelinePageSize(Number(value)); setPipelinePage(1); }}>
+                                <SelectTrigger className="w-20">
+                                  <SelectValue placeholder={pipelinePageSize} />
+                                </SelectTrigger>
+                                <SelectContent side="top">
+                                  {[10, 20, 30, 40, 50].map((size) => (
+                                    <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex w-fit items-center justify-center text-sm font-medium">
+                              Page {pipelinePage} of {Math.ceil(currentStages.length / pipelinePageSize) || 1}
+                            </div>
+                            <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                              <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => setPipelinePage(1)} disabled={pipelinePage <= 1}>
+                                <span className="sr-only">Go to first page</span>
+                                <ChevronsLeft className="size-4" />
+                              </Button>
+                              <Button variant="outline" className="size-8" size="icon" onClick={() => setPipelinePage(p => p - 1)} disabled={pipelinePage <= 1}>
+                                <span className="sr-only">Go to previous page</span>
+                                <ChevronLeft className="size-4" />
+                              </Button>
+                              <Button variant="outline" className="size-8" size="icon" onClick={() => setPipelinePage(p => p + 1)} disabled={pipelinePage * pipelinePageSize >= currentStages.length}>
+                                <span className="sr-only">Go to next page</span>
+                                <ChevronRight className="size-4" />
+                              </Button>
+                              <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => setPipelinePage(Math.ceil(currentStages.length / pipelinePageSize))} disabled={pipelinePage * pipelinePageSize >= currentStages.length}>
+                                <span className="sr-only">Go to last page</span>
+                                <ChevronsRight className="size-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
                     <div className="flex items-center gap-2">
                       <Input placeholder="New stage name..." value={newStageLabel} onChange={e => setNewStageLabel(e.target.value)} className="max-w-xs" onKeyDown={e => e.key === "Enter" && addStage()} />
@@ -240,9 +291,11 @@ export default function CustomizePage() {
                         <Button variant="outline" size="sm" onClick={openCreateField}><Plus className="h-4 w-4 mr-1" /> Add First Field</Button>
                       </div>
                     ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
+                      <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
+                        <div className="overflow-auto flex-1 relative">
+                          <Table>
+                            <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                              <TableRow className="border-b-border/50 hover:bg-transparent">
                             <TableHead>Label</TableHead>
                             <TableHead>Field Name</TableHead>
                             <TableHead>Type</TableHead>
@@ -252,7 +305,7 @@ export default function CustomizePage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {filteredFields.map(f => (
+                          {filteredFields.slice((fieldsPage - 1) * fieldsPageSize, fieldsPage * fieldsPageSize).map(f => (
                             <TableRow key={f.id}>
                               <TableCell className="font-medium">{f.field_label}</TableCell>
                               <TableCell className="text-muted-foreground font-mono text-xs">{f.field_name}</TableCell>
@@ -267,8 +320,53 @@ export default function CustomizePage() {
                               </TableCell>
                             </TableRow>
                           ))}
-                        </TableBody>
-                      </Table>
+                          </TableBody>
+                        </Table>
+                        </div>
+                        {filteredFields.length > 10 && (
+                          <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
+                            <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                              Showing {(fieldsPage - 1) * fieldsPageSize + 1}–{Math.min(fieldsPage * fieldsPageSize, filteredFields.length)} of {filteredFields.length} entries
+                            </div>
+                            <div className="flex w-full items-center gap-8 lg:w-fit">
+                              <div className="hidden items-center gap-2 lg:flex">
+                                <Label className="text-sm font-medium">Rows per page</Label>
+                                <Select value={`${fieldsPageSize}`} onValueChange={(value) => { setFieldsPageSize(Number(value)); setFieldsPage(1); }}>
+                                  <SelectTrigger className="w-20">
+                                    <SelectValue placeholder={fieldsPageSize} />
+                                  </SelectTrigger>
+                                  <SelectContent side="top">
+                                    {[10, 20, 30, 40, 50].map((size) => (
+                                      <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="flex w-fit items-center justify-center text-sm font-medium">
+                                Page {fieldsPage} of {Math.ceil(filteredFields.length / fieldsPageSize) || 1}
+                              </div>
+                              <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                                <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => setFieldsPage(1)} disabled={fieldsPage <= 1}>
+                                  <span className="sr-only">Go to first page</span>
+                                  <ChevronsLeft className="size-4" />
+                                </Button>
+                                <Button variant="outline" className="size-8" size="icon" onClick={() => setFieldsPage(p => p - 1)} disabled={fieldsPage <= 1}>
+                                  <span className="sr-only">Go to previous page</span>
+                                  <ChevronLeft className="size-4" />
+                                </Button>
+                                <Button variant="outline" className="size-8" size="icon" onClick={() => setFieldsPage(p => p + 1)} disabled={fieldsPage * fieldsPageSize >= filteredFields.length}>
+                                  <span className="sr-only">Go to next page</span>
+                                  <ChevronRight className="size-4" />
+                                </Button>
+                                <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => setFieldsPage(Math.ceil(filteredFields.length / fieldsPageSize))} disabled={fieldsPage * fieldsPageSize >= filteredFields.length}>
+                                  <span className="sr-only">Go to last page</span>
+                                  <ChevronsRight className="size-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </CardContent>
                 </Card>

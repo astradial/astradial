@@ -178,10 +178,11 @@ export default function WebhooksPage() {
             </Card>
           )}
 
-          <Card>
+          <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
+            <div className="overflow-auto flex-1 relative">
             <Table>
-              <TableHeader>
-                <TableRow>
+              <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                <TableRow className="border-b-border/50 hover:bg-transparent">
                   <TableHead>Name</TableHead>
                   <TableHead>API Key</TableHead>
                   <TableHead>Permissions</TableHead>
@@ -220,7 +221,8 @@ export default function WebhooksPage() {
                 ))}
               </TableBody>
             </Table>
-          </Card>
+            </div>
+          </div>
 
           {/* Usage examples */}
           <Card>
@@ -228,19 +230,19 @@ export default function WebhooksPage() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <p className="text-sm font-medium">Click to Call</p>
-                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST http://localhost:8000/api/v1/calls/click-to-call \\
+                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST https://api.example.com/api/v1/calls/click-to-call \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ak_your_key_here" \\
   -d '{
     "from": "1001",
-    "to": "+919944421125",
+    "to": "+919876543210",
     "caller_id": "+918065978005"
   }'`}</pre>
               </div>
               <Separator />
               <div className="space-y-2">
                 <p className="text-sm font-medium">Originate to AI Agent (call extension)</p>
-                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST http://localhost:8000/api/v1/calls/originate-to-ai \\
+                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST https://api.example.com/api/v1/calls/originate-to-ai \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ak_your_key_here" \\
   -d '{
@@ -252,11 +254,11 @@ export default function WebhooksPage() {
               <Separator />
               <div className="space-y-2">
                 <p className="text-sm font-medium">Originate to AI Agent (external number + OpenAI)</p>
-                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST http://localhost:8000/api/v1/calls/originate-to-ai \\
+                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST https://api.example.com/api/v1/calls/originate-to-ai \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ak_your_key_here" \\
   -d '{
-    "to": "+919944421125",
+    "to": "+919876543210",
     "caller_id": "Support Bot",
     "ai_agent_app": "ai_agent",
     "wss_url": "wss://api.openai.com/v1/realtime",
@@ -270,13 +272,13 @@ export default function WebhooksPage() {
               <Separator />
               <div className="space-y-2">
                 <p className="text-sm font-medium">Get Call Logs</p>
-                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl http://localhost:8000/api/v1/calls \\
+                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl https://api.example.com/api/v1/calls \\
   -H "X-API-Key: ak_your_key_here"`}</pre>
               </div>
               <Separator />
               <div className="space-y-2">
                 <p className="text-sm font-medium">Get Live Calls</p>
-                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl http://localhost:8000/api/v1/calls/live \\
+                <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl https://api.example.com/api/v1/calls/live \\
   -H "X-API-Key: ak_your_key_here"`}</pre>
               </div>
             </CardContent>
@@ -302,10 +304,11 @@ export default function WebhooksPage() {
             </Dialog>
           </div>
 
-          <Card>
+          <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
+            <div className="overflow-auto flex-1 relative">
             <Table>
-              <TableHeader>
-                <TableRow>
+              <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                <TableRow className="border-b-border/50 hover:bg-transparent">
                   <TableHead>Name</TableHead>
                   <TableHead>Key</TableHead>
                   <TableHead>Status</TableHead>
@@ -343,16 +346,17 @@ export default function WebhooksPage() {
                 ))}
               </TableBody>
             </Table>
-          </Card>
+            </div>
+          </div>
 
           <Card>
             <CardContent className="p-4 space-y-2">
               <p className="text-sm font-medium">Usage</p>
               <p className="text-xs text-muted-foreground">Include the key when triggering workflows:</p>
-              <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST ${typeof window !== "undefined" ? window.location.origin : "http://localhost:3001"}/api/workflow/trigger/{workflow_id} \\
+              <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST https://gateway.example.com/trigger/{workflow_id} \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: wfk_your_key_here" \\
-  -d '{"name": "John", "phone": "9944421125"}'`}</pre>
+  -d '{"name": "John", "phone": "9876543210"}'`}</pre>
             </CardContent>
           </Card>
         </TabsContent>
@@ -361,12 +365,13 @@ export default function WebhooksPage() {
         <TabsContent value="reference" className="space-y-4">
           <p className="text-sm text-muted-foreground">All available API endpoints. Authenticate with <code className="text-xs bg-muted px-1 py-0.5 rounded">X-API-Key: ak_your_key</code></p>
 
-          <Card>
-            <CardHeader><CardTitle className="text-base">Call Management</CardTitle></CardHeader>
-            <CardContent>
+          <div className="mt-4">
+            <h3 className="font-semibold text-lg mb-2">Call Management</h3>
+            <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col">
+              <div className="overflow-auto flex-1 relative">
               <Table>
-                <TableHeader>
-                  <TableRow>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                  <TableRow className="border-b-border/50 hover:bg-transparent">
                     <TableHead className="w-20">Method</TableHead>
                     <TableHead>Endpoint</TableHead>
                     <TableHead>Description</TableHead>
@@ -384,8 +389,9 @@ export default function WebhooksPage() {
                   ))}
                 </TableBody>
               </Table>
-            </CardContent>
-          </Card>
+              </div>
+            </div>
+          </div>
 
           <Card>
             <CardHeader><CardTitle className="text-base">Authentication</CardTitle></CardHeader>

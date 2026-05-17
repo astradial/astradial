@@ -29,7 +29,18 @@ module.exports = (sequelize) => {
     },
     voice: {
       type: DataTypes.STRING(50),
-      defaultValue: 'en-IN-Wavenet-D'
+      defaultValue: 'en-IN-Chirp3-HD-Achernar'
+    },
+    tts_model: {
+      type: DataTypes.STRING(40),
+      allowNull: false,
+      defaultValue: 'chirp3-hd',
+      comment: 'TTS model family: chirp3-hd | gemini-flash | gemini-pro'
+    },
+    style_instructions: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Natural-language style prompt — Gemini models only'
     },
     audio_file: {
       type: DataTypes.STRING,

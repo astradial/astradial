@@ -45,7 +45,7 @@ module.exports = (sequelize) => {
     },
     recording_enabled: {
       type: DataTypes.BOOLEAN,
-      defaultValue: false
+      defaultValue: true
     },
     wrap_up_time: {
       type: DataTypes.INTEGER,

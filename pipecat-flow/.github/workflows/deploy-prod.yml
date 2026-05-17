@@ -1,0 +1,19 @@
+name: Deploy to production
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: [self-hosted, production]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync to /app/pipecat-flow
+        run: rsync -a --delete --exclude=.venv --exclude=.git --exclude=.github --exclude=.env --exclude='*.log' --exclude=audio --exclude=__pycache__ . /app/pipecat-flow/
+      - name: uv sync
+        working-directory: /app/pipecat-flow
+        run: /root/.local/bin/uv sync
+      - name: Restart
+        run: systemctl reload pipecat-flow || systemctl restart pipecat-flow
+      - name: Health check
+        run: sleep 5 && curl -fsS -o /dev/null -w "%{http_code}" http://127.0.0.1:7860/health || ss -tlnp | grep 7860

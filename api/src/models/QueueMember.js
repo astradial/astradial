@@ -43,6 +43,16 @@ module.exports = (sequelize) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
       comment: 'Ring member when already in use'
+    },
+    ring_timeout_seconds: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 20,
+      validate: {
+        min: 5,
+        max: 300
+      },
+      comment: 'Seconds to ring this member; the dialplan Dial uses this, queue.timeout is the safety max'
     }
   }, {
     tableName: 'queue_members',

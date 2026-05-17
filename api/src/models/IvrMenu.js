@@ -22,7 +22,7 @@ module.exports = (sequelize) => {
       comment: 'DTMF digit (0-9, *, #)'
     },
     action_type: {
-      type: DataTypes.ENUM('extension', 'queue', 'ivr', 'voicemail', 'hangup', 'callback'),
+      type: DataTypes.ENUM('extension', 'queue', 'ivr', 'voicemail', 'hangup', 'callback', 'ai_agent'),
       allowNull: false,
       comment: 'Type of action to perform'
     },

@@ -46,6 +46,25 @@ Then:
 2. Create an organisation → enter it
 3. Explore: Users, CRM, Calls, Phone Numbers, Queues
 
+## Auth modes
+
+Two ways to authenticate the editor + API, controlled by `USE_FIREBASE` in `.env`:
+
+- **Local mode (default, `USE_FIREBASE=false`)** — log in with your organisation's `api_key` + `api_secret`. The API verifies them server-side via bcrypt against the `organizations` table, returns a JWT. No external dependencies.
+- **Firebase mode (`USE_FIREBASE=true`)** — bring your own Firebase project and set `NEXT_PUBLIC_FIREBASE_*` env vars. Use email/password login. Required for some features (real-time ticket badge, phonebook persistence) that haven't yet migrated off Firestore.
+
+The OSS default is local mode — Firebase is opt-in for users who want it. See `.env.example` for the env vars each mode needs.
+
+### Optional integrations
+
+All env-gated. Features hide in the UI when the corresponding env var is unset:
+
+| Integration | Env var | What it powers |
+|---|---|---|
+| MSG91 WhatsApp | `MSG91_ADMIN_AUTH_KEY` | Daily WhatsApp ticket alerts, admin WhatsApp config |
+| Google Cloud TTS | `GOOGLE_APPLICATION_CREDENTIALS` | IVR greeting audio synthesis |
+| Google Cloud Storage | `GCS_BUCKET` | Cloud recording storage (falls back to local disk if unset) |
+
 ## 3 ways to connect calls
 
 ### 1. Self-hosted (bring your own SIP trunk)

@@ -31,16 +31,16 @@ Enterprise cloud PBX management dashboard with AI voice bots, workflow automatio
 
 ```bash
 # Copy changed files to VPS
-scp file.tsx root@89.116.31.109:/opt/pipecat-flow-editor/path/
+scp file.tsx root@203.0.113.1:/app/editor/path/
 
 # Build and restart
-ssh root@89.116.31.109 "cd /opt/pipecat-flow-editor && npm run build && pm2 restart editor"
+ssh root@203.0.113.1 "cd /app/editor && npm run build && pm2 restart editor"
 ```
 
-See [Deploy Guide](https://wiki.astradial.com/guides/deploy-apps/) for full instructions.
+See [Deploy Guide](https://wiki.example.com/guides/deploy-apps/) for full instructions.
 
 ## Related Repos
 
 - [astrapbx](https://github.com/astradial/astrapbx) -- PBX API server
-- [internal-docs](https://github.com/astradial/internal-docs) -- Wiki at wiki.astradial.com
+- [internal-docs](https://github.com/astradial/internal-docs) -- Wiki at wiki.example.com
 - [sip-gateway](https://github.com/astradial/sip-gateway) -- NUC gateway config

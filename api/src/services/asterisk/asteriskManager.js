@@ -343,18 +343,26 @@ class AsteriskManager extends EventEmitter {
       const duration = parseInt(BillableSeconds) || 0;
       const totalDuration = parseInt(Duration) || 0;
 
-      // Detect direction: external caller (7+ digits from PSTN) = inbound
+      // Detect direction. Previously this only matched channels whose
+      // name contained literal "trunk" — but trunk endpoints can be
+      // named anything (e.g. Tata's is `tata_gateway`), so inbound
+      // calls were silently misclassified as `internal` and the
+      // auto-ticket classifier skipped them. Use dcontext as the
+      // strongest signal: any `*_incoming*` / `tata-inbound` context
+      // is an inbound call by definition.
       let direction = 'internal';
       const src = Source || '';
       const dst = Destination || '';
-      
       const ctx = DestinationContext || '';
-      if (ch.includes('trunk') && src.length >= 7) {
+      if (ctx.includes('incoming') || ctx.includes('inbound')) {
         direction = 'inbound';
-      } else if (ctx.includes('outbound') || ch.includes('outbound') || (dst.length >= 7 && src.length <= 5)) {
+      } else if (ctx.includes('outbound') || ch.includes('outbound')) {
         direction = 'outbound';
-      } else if (ch.includes('trunk')) {
+      } else if ((ch.includes('trunk') || ch.includes('gateway')) && src.length >= 7) {
+        // Channel-name fallback for CDRs missing dcontext.
         direction = 'inbound';
+      } else if (dst.length >= 7 && src.length <= 5) {
+        direction = 'outbound';
       }
 
       const recordData = {
@@ -413,7 +421,7 @@ class AsteriskManager extends EventEmitter {
       // Auto-ticket: POST inbound CDR to bot-bridge for ticket classification (fire-and-forget)
       if (direction === 'inbound') {
         const axios = require('axios');
-        const autoTicketUrl = process.env.AUTO_TICKET_URL || 'https://events.astradial.com';
+        const autoTicketUrl = process.env.AUTO_TICKET_URL || 'https://events.example.com';
         axios.post(`${autoTicketUrl}/auto-ticket/${orgId}`, {
           call_id: UniqueID,
           from_number: Source,
