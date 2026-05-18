@@ -92,7 +92,7 @@ export async function getCallLogs(
   } = {}
 ): Promise<PaginatedResult<CallLog>> {
   const { pageSize = 20, cursor = null, direction } = options;
-  const ref = collection(db, ASTRAPBX_ROOT, orgId, "call_logs");
+  const ref = collection(db!, ASTRAPBX_ROOT, orgId, "call_logs");
 
   const constraints: QueryConstraint[] = [];
   if (direction) constraints.push(where("direction", "==", direction));
@@ -117,7 +117,7 @@ export function subscribeToCallLogs(
   callback: (logs: CallLog[]) => void,
   pageSize = 20
 ): Unsubscribe {
-  const ref = collection(db, ASTRAPBX_ROOT, orgId, "call_logs");
+  const ref = collection(db!, ASTRAPBX_ROOT, orgId, "call_logs");
   const q = query(ref, orderBy("logged_at", "desc"), firestoreLimit(pageSize));
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CallLog)));
@@ -129,7 +129,7 @@ export function subscribeToCallLogs(
 export async function getWeeklyCallStats(
   orgId: string
 ): Promise<{ date: string; label: string; inbound: number; outbound: number }[]> {
-  const ref = collection(db, ASTRAPBX_ROOT, orgId, "call_logs");
+  const ref = collection(db!, ASTRAPBX_ROOT, orgId, "call_logs");
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   sevenDaysAgo.setHours(0, 0, 0, 0);
@@ -179,7 +179,7 @@ export async function getTickets(
   } = {}
 ): Promise<PaginatedResult<Ticket>> {
   const { pageSize = 20, cursor = null, status } = options;
-  const ref = collection(db, ASTRAPBX_ROOT, orgId, "tickets");
+  const ref = collection(db!, ASTRAPBX_ROOT, orgId, "tickets");
 
   const constraints: QueryConstraint[] = [];
   if (status) constraints.push(where("status", "==", status));
@@ -204,7 +204,7 @@ export function subscribeToTickets(
   callback: (tickets: Ticket[]) => void,
   pageSize = 20
 ): Unsubscribe {
-  const ref = collection(db, ASTRAPBX_ROOT, orgId, "tickets");
+  const ref = collection(db!, ASTRAPBX_ROOT, orgId, "tickets");
   const q = query(ref, orderBy("created_at", "desc"), firestoreLimit(pageSize));
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ticket)));
@@ -219,7 +219,7 @@ export async function updateTicketStatus(
   status: "open" | "in_progress" | "closed",
   remarks?: string
 ): Promise<void> {
-  const ref = doc(db, ASTRAPBX_ROOT, orgId, "tickets", ticketId);
+  const ref = doc(db!, ASTRAPBX_ROOT, orgId, "tickets", ticketId);
   const updates: Record<string, unknown> = {
     status,
     updated_at: Timestamp.now(),
@@ -255,7 +255,7 @@ export async function getTicketsPage(
   opts: TicketsPageOpts = {}
 ): Promise<PaginatedResult<Ticket>> {
   const pageSize = opts.pageSize ?? 25;
-  const ref = collection(db, ASTRAPBX_ROOT, orgId, "tickets");
+  const ref = collection(db!, ASTRAPBX_ROOT, orgId, "tickets");
 
   const constraints: QueryConstraint[] = [];
 
@@ -326,7 +326,7 @@ export async function getTicketsPage(
  * Restore an archived ticket back to active state. Just clears the archived flag.
  */
 export async function restoreTicket(orgId: string, ticketId: string): Promise<void> {
-  const ref = doc(db, ASTRAPBX_ROOT, orgId, "tickets", ticketId);
+  const ref = doc(db!, ASTRAPBX_ROOT, orgId, "tickets", ticketId);
   await updateDoc(ref, {
     archived: false,
     archived_at: null,
@@ -349,7 +349,7 @@ export async function restoreTicket(orgId: string, ticketId: string): Promise<vo
  * Dedup: if open ticket exists for same phone, appends call time to summary instead.
  */
 export function watchMissedCalls(orgId: string): Unsubscribe {
-  const ref = collection(db, ASTRAPBX_ROOT, orgId, "call_logs");
+  const ref = collection(db!, ASTRAPBX_ROOT, orgId, "call_logs");
   const q = query(ref, orderBy("logged_at", "desc"), firestoreLimit(10));
   const seen = new Set<string>();
   let isFirst = true;
@@ -407,7 +407,7 @@ export function watchMissedCalls(orgId: string): Unsubscribe {
         // Only check for bot-handled calls — skip human-answered calls
         if (isBotCall) {
           const channelId = log.unique_id || log.channel || change.doc.id;
-          const ticketRef = collection(db, ASTRAPBX_ROOT, orgId, "tickets");
+          const ticketRef = collection(db!, ASTRAPBX_ROOT, orgId, "tickets");
           const botTicketCheck = query(ticketRef, where("channel_id", "==", channelId), firestoreLimit(1));
           // Wait for bot webhook to finish creating ticket (if it does)
           await new Promise((r) => setTimeout(r, 8000));
@@ -426,7 +426,7 @@ export function watchMissedCalls(orgId: string): Unsubscribe {
 
       try {
         // Dedup: check if open ticket exists for this phone
-        const ticketRef = collection(db, ASTRAPBX_ROOT, orgId, "tickets");
+        const ticketRef = collection(db!, ASTRAPBX_ROOT, orgId, "tickets");
         const dupeCheck = query(ticketRef, where("caller_number", "==", phone), where("status", "==", "open"), firestoreLimit(1));
         const dupeSnap = await getDocs(dupeCheck);
 
@@ -435,7 +435,7 @@ export function watchMissedCalls(orgId: string): Unsubscribe {
           const existingDoc = dupeSnap.docs[0];
           const existing = existingDoc.data();
           const updatedSummary = `${existing.summary || summary}\n↳ Also called at ${callTime}`;
-          await updateDoc(doc(db, ASTRAPBX_ROOT, orgId, "tickets", existingDoc.id), {
+          await updateDoc(doc(db!, ASTRAPBX_ROOT, orgId, "tickets", existingDoc.id), {
             summary: updatedSummary,
             priority: "urgent", // Escalate — caller called again
             updated_at: Timestamp.now(),
@@ -470,7 +470,7 @@ export async function createTicket(
   orgId: string,
   ticket: Partial<Ticket>
 ): Promise<string> {
-  const ref = collection(db, ASTRAPBX_ROOT, orgId, "tickets");
+  const ref = collection(db!, ASTRAPBX_ROOT, orgId, "tickets");
   const docRef = await addDoc(ref, {
     caller_number: ticket.caller_number || "",
     channel_id: ticket.channel_id || "",
