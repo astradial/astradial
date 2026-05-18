@@ -55,6 +55,11 @@ DB_NAME=astradial
 DB_USER=astradial
 DB_PASSWORD=changeme
 DB_ROOT_PASSWORD=changeme
+
+# Postgres (used only by workflow-engine; separate from the astrapbx mariadb)
+PG_DATABASE=workflow_db
+PG_USER=workflow
+PG_PASSWORD=$(openssl rand -hex 16 2>/dev/null || echo "workflow_secure")
 JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "change-this-secret")
 INTERNAL_API_KEY=$(openssl rand -hex 16 2>/dev/null || echo "change-this-key")
 ADMIN_EMAIL=${ADMIN_EMAIL}

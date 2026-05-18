@@ -26,6 +26,11 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "gunicorn>=23.0.0",
     "aiohttp>=3.11.0",
+    # Web stack — gateway/main.py runs a FastAPI app served by uvicorn
+    # (directly via `python -m gateway.main` in dev; via gunicorn with
+    # uvicorn workers in prod). Both invocations need these installed.
+    "uvicorn[standard]>=0.30.0",
+    "fastapi>=0.115.0",
 ]
 
 [project.urls]
