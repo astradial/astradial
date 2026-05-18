@@ -17,10 +17,13 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-# Run all migrations (.js + .sql) in timestamp order — single script,
-# fails fast, records to SequelizeMeta.
-echo "Running migrations..."
-node scripts/run-migrations.js
+# Bootstrap-or-migrate:
+#  - Fresh install (empty SequelizeMeta) → sync schema from Sequelize models
+#    then mark all migrations as applied. Avoids the 36-migration historical
+#    chain that's brittle on fresh DBs.
+#  - Existing install → run pending migrations via scripts/run-migrations.js.
+echo "Bootstrapping schema..."
+node scripts/bootstrap-or-migrate.js
 
 # Seed default admin on first boot
 echo "Checking seed..."
