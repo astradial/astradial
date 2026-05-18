@@ -1,0 +1,5 @@
+# This directory is intentionally empty.
+# Custom AI conversation flows go here as `<flow_name>.json` files.
+# See pipecat-flow/examples/ for examples (synthetic, non-customer-specific).
+# The directory is preserved in git via this .gitkeep so the Dockerfile's
+# `COPY flows/ ./flows/` step succeeds in a clean clone.

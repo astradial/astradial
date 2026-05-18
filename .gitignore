@@ -49,3 +49,6 @@ __pycache__/
 
 # Docker volumes
 data/
+
+# pipecat-flow runtime SQLite (not for commit)
+pipecat-flow/gateway.db
