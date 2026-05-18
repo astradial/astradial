@@ -135,7 +135,7 @@ ADMIN_PASSWORD=${ADMIN_PASSWORD}
 ADMIN_NAME=${ADMIN_NAME}
 ADMIN_USERNAME=admin
 ADMIN_API_PASSWORD=${ADMIN_PASSWORD}
-AMI_HOST=asterisk
+AMI_HOST=127.0.0.1
 ASTERISK_AMI_SECRET=astradial
 SIP_HOST=${SIP_HOST}
 SIP_PORT=${SIP_PORT}
@@ -181,11 +181,8 @@ EOF
   done
   echo ""; echo "  ✓ Database ready"
 
-  echo "[3/6] Starting Asterisk PBX..."
-  docker compose up -d asterisk 2>&1 >/dev/null; sleep 3
-  echo "  ✓ Asterisk started"
-
-  echo "[4/6] Starting API, Dashboard, and AI Gateway..."
+  echo "[3/6] Starting API + Asterisk PBX (bundled in one container)..."
+  echo "[4/6] Starting Dashboard, and AI Gateway..."
   docker compose ${COMPOSE_PROFILE_ARG} up -d 2>&1 >/dev/null
   for i in $(seq 1 60); do
     curl -s http://localhost:8000/health >/dev/null 2>&1 && break
