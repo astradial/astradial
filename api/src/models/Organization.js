@@ -38,7 +38,11 @@ module.exports = (sequelize) => {
       allowNull: false
     },
     status: {
-      type: DataTypes.ENUM('active', 'suspended', 'deleted'),
+      // 'pending' = requested via /auth/request-org, awaiting admin
+      // approval. 'active' = approved. 'suspended' = paused.
+      // 'deleted' = soft-deleted. UI's Pending Approvals list filters
+      // for status === 'pending'.
+      type: DataTypes.ENUM('pending', 'active', 'suspended', 'deleted'),
       defaultValue: 'active'
     },
     settings: {

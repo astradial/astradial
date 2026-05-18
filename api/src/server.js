@@ -678,6 +678,431 @@ app.post('/api/v1/auth/login', async (req, res) => {
 });
 
 // ========================================
+// AUTHENTICATION — EMAIL + PASSWORD (OSS local mode)
+// ========================================
+//
+// These endpoints back the OSS Sign In UI (editor/app/dashboard/page.tsx)
+// when USE_FIREBASE=false. They mirror platform's Firebase-backed flow
+// in shape — same JSON contracts and JWT claims — so the dashboard
+// renderer is identical, only the source of identity changes.
+//
+// Three flows:
+//   1. /auth/signup            — new user, auto-creates an org, returns JWT
+//   2. /auth/login-password    — existing user signs in with email+password
+//   3. /auth/admin-login-password — system admin (env-credentialled)
+//
+// Existing /auth/login (api_key + api_secret) and /auth/email-login
+// (Firebase-trusted) are untouched.
+
+// POST /api/v1/auth/signup
+// Body: { email, password, name }
+// Creates a user with NO organisation yet. The frontend then collects
+// org details and POSTs them to /auth/request-org with the
+// `isOnboarding` token returned here. An admin must approve the org
+// before the user can sign in normally.
+//
+// This two-step flow mirrors platform's Firebase-based signup →
+// request-org → admin approve flow, without depending on Firebase.
+app.post('/api/v1/auth/signup', async (req, res) => {
+  try {
+    const { email, password, name } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'email and password required' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    const existingRows = await sequelize.query(
+      'SELECT id FROM org_users WHERE LOWER(email) = LOWER(?) LIMIT 1',
+      { replacements: [email], type: sequelize.QueryTypes.SELECT }
+    );
+    if (existingRows && existingRows.length > 0) {
+      return res.status(409).json({ error: 'An account with this email already exists' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userId = uuidv4();
+    const displayName = (name && name.trim()) || email.split('@')[0];
+
+    await sequelize.query(
+      `INSERT INTO org_users (id, org_id, email, name, role, status, password_hash, created_at, updated_at)
+       VALUES (?, NULL, ?, ?, 'owner', 'invited', ?, NOW(), NOW())`,
+      { replacements: [userId, email, displayName, passwordHash] }
+    );
+
+    // Short-lived onboarding token — only useful for /auth/request-org.
+    const token = jwt.sign(
+      { userId, email, role: 'owner', isOnboarding: true },
+      JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    res.status(201).json({
+      token,
+      token_type: 'Bearer',
+      expires_in: '1h',
+      requires_org_request: true,
+      user: {
+        id: userId,
+        email,
+        name: displayName,
+        org_id: null,
+        org_name: null,
+        role: 'owner',
+        permissions: [],
+      },
+    });
+  } catch (error) {
+    console.error('Signup error:', error);
+    // Never leak internal error details to the login form. The full
+    // error (including SQL state) lands in server logs for operators.
+    res.status(500).json({ error: 'Signup failed. Please try again or contact support.' });
+  }
+});
+
+// POST /api/v1/auth/request-org
+// Auth: Bearer <onboarding token from /auth/signup or
+//                /auth/login-password when user has no org yet>
+// Body: { org_name, contact_phone, contact_email?, industry, address?,
+//         company_size?, expected_users?, description? }
+//
+// Creates the organisation in status='pending' and links the
+// authenticated user as its owner. Sysadmin must Approve from the
+// admin dashboard for the org to become usable.
+app.post('/api/v1/auth/request-org', async (req, res) => {
+  try {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Auth token required' });
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    if (!decoded.userId) {
+      return res.status(403).json({ error: 'Token is not eligible for org request' });
+    }
+
+    const {
+      org_name,
+      contact_phone,
+      contact_email,
+      industry,
+      address,
+      company_size,
+      expected_users,
+      description,
+    } = req.body || {};
+
+    if (!org_name || !org_name.trim()) {
+      return res.status(400).json({ error: 'org_name is required' });
+    }
+    if (!contact_phone || !contact_phone.trim()) {
+      return res.status(400).json({ error: 'contact_phone is required' });
+    }
+    if (!industry || !industry.trim()) {
+      return res.status(400).json({ error: 'industry is required' });
+    }
+
+    // Verify the user exists + still has no org (idempotency guard:
+    // resubmitting the form shouldn't create duplicate orgs).
+    const userRows = await sequelize.query(
+      'SELECT id, email, name, org_id FROM org_users WHERE id = ? LIMIT 1',
+      { replacements: [decoded.userId], type: sequelize.QueryTypes.SELECT }
+    );
+    const user = userRows && userRows[0];
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.org_id) {
+      return res.status(409).json({ error: 'You already have an organisation linked to this account' });
+    }
+
+    const apiKey = `org_${uuidv4().replace(/-/g, '')}`;
+    const apiSecret = uuidv4();
+    const hashedSecret = await bcrypt.hash(apiSecret, 10);
+
+    const organization = await Organization.create({
+      name: org_name.trim(),
+      domain: `${org_name.trim().toLowerCase().replace(/\s+/g, '')}.local`,
+      context_prefix: generateContextPrefix(),
+      api_key: apiKey,
+      api_secret: hashedSecret,
+      status: 'pending',
+      contact_info: {
+        email: contact_email || user.email,
+        phone: contact_phone,
+        industry,
+        address: address || null,
+        company_size: company_size || null,
+        expected_users: expected_users || null,
+        description: description || null,
+      },
+    });
+
+    await sequelize.query(
+      'UPDATE org_users SET org_id = ?, status = ? WHERE id = ?',
+      { replacements: [organization.id, 'active', user.id] }
+    );
+
+    res.status(201).json({
+      ok: true,
+      organization: {
+        id: organization.id,
+        name: organization.name,
+        status: 'pending',
+      },
+      message: 'Your organisation is awaiting admin approval. You\'ll be able to log in once approved.',
+    });
+  } catch (error) {
+    console.error('Request-org error:', error);
+    res.status(500).json({ error: 'Failed to submit organisation request. Please try again.' });
+  }
+});
+
+// POST /api/v1/auth/login-password
+// Body: { email, password }
+// Validates bcrypt password_hash on org_users, returns a JWT bound to
+// the user's org and role.
+app.post('/api/v1/auth/login-password', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'email and password required' });
+    }
+
+    const rows = await sequelize.query(
+      `SELECT id, org_id, email, name, role, status, password_hash
+       FROM org_users
+       WHERE LOWER(email) = LOWER(?)
+       LIMIT 1`,
+      { replacements: [email], type: sequelize.QueryTypes.SELECT }
+    );
+    const user = rows && rows[0];
+    if (!user || !user.password_hash) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    if (user.status && user.status !== 'active') {
+      return res.status(403).json({ error: `Account is ${user.status}` });
+    }
+
+    // Three cases:
+    //  (a) User has no org yet → onboarding token, requires_org_request.
+    //  (b) Org is pending admin approval → 202, status hint, no token.
+    //  (c) Org is active → normal full-access JWT.
+    if (!user.org_id) {
+      const onboardingToken = jwt.sign(
+        { userId: user.id, email: user.email, role: 'owner', isOnboarding: true },
+        JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+      return res.status(200).json({
+        token: onboardingToken,
+        token_type: 'Bearer',
+        expires_in: '1h',
+        requires_org_request: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          org_id: null,
+          org_name: null,
+          role: user.role,
+          permissions: [],
+        },
+      });
+    }
+
+    const org = await Organization.findByPk(user.org_id, {
+      attributes: ['name', 'api_key', 'status'],
+    });
+    if (!org) {
+      return res.status(404).json({ error: 'Organization for this account no longer exists' });
+    }
+    if (org.status === 'pending') {
+      return res.status(202).json({
+        pending_approval: true,
+        org_name: org.name,
+        message: `Your organisation "${org.name}" is awaiting admin approval.`,
+      });
+    }
+    if (org.status !== 'active') {
+      return res.status(403).json({ error: `Your organisation is ${org.status}. Contact your administrator.` });
+    }
+
+    const token = jwt.sign(
+      {
+        orgId: user.org_id,
+        orgName: org.name,
+        apiKey: org.api_key,
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      token,
+      token_type: 'Bearer',
+      expires_in: '24h',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        org_id: user.org_id,
+        org_name: org.name,
+        role: user.role,
+        permissions: [],
+      },
+    });
+  } catch (error) {
+    console.error('Login-password error:', error);
+    res.status(500).json({ error: 'Login failed. Please try again.' });
+  }
+});
+
+// POST /api/v1/auth/admin-login-password
+// Body: { email, password }
+// Validates against ADMIN_EMAIL + ADMIN_PASSWORD env vars (the system
+// admin credentials provisioned by setup.sh). Returns a JWT with
+// isAdmin=true that gates /api/v1/admin/* endpoints.
+app.post('/api/v1/auth/admin-login-password', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'email and password required' });
+    }
+
+    const adminEmailRaw = process.env.ADMIN_EMAIL || '';
+    const adminPasswordRaw = process.env.ADMIN_PASSWORD || '';
+    if (!adminEmailRaw || !adminPasswordRaw) {
+      return res.status(503).json({ error: 'Admin login disabled — ADMIN_EMAIL and ADMIN_PASSWORD must be set on the server' });
+    }
+
+    // Support comma-separated ADMIN_EMAIL for multiple sysadmins.
+    const allowed = adminEmailRaw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (!allowed.includes(String(email).toLowerCase()) || password !== adminPasswordRaw) {
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    }
+
+    const token = jwt.sign(
+      { isAdmin: true, email: String(email).toLowerCase(), role: 'admin' },
+      JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+
+    res.json({
+      token,
+      token_type: 'Bearer',
+      expires_in: '8h',
+      admin_key: process.env.INTERNAL_API_KEY || token,
+      user: { email: String(email).toLowerCase(), role: 'admin' },
+    });
+  } catch (error) {
+    console.error('Admin login error:', error);
+    res.status(500).json({ error: 'Admin login failed. Please try again.' });
+  }
+});
+
+// POST /api/v1/admin/approve-org/:orgId
+// Admin flips a pending org to status='active'. Mirrors platform's
+// /api/pbx/admin/approve-org route shape so the same UI works in both.
+app.post('/api/v1/admin/approve-org/:orgId', async (req, res) => {
+  try {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Admin token required' });
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid admin token' });
+    }
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+
+    const org = await Organization.findByPk(req.params.orgId);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (org.status === 'active') {
+      return res.json({ ok: true, message: 'Already active', organization: { id: org.id, status: org.status } });
+    }
+
+    await org.update({ status: 'active' });
+    res.json({ ok: true, organization: { id: org.id, name: org.name, status: 'active' } });
+  } catch (error) {
+    console.error('Approve-org error:', error);
+    res.status(500).json({ error: 'Approve failed. Please try again.' });
+  }
+});
+
+// POST /api/v1/admin/impersonate/:orgId
+// Admin uses their JWT to get a per-org JWT they can drive the dashboard
+// with. Mirrors platform's /api/admin/impersonate flow.
+app.post('/api/v1/admin/impersonate/:orgId', async (req, res) => {
+  try {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Admin token required' });
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid admin token' });
+    }
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+
+    const org = await Organization.findByPk(req.params.orgId);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+
+    // Fetch owner so we can return user info matching platform's shape
+    let ownerRow = null;
+    try {
+      const rows = await sequelize.query(
+        `SELECT id, email, name, role FROM org_users WHERE org_id = ? AND role = 'owner' LIMIT 1`,
+        { replacements: [org.id], type: sequelize.QueryTypes.SELECT }
+      );
+      ownerRow = rows && rows[0];
+    } catch { /* table may not exist yet on fresh installs — non-fatal */ }
+
+    const orgToken = jwt.sign(
+      {
+        orgId: org.id,
+        orgName: org.name,
+        apiKey: org.api_key,
+        userId: ownerRow?.id,
+        email: ownerRow?.email,
+        role: ownerRow?.role || 'admin',
+        impersonating: true,
+      },
+      JWT_SECRET,
+      { expiresIn: '4h' }
+    );
+
+    res.json({
+      token: orgToken,
+      user: {
+        id: ownerRow?.id || null,
+        email: ownerRow?.email || null,
+        name: ownerRow?.name || null,
+        org_id: org.id,
+        org_name: org.name,
+        role: ownerRow?.role || 'admin',
+        permissions: [],
+        impersonating: true,
+      },
+    });
+  } catch (error) {
+    console.error('Impersonate error:', error);
+    res.status(500).json({ error: 'Could not enter organisation. Please try again.' });
+  }
+});
+
+// ========================================
 // ORGANIZATION MANAGEMENT
 // ========================================
 
@@ -1081,7 +1506,7 @@ app.get('/api/v1/admin/organizations', async (req, res) => {
     }
 
     const organizations = await Organization.findAll({
-      attributes: ['id', 'name', 'context_prefix', 'api_key', 'createdAt']
+      attributes: ['id', 'name', 'context_prefix', 'api_key', 'status', 'contact_info', 'createdAt']
     });
 
     res.json(organizations);

@@ -32,6 +32,7 @@ const CrmCustomField = require('./CrmCustomField')(sequelize);
 const CrmCustomFieldValue = require('./CrmCustomFieldValue')(sequelize);
 const CrmPipelineStage = require('./CrmPipelineStage')(sequelize);
 const OrgApiKey = require('./OrgApiKey')(sequelize);
+const OrgUser = require('./OrgUser')(sequelize);
 
 // Define associations
 // Organization relationships
@@ -202,6 +203,7 @@ module.exports = {
   CrmCustomFieldValue,
   CrmPipelineStage,
   OrgApiKey,
+  OrgUser,
   CustomerTunnel,
   TunnelMetric,
   TicketAlertSubscriber,
