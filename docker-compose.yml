@@ -92,6 +92,9 @@ services:
       - ASTERISK_PJSIP_CONFIG_PATH=/etc/asterisk
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
       - ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
+      # Auth provider: 'true' = Firebase mode (requires GOOGLE_APPLICATION_CREDENTIALS),
+      # anything else = local mode (api_key + api_secret via /api/v1/auth/login).
+      - USE_FIREBASE=${USE_FIREBASE:-false}
     depends_on:
       mariadb:
         condition: service_healthy
@@ -112,11 +115,16 @@ services:
         WORKFLOW_URL: ${NEXT_PUBLIC_WORKFLOW_URL:-http://workflow-engine:3002}
         GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://pipecat-flow:7860}
         ASTRADIAL_MODE: ${ASTRADIAL_MODE:-selfhosted}
+        # NEXT_PUBLIC_USE_FIREBASE must be set at BUILD time — Next.js
+        # bakes NEXT_PUBLIC_* into the static bundle. Default 'false' =
+        # OSS local mode (the OssLoginForm renders, api_key + api_secret).
+        NEXT_PUBLIC_USE_FIREBASE: ${NEXT_PUBLIC_USE_FIREBASE:-false}
     restart: unless-stopped
     ports:
       - "3001:3001"
     environment:
       - NEXT_PUBLIC_ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
+      - NEXT_PUBLIC_USE_FIREBASE=${NEXT_PUBLIC_USE_FIREBASE:-false}
       - NEXT_PUBLIC_GATEWAY_URL=http://pipecat-flow:7860
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
