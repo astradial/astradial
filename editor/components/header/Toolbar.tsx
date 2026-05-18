@@ -141,7 +141,7 @@ export default function Toolbar({
         </Link>
       </DropdownMenuItem>
       <DropdownMenuItem asChild>
-        <a href="https://wiki.astradial.com" target="_blank" rel="noreferrer">
+        <a href="https://wiki.example.com" target="_blank" rel="noreferrer">
           <IconBook size={16} />
           Wiki
         </a>

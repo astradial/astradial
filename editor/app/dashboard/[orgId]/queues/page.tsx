@@ -545,7 +545,7 @@ export default function QueuesPage() {
               </div>
             </div>
             <div className="space-y-1.5"><Label>Destination {editForm.timeout_destination_type === "phone" ? "Number" : editForm.timeout_destination_type === "queue" ? "Queue" : "Extension"}</Label>
-              <Input value={editForm.timeout_destination} onChange={(e) => setEditForm({ ...editForm, timeout_destination: e.target.value })} placeholder={editForm.timeout_destination_type === "phone" ? "9944421125" : editForm.timeout_destination_type === "queue" ? "5002" : "1003"} />
+              <Input value={editForm.timeout_destination} onChange={(e) => setEditForm({ ...editForm, timeout_destination: e.target.value })} placeholder={editForm.timeout_destination_type === "phone" ? "9876543210" : editForm.timeout_destination_type === "queue" ? "5002" : "1003"} />
             </div>
             <Separator />
             <div className="space-y-1.5">

@@ -1,0 +1,19 @@
+name: Deploy to production
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: [self-hosted, production]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync to /app/workflow-engine
+        run: rsync -a --delete --exclude=node_modules --exclude=.git --exclude=.github --exclude=.env --exclude='*.log' . /app/workflow-engine/
+      - name: Install deps
+        working-directory: /app/workflow-engine
+        run: npm install --omit=dev
+      - name: Reload PM2
+        run: pm2 reload workflow-engine --update-env
+      - name: Health check
+        run: sleep 3 && curl -fsS http://127.0.0.1:3002/health | head -c 50

@@ -1,9 +1,9 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { format } from "date-fns";
-import { Phone, PhoneOff, Pause, ArrowRightLeft, ChevronLeft, ChevronRight, Play, Download, X, RefreshCw, BookOpen, Plus, Trash2, Ear, Mic, UserPlus, MoreHorizontal } from "lucide-react";
+import { Phone, PhoneOff, Pause, ArrowRightLeft, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Play, Download, X, RefreshCw, BookOpen, Plus, Trash2, Ear, Mic, UserPlus, MoreHorizontal } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,7 +42,8 @@ import {
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showToast } from "@/components/ui/Toast";
-import { calls as pbxCalls, users as pbxUsers, queues as pbxQueues, dids as pbxDids, clickToCall, type PbxUser, type PbxQueue, type PbxDid, type LiveCall, type ActiveCall, type CallHistoryItem, type CallJourney } from "@/lib/pbx/client";
+import { calls as pbxCalls, users as pbxUsers, queues as pbxQueues, dids as pbxDids, clickToCall, effectiveCallStatus, type PbxUser, type PbxQueue, type PbxDid, type LiveCall, type ActiveCall, type CallHistoryItem, type CallJourney, type CallContactsMap } from "@/lib/pbx/client";
+import { buildResolver, parseQueueTo, type ContactResolver, type ResolvedContact } from "@/lib/calls/contactResolver";
 import {
   AudioPlayerButton,
   AudioPlayerDuration,
@@ -62,6 +63,10 @@ function AutoPlayTrack({ src, id }: { src: string; id: string }) {
   }, [src, id, play]);
   return null;
 }
+import { ASTRAPBX_ROOT } from "@/lib/firebase/firestore";
+import { db as firestoreDb, USE_FIREBASE } from "@/lib/firebase/config";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 
 function formatDuration(secs: number) {
   if (!secs) return "0s";
@@ -75,6 +80,8 @@ export default function CallsPage() {
 
   // Live calls state
   const [liveCalls, setLiveCalls] = useState<Record<string, unknown>[]>([]);
+  const [livePage, setLivePage] = useState(1);
+  const [livePageSize, setLivePageSize] = useState(10);
   const [liveLoading, setLiveLoading] = useState(true);
 
   // Call history state
@@ -84,9 +91,24 @@ export default function CallsPage() {
   const [expandedCall, setExpandedCall] = useState<string | null>(null);
   const [journey, setJourney] = useState<CallJourney | null>(null);
   const [journeyLoading, setJourneyLoading] = useState(false);
+  // Phone-book-style resolver: maps raw extensions/numbers/queue
+  // numbers to friendly names. Loaded once on mount; rebuilt only
+  // when the contacts map itself changes. useMemo guarantees the
+  // resolver is stable across re-renders so child rows don't churn.
+  const [contactsMap, setContactsMap] = useState<CallContactsMap | null>(null);
+  const resolver: ContactResolver = useMemo(() => buildResolver(contactsMap), [contactsMap]);
+  useEffect(() => {
+    pbxCalls.contactsMap().then(setContactsMap).catch(() => setContactsMap(null));
+  }, []);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [directionFilter, setDirectionFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [dateRange, setDateRange] = useState<string>(""); // today|week|month|custom
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [pageSize, setPageSize] = useState<number>(20);
 
   // Audio player
   const [playingLog, setPlayingLog] = useState<(CallHistoryItem & { recording_url: string }) | null>(null);
@@ -147,14 +169,36 @@ export default function CallsPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Load call history from PBX API
+
+  // Convert a preset range picker to actual date_from/date_to ISO strings
+  function applyDatePreset(preset: string) {
+    setDateRange(preset);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().slice(0, 10);
+    if (preset === "today") { setDateFrom(today); setDateTo(today); return; }
+    if (preset === "week") {
+      const d = new Date(now); d.setDate(d.getDate() - 7);
+      setDateFrom(d.toISOString().slice(0, 10)); setDateTo(today); return;
+    }
+    if (preset === "month") {
+      const d = new Date(now); d.setDate(d.getDate() - 30);
+      setDateFrom(d.toISOString().slice(0, 10)); setDateTo(today); return;
+    }
+    if (preset === "all") { setDateFrom(""); setDateTo(""); return; }
+  }
+
+  // Load call history from PBX API (SQL-backed /api/v1/calls — NOT Firebase)
   const loadHistory = useCallback(async (p = 1) => {
     setHistoryLoading(true);
     try {
       const result = await pbxCalls.history({
         page: p,
-        limit: 20,
-        direction: directionFilter || undefined,
+        limit: pageSize,
+        direction: directionFilter && directionFilter !== "all" ? directionFilter : undefined,
+        disposition: statusFilter && statusFilter !== "all" ? statusFilter : undefined,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+        search: searchQuery.trim() || undefined,
       });
       setLogs(result.items);
       setHasMore(result.hasMore);
@@ -165,11 +209,11 @@ export default function CallsPage() {
     } finally {
       setHistoryLoading(false);
     }
-  }, [orgId, directionFilter]);
+  }, [orgId, directionFilter, statusFilter, dateFrom, dateTo, searchQuery, pageSize]);
 
   useEffect(() => {
     loadHistory(1);
-  }, [orgId, directionFilter]);
+  }, [orgId, directionFilter, statusFilter, dateFrom, dateTo, pageSize]);
 
   // Load users + queues + DIDs for transfer/initiate
   const [queueList, setQueueList] = useState<PbxQueue[]>([]);
@@ -185,6 +229,19 @@ export default function CallsPage() {
       }
     }).catch(() => {});
   }, []);
+
+  // Hard gate for the "AI Handled" badge: only emit it if the org
+  // actually has an AI agent configured somewhere — either a user
+  // with routing_type='ai_agent' or a DID routed straight to AI.
+  // V7 Hotels has neither, so this collapses to false and the call
+  // log will never show "AI Handled" no matter what the CDR row
+  // looks like. Belt-and-suspenders behind the SQL narrowing.
+  const orgHasAiAgent = useMemo(
+    () =>
+      userList.some((u) => u.routing_type === "ai_agent") ||
+      didList.some((d) => d.routing_type === "ai_agent"),
+    [userList, didList]
+  );
 
   // Initiate call
   async function handleInitiateCall() {
@@ -203,18 +260,65 @@ export default function CallsPage() {
     finally { setInitiating(false); }
   }
 
-  // Load phonebook from localStorage
+  // Quick-call helper invoked by ContactCard buttons in the expanded
+  // call-log row. Pre-fills the existing Initiate Call dialog's "to"
+  // side from the resolved contact and opens the dialog so the
+  // operator confirms + picks the "from" side. Never auto-dials —
+  // keeps the same explicit-confirm UX as the manual Initiate Call
+  // flow.
+  function quickCallFromContact(r: ResolvedContact) {
+    let to = "";
+    let to_type: "extension" | "queue" | "external" = "extension";
+    if (r.kind === "queue" && r.queue) {
+      to = r.queue.number;
+      to_type = "queue";
+    } else if (r.kind === "user-ext" && r.user) {
+      to = r.user.extension;
+      to_type = "extension";
+    } else if (r.kind === "user-phone" && r.user) {
+      // Calling a user's personal mobile — easiest is to ring their
+      // extension; the extension's ring_target=phone forwarding will
+      // route to their mobile automatically. Avoids an outbound-trunk
+      // call when an internal one suffices.
+      to = r.user.extension;
+      to_type = "extension";
+    } else if (r.kind === "external") {
+      // Last-10-digits is what the outbound dialplan expects.
+      const digits = r.raw.replace(/\D/g, "");
+      to = digits.length > 10 ? digits.slice(-10) : digits;
+      to_type = "external";
+    } else {
+      showToast("This contact can't be called directly", "error");
+      return;
+    }
+    setCallForm((f) => ({ ...f, to, to_type, from: "", from_type: "extension" }));
+    setInitiateOpen(true);
+  }
+
+  // Load phonebook from Firestore (shared across all agents). In OSS
+  // local mode this is a no-op — the phonebook feature is Firestore-only
+  // for v1; v1.1 will migrate it to a Postgres-backed API endpoint.
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(`phonebook_${orgId}`);
-      if (saved) setPhonebook(JSON.parse(saved));
-    } catch {}
+    if (!USE_FIREBASE || !firestoreDb) return;
+    const unsub = onSnapshot(
+      doc(firestoreDb, ASTRAPBX_ROOT, orgId, "settings", "phonebook"),
+      (snap) => {
+        if (snap.exists()) {
+          setPhonebook(snap.data().contacts || []);
+        }
+      }
+    );
+    return unsub;
   }, [orgId]);
 
-  function savePhonebook(entries: { name: string; number: string }[]) {
+  async function savePhonebook(entries: { name: string; number: string }[]) {
     setPhonebook(entries);
+    if (!USE_FIREBASE || !firestoreDb) {
+      showToast("Phonebook persistence requires Firebase (v1.1: API-backed)", "error");
+      return;
+    }
     try {
-      localStorage.setItem(`phonebook_${orgId}`, JSON.stringify(entries));
+      await setDoc(doc(firestoreDb, ASTRAPBX_ROOT, orgId, "settings", "phonebook"), { contacts: entries });
     } catch (e) {
       console.error("Failed to save phonebook:", e);
       showToast("Failed to save phonebook", "error");
@@ -310,7 +414,7 @@ export default function CallsPage() {
                           ))}</SelectContent>
                         </Select>
                       ) : (
-                        <Input value={callForm.from} onChange={(e) => setCallForm({ ...callForm, from: cleanPhone(e.target.value) })} placeholder="9944421125" maxLength={10} className="h-8 text-xs" />
+                        <Input value={callForm.from} onChange={(e) => setCallForm({ ...callForm, from: cleanPhone(e.target.value) })} placeholder="9876543210" maxLength={10} className="h-8 text-xs" />
                       )}
                     </div>
                   </div>
@@ -343,7 +447,7 @@ export default function CallsPage() {
                           ))}</SelectContent>
                         </Select>
                       ) : (
-                        <Input value={callForm.to} onChange={(e) => setCallForm({ ...callForm, to: cleanPhone(e.target.value) })} placeholder="9944421125" maxLength={10} className="h-8 text-xs" />
+                        <Input value={callForm.to} onChange={(e) => setCallForm({ ...callForm, to: cleanPhone(e.target.value) })} placeholder="9876543210" maxLength={10} className="h-8 text-xs" />
                       )}
                     </div>
                   </div>
@@ -441,10 +545,11 @@ export default function CallsPage() {
               </Button>
             </div>
           </div>
-          <div className="border rounded-lg">
-            <Table>
-              <TableHeader>
-                <TableRow>
+          <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
+            <div className="overflow-auto flex-1 relative">
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                  <TableRow className="border-b-border/50 hover:bg-transparent">
                   <TableHead>From</TableHead>
                   <TableHead>Direction</TableHead>
                   <TableHead>CallerID</TableHead>
@@ -456,10 +561,10 @@ export default function CallsPage() {
               </TableHeader>
               <TableBody>
                 {liveLoading ? (
-                  <TableSkeleton cols={7} />
+                  <TableSkeleton cols={8} />
                 ) : liveCalls.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No active calls</TableCell></TableRow>
-                ) : liveCalls.map((call) => {
+                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No active calls</TableCell></TableRow>
+                ) : liveCalls.slice((livePage - 1) * livePageSize, livePage * livePageSize).map((call) => {
                   const number = String(call.from || call.from_number || "---");
                   const direction = String(call.direction || "unknown");
                   const status = String(call.status || "unknown");
@@ -523,16 +628,67 @@ export default function CallsPage() {
                     </TableRow>
                   );
                 })}
-              </TableBody>
-            </Table>
+            </TableBody>
+          </Table>
           </div>
+          {liveCalls.length > 10 && (
+            <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
+              <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                Showing {(livePage - 1) * livePageSize + 1}–{Math.min(livePage * livePageSize, liveCalls.length)} of {liveCalls.length} entries
+              </div>
+              <div className="flex w-full items-center gap-8 lg:w-fit">
+                <div className="hidden items-center gap-2 lg:flex">
+                  <Label className="text-sm font-medium">Rows per page</Label>
+                  <Select value={`${livePageSize}`} onValueChange={(value) => { setLivePageSize(Number(value)); setLivePage(1); }}>
+                    <SelectTrigger className="w-20">
+                      <SelectValue placeholder={livePageSize} />
+                    </SelectTrigger>
+                    <SelectContent side="top">
+                      {[10, 20, 30, 40, 50].map((size) => (
+                        <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex w-fit items-center justify-center text-sm font-medium">
+                  Page {livePage} of {Math.ceil(liveCalls.length / livePageSize) || 1}
+                </div>
+                <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                  <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => setLivePage(1)} disabled={livePage <= 1}>
+                    <span className="sr-only">Go to first page</span>
+                    <ChevronsLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => setLivePage(p => p - 1)} disabled={livePage <= 1}>
+                    <span className="sr-only">Go to previous page</span>
+                    <ChevronLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => setLivePage(p => p + 1)} disabled={livePage * livePageSize >= liveCalls.length}>
+                    <span className="sr-only">Go to next page</span>
+                    <ChevronRight className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => setLivePage(Math.ceil(liveCalls.length / livePageSize))} disabled={livePage * livePageSize >= liveCalls.length}>
+                    <span className="sr-only">Go to last page</span>
+                    <ChevronsRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         </TabsContent>
 
         {/* Call History */}
         <TabsContent value="history" className="flex flex-col flex-1 min-h-0 mt-4">
-          <div className="flex items-center gap-2 shrink-0 mb-3">
-            <Select value={directionFilter} onValueChange={setDirectionFilter}>
-              <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All directions" /></SelectTrigger>
+          <div className="flex flex-wrap items-center gap-2 shrink-0 mb-3">
+            <Input
+              placeholder="Search phone or caller ID"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && loadHistory(1)}
+              className="w-56 h-8 text-xs shadow-none"
+            />
+            <Select value={directionFilter || "all"} onValueChange={setDirectionFilter}>
+              <SelectTrigger className="w-36 h-8 text-xs shadow-none"><SelectValue placeholder="Direction" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All directions</SelectItem>
                 <SelectItem value="inbound">Inbound</SelectItem>
@@ -540,30 +696,59 @@ export default function CallsPage() {
                 <SelectItem value="internal">Internal</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => loadHistory(page)} disabled={historyLoading}>
+            <Select value={statusFilter || "all"} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-32 h-8 text-xs shadow-none"><SelectValue placeholder="Status" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="ANSWERED">Answered</SelectItem>
+                <SelectItem value="NO ANSWER">Missed</SelectItem>
+                <SelectItem value="BUSY">Busy</SelectItem>
+                <SelectItem value="FAILED">Failed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={dateRange || "all"} onValueChange={applyDatePreset}>
+              <SelectTrigger className="w-32 h-8 text-xs shadow-none"><SelectValue placeholder="Date range" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All time</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="week">Last 7 days</SelectItem>
+                <SelectItem value="month">Last 30 days</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(parseInt(v))}>
+              <SelectTrigger className="w-20 h-8 text-xs shadow-none"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="20">20</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs ml-auto" onClick={() => loadHistory(page)} disabled={historyLoading}>
               <RefreshCw className={`h-3.5 w-3.5 ${historyLoading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
           </div>
 
-          <div className="border rounded-lg flex-1 min-h-0 overflow-y-auto">
-            <Table>
-              <TableHeader className="sticky top-0 bg-background z-10 shadow-[0_1px_0_0] shadow-border">
-                <TableRow>
-                  <TableHead>From</TableHead>
+          <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col flex-1 min-h-0 mb-5">
+            <div className="flex-1 relative">
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                  <TableRow className="border-b-border/50 hover:bg-transparent">
                   <TableHead>To</TableHead>
+                  <TableHead>From</TableHead>
                   <TableHead>Duration</TableHead>
                   <TableHead>Direction</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Disconnected by</TableHead>
                   <TableHead>Recording</TableHead>
                   <TableHead className="text-right">Time</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
+              <TableBody className="overflow-auto">
                 {historyLoading ? (
-                  <TableSkeleton cols={7} />
+                  <TableSkeleton cols={8} />
                 ) : logs.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No call records</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No call records</TableCell></TableRow>
                 ) : logs.map((log) => (<>
                   <TableRow key={log.id} className="cursor-pointer hover:bg-muted/50" onClick={async () => {
                     const lid = (log as any).linkedid || log.call_id;
@@ -573,8 +758,53 @@ export default function CallsPage() {
                     try { const j = await pbxCalls.journey(lid); setJourney(j); } catch { setJourney(null); }
                     finally { setJourneyLoading(false); }
                   }}>
-                    <TableCell className="text-sm">{log.from_number || "---"}</TableCell>
-                    <TableCell className="text-sm">{log.to_number || "---"}</TableCell>
+                    {/* Phone-book-style "To" cell.
+                        Queue strings ("Queue 5002 [1009]") get split into
+                        queue name + answered-member name. Bare numbers
+                        and extensions fall through to the generic
+                        resolver. Tooltip shows the raw value the row
+                        was built from. */}
+                    <TableCell className="text-sm">
+                      {(() => {
+                        const toRaw = log.to_number || "";
+                        if (!toRaw) return <span className="text-muted-foreground">---</span>;
+                        const { queueNum, ansExt } = parseQueueTo(toRaw);
+                        if (queueNum) {
+                          const q = resolver.queueByNumber(queueNum);
+                          const u = ansExt ? resolver.userByExtension(ansExt) : undefined;
+                          return (
+                            <span title={toRaw} className="flex items-baseline gap-1.5">
+                              <span>{q?.name || `Queue ${queueNum}`}</span>
+                              {u && <span className="text-xs text-muted-foreground">· {u.full_name || u.username}</span>}
+                            </span>
+                          );
+                        }
+                        const r = resolver.resolve(toRaw, { callerIdName: null });
+                        return (
+                          <span title={toRaw} className="flex items-baseline gap-1.5">
+                            <span>{r.primary}</span>
+                            {r.secondary && <span className="text-xs text-muted-foreground">· {r.secondary}</span>}
+                          </span>
+                        );
+                      })()}
+                    </TableCell>
+                    {/* "From" cell — pass caller_id_name so the
+                        resolver can dual-display "JIO Service · +91
+                        63821 36190" when the trunk supplied a name but
+                        we have no user match. */}
+                    <TableCell className="text-sm">
+                      {(() => {
+                        const fromRaw = log.from_number || "";
+                        if (!fromRaw) return <span className="text-muted-foreground">---</span>;
+                        const r = resolver.resolve(fromRaw, { callerIdName: (log as { caller_id_name?: string }).caller_id_name });
+                        return (
+                          <span title={fromRaw} className="flex items-baseline gap-1.5">
+                            <span>{r.primary}</span>
+                            {r.secondary && <span className="text-xs text-muted-foreground">· {r.secondary}</span>}
+                          </span>
+                        );
+                      })()}
+                    </TableCell>
                     {/* Show talk_time (billsec) rather than duration (billsec+ring) so the
                         displayed value matches the recording audio length. NO ANSWER calls
                         will show 0s here — the Status column already conveys they weren't
@@ -584,9 +814,48 @@ export default function CallsPage() {
                       <Badge variant="outline" className="text-xs capitalize">{log.direction || "---"}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={log.status === "ANSWERED" || log.status === "completed" ? "default" : "secondary"} className="text-xs uppercase">
-                        {log.status || "---"}
-                      </Badge>
+                      {(() => {
+                        const eff = effectiveCallStatus(log, { orgHasAiAgent });
+                        const map: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+                          completed: { label: "Completed", variant: "default" },
+                          missed: { label: "Missed", variant: "secondary" },
+                          abandoned: { label: "Abandoned", variant: "secondary" },
+                          ai_handled: { label: "AI Handled", variant: "outline" },
+                          busy: { label: "Busy", variant: "destructive" },
+                          failed: { label: "Failed", variant: "destructive" },
+                        };
+                        const m = map[eff];
+                        return <Badge variant={m.variant} className="text-xs" title={`Raw disposition: ${log.disposition}`}>{m.label}</Badge>;
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        // "Disconnected by" — same resolver as From/To
+                        // so a hangup attributed to "9876543210" shows
+                        // as "Hari Surya" when that's a registered user.
+                        // System / timeout / busy stay as plain labels.
+                        const by = (log.disconnected_by || "").toLowerCase();
+                        let label: React.ReactNode;
+                        if (by === "caller") {
+                          const r = resolver.resolve(log.from_number || "");
+                          label = r.primary;
+                        } else if (by === "callee") {
+                          const r = resolver.resolve(log.to_number || "");
+                          label = r.primary;
+                        } else if (by === "agent") {
+                          const ansExt = log.answered_by;
+                          const u = ansExt ? resolver.userByExtension(ansExt) : undefined;
+                          label = (u && (u.full_name || u.username)) || ansExt || "Agent";
+                        } else if (by === "timeout") label = "No answer (timeout)";
+                        else if (by === "busy") label = "Busy";
+                        else if (by === "system" || by === "normal" || by === "unknown") label = "—";
+                        else label = log.disconnected_by || "—";
+                        const tooltip = [
+                          log.hangup_reason && `Reason: ${log.hangup_reason}`,
+                          by && !["caller", "callee", "agent"].includes(by) && `Source: ${by}`,
+                        ].filter(Boolean).join(" · ");
+                        return <span className="text-xs" title={tooltip}>{label}</span>;
+                      })()}
                     </TableCell>
                     <TableCell>
                       {/* Gate on recording_url (set to NULL by the backend when billsec=0)
@@ -625,54 +894,197 @@ export default function CallsPage() {
                       {log.started_at ? format(new Date(log.started_at), "MMM d, h:mm a") : "---"}
                     </TableCell>
                   </TableRow>
-                  {expandedCall === ((log as any).linkedid || log.call_id) && (
+                  {expandedCall === ((log as { linkedid?: string }).linkedid || log.call_id) && (
                     <TableRow>
-                      <TableCell colSpan={7} className="bg-muted/30 p-4">
-                        {journeyLoading ? (
-                          <p className="text-sm text-muted-foreground">Loading call journey...</p>
-                        ) : journey ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-4 text-sm">
-                              <span className="font-medium">Call Journey</span>
-                              <Badge variant={journey.status === "answered" ? "default" : "secondary"}>{journey.status}</Badge>
-                              {journey.answered_by && <span className="text-muted-foreground">Answered by ext {journey.answered_by}</span>}
-                              <span className="text-muted-foreground">{journey.total_duration}s total</span>
-                            </div>
-                            <div className="space-y-1">
-                              {journey.steps.filter(s => !s.channel.includes("UnicastRTP")).map((step, i) => (
-                                <div key={i} className="flex items-center gap-3 text-xs border-l-2 border-muted-foreground/20 pl-3 py-1">
-                                  <span className="text-muted-foreground w-16 shrink-0">{format(new Date(step.time), "h:mm:ss a")}</span>
-                                  <span className="font-medium w-28 shrink-0">{step.action}</span>
-                                  <Badge variant={step.status === "ANSWERED" ? "default" : "secondary"} className="text-[10px]">{step.status}</Badge>
-                                  {step.duration > 0 && <span className="text-muted-foreground">{step.duration}s</span>}
-                                </div>
-                              ))}
-                            </div>
+                      <TableCell colSpan={8} className="bg-muted/30 p-4">
+                        {/*
+                          Phone-book-style expansion. Three contact-style
+                          cards across the top (caller / routed-to /
+                          answered-by) summarise who participated, then
+                          the existing call-journey timeline, then a
+                          metadata grid (call IDs, hangup reason). Keeps
+                          the row scrollable on small screens by laying
+                          the cards out in a responsive grid.
+                        */}
+                        <div className="space-y-4">
+                          {/*
+                            Each card gets a one-click Call button when the
+                            contact is dialable. We skip the button for:
+                              - DIDs (your own DIDs aren't useful targets)
+                              - "Not answered" (nothing to call)
+                              - unknown / empty raw
+                            Operator still confirms via the existing dialog.
+                          */}
+                          <div className="grid gap-3 grid-cols-1 md:grid-cols-3">
+                            {(() => {
+                              const r = resolver.resolve(log.from_number || "", { callerIdName: (log as { caller_id_name?: string }).caller_id_name });
+                              const callable = r.kind === "user-ext" || r.kind === "user-phone" || r.kind === "external";
+                              return (
+                                <ContactCard
+                                  label={log.direction === "outbound" ? "Dialed by" : "Caller"}
+                                  resolved={r}
+                                  onCall={callable ? () => quickCallFromContact(r) : undefined}
+                                />
+                              );
+                            })()}
+                            {(() => {
+                              const toRaw = log.to_number || "";
+                              const { queueNum } = parseQueueTo(toRaw);
+                              let r: ResolvedContact;
+                              if (queueNum) {
+                                const q = resolver.queueByNumber(queueNum);
+                                r = q
+                                  ? { kind: "queue" as const, primary: q.name, secondary: `queue · ${q.number} · ${q.strategy}`, raw: toRaw, queue: q }
+                                  : resolver.resolve(toRaw);
+                              } else {
+                                r = resolver.resolve(toRaw);
+                              }
+                              const callable = r.kind === "queue" || r.kind === "user-ext" || r.kind === "user-phone" || r.kind === "external";
+                              return (
+                                <ContactCard
+                                  label="Routed to"
+                                  resolved={r}
+                                  onCall={callable ? () => quickCallFromContact(r) : undefined}
+                                />
+                              );
+                            })()}
+                            {(() => {
+                              const ansExt = log.answered_by || parseQueueTo(log.to_number || "").ansExt;
+                              let r: ResolvedContact;
+                              if (!ansExt) {
+                                r = { kind: "unknown" as const, primary: "Not answered", raw: "" };
+                              } else {
+                                const u = resolver.userByExtension(ansExt);
+                                r = u
+                                  ? { kind: "user-ext" as const, primary: u.full_name || u.username, secondary: `ext ${u.extension}`, raw: ansExt, user: u }
+                                  : { kind: "external" as const, primary: `ext ${ansExt}`, raw: ansExt };
+                              }
+                              const callable = r.kind === "user-ext";
+                              return (
+                                <ContactCard
+                                  label="Answered by"
+                                  resolved={r}
+                                  onCall={callable ? () => quickCallFromContact(r) : undefined}
+                                />
+                              );
+                            })()}
                           </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">No journey data</p>
-                        )}
+
+                          {journeyLoading ? (
+                            <p className="text-sm text-muted-foreground">Loading call journey…</p>
+                          ) : journey ? (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-4 text-sm">
+                                <span className="font-medium">Call journey</span>
+                                <Badge variant={journey.status === "answered" ? "default" : "secondary"}>{journey.status}</Badge>
+                                <span className="text-muted-foreground">{journey.total_duration}s total</span>
+                              </div>
+                              <div className="space-y-1">
+                                {journey.steps.filter(s => !s.channel.includes("UnicastRTP")).map((step, i) => {
+                                  // Rewrite step labels using the resolver
+                                  // so "Dial 9876543210" becomes "Dial
+                                  // Hari Surya" etc. The raw target lives
+                                  // on `step.to` or in the action string.
+                                  // Server now resolves `qm<hex>` → "Full Name (ext NNNN)"
+                                  // and `Queue <num>` → `Queue <name>` in the journey
+                                  // endpoint, so most actions arrive operator-ready.
+                                  // The regex below only fires when a single-token
+                                  // raw target slips through (bare extension or queue
+                                  // number) and falls back to client-side resolution.
+                                  const m = step.action.match(/^(Dial|Ring|Queue)\s+(\S+)$/);
+                                  let prettyAction: React.ReactNode = step.action;
+                                  if (m) {
+                                    const verb = m[1];
+                                    const target = m[2];
+                                    const ext = target.startsWith("qm") ? null : target;
+                                    const u = ext ? resolver.userByExtension(ext) : null;
+                                    const q = ext ? resolver.queueByNumber(ext) : null;
+                                    if (q) prettyAction = `${verb} ${q.name}`;
+                                    else if (u) prettyAction = `${verb} ${u.full_name || u.username} (ext ${u.extension})`;
+                                    else if (!target.startsWith("qm")) {
+                                      const r = resolver.resolve(target);
+                                      prettyAction = `${verb} ${r.primary}`;
+                                    }
+                                    // `qm<hex>` that didn't get resolved server-side
+                                    // (rare — only if the queue_member row is gone):
+                                    // keep step.action verbatim so we don't render a
+                                    // misleading "Ring qm…" with no context.
+                                  }
+                                  return (
+                                    <div key={i} className="flex items-center gap-3 text-xs border-l-2 border-muted-foreground/20 pl-3 py-1">
+                                      <span className="text-muted-foreground w-16 shrink-0">{format(new Date(step.time), "h:mm:ss a")}</span>
+                                      <span className="font-medium flex-1 min-w-0 truncate" title={step.action}>{prettyAction}</span>
+                                      <Badge variant={step.status === "ANSWERED" ? "default" : "secondary"} className="text-[10px]">{step.status}</Badge>
+                                      {step.duration > 0 && <span className="text-muted-foreground w-12 text-right">{step.duration}s</span>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No journey data</p>
+                          )}
+
+                          {/* Metadata grid — IDs + hangup reason. */}
+                          <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 text-xs pt-2 border-t border-border/60">
+                            <MetaRow label="Call ID" value={log.call_id} />
+                            <MetaRow label="Linked ID" value={(log as { linkedid?: string }).linkedid || "—"} />
+                            <MetaRow label="Hangup reason" value={log.hangup_reason || "—"} />
+                            <MetaRow label="Started" value={log.started_at ? format(new Date(log.started_at), "PPpp") : "—"} />
+                          </div>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )}
                 </>))}
-              </TableBody>
-            </Table>
+            </TableBody>
+          </Table>
           </div>
-
-          {/* Pagination — fixed at bottom */}
-          <div className="flex items-center justify-between pt-3 pb-2 shrink-0">
-            <p className="text-xs text-muted-foreground">Page {page} of {totalPages}</p>
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" className="h-7" disabled={page <= 1} onClick={() => loadHistory(page - 1)}>
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </Button>
-              <Button variant="outline" size="sm" className="h-7" disabled={!hasMore} onClick={() => loadHistory(page + 1)}>
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
+          {totalPages > 0 && (
+            <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
+              <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                Page {page} of {totalPages}
+              </div>
+              <div className="flex w-full items-center gap-8 lg:w-fit">
+                <div className="hidden items-center gap-2 lg:flex">
+                  <Label className="text-sm font-medium">Rows per page</Label>
+                  <Select value={`${pageSize}`} onValueChange={(value) => { setPageSize(Number(value)); setPage(1); }}>
+                    <SelectTrigger className="w-20">
+                      <SelectValue placeholder={pageSize} />
+                    </SelectTrigger>
+                    <SelectContent side="top">
+                      {[10, 20, 30, 40, 50].map((size) => (
+                        <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex w-fit items-center justify-center text-sm font-medium">
+                  Page {page} of {totalPages || 1}
+                </div>
+                <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                  <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => loadHistory(1)} disabled={page <= 1}>
+                    <span className="sr-only">Go to first page</span>
+                    <ChevronsLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => loadHistory(page - 1)} disabled={page <= 1}>
+                    <span className="sr-only">Go to previous page</span>
+                    <ChevronLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => loadHistory(page + 1)} disabled={!hasMore}>
+                    <span className="sr-only">Go to next page</span>
+                    <ChevronRight className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => loadHistory(totalPages)} disabled={!hasMore}>
+                    <span className="sr-only">Go to last page</span>
+                    <ChevronsRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
-          </div>
-        </TabsContent>
+          )}
+        </div>
+      </TabsContent>
       </Tabs>
 
       {/* Audio Player Popup */}
@@ -702,11 +1114,11 @@ export default function CallsPage() {
                 </Button>
               </div>
             </div>
-            <AudioPlayerProvider key={playingLog.id}>
-              <AutoPlayTrack src={playingLog.recording_url} id={playingLog.id} />
+            <AudioPlayerProvider key={String(playingLog.id)}>
+              <AutoPlayTrack src={playingLog.recording_url} id={String(playingLog.id)} />
               <div className="flex items-center gap-3">
                 <AudioPlayerButton
-                  item={{ id: playingLog.id, src: playingLog.recording_url }}
+                  item={{ id: String(playingLog.id), src: playingLog.recording_url }}
                   size="sm"
                   className="h-8 w-8 shrink-0"
                 />
@@ -778,6 +1190,71 @@ export default function CallsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// Small presentational components for the expanded call-log row.
+// Kept in the same file to avoid creating a directory of micro-files
+// for what's effectively one feature's UI.
+
+function ContactCard({
+  label,
+  resolved,
+  onCall,
+}: {
+  label: string;
+  resolved: ResolvedContact;
+  // When set, renders a "Call" button on the card that fires this
+  // handler. We deliberately route through a parent handler (which
+  // pre-fills the existing Initiate Call dialog) instead of dialing
+  // straight from the card — operator still gets to pick their own
+  // "from" extension and confirm before the call fires. Cards that
+  // can't usefully be dialed (DID, "Not answered") leave it undefined.
+  onCall?: () => void;
+}) {
+  const tag =
+    resolved.kind === "queue" ? "Queue"
+    : resolved.kind === "user-ext" ? "Internal"
+    : resolved.kind === "user-phone" ? "User"
+    : resolved.kind === "did" ? "DID"
+    : resolved.kind === "external" ? "External"
+    : "—";
+  return (
+    <div className="rounded-md border border-border/60 bg-background/40 p-3 space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
+        <div className="flex items-center gap-1">
+          <Badge variant="outline" className="text-[10px]">{tag}</Badge>
+          {onCall && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 p-0"
+              title={`Call ${resolved.primary}`}
+              onClick={(e) => { e.stopPropagation(); onCall(); }}
+            >
+              <Phone className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+      </div>
+      <p className="text-sm font-medium truncate" title={resolved.raw}>{resolved.primary}</p>
+      {resolved.secondary && (
+        <p className="text-xs text-muted-foreground truncate">{resolved.secondary}</p>
+      )}
+      {resolved.user?.extension && resolved.kind === "user-phone" && (
+        <p className="text-[10px] text-muted-foreground">ext {resolved.user.extension}</p>
+      )}
+    </div>
+  );
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="text-muted-foreground w-24 shrink-0">{label}</span>
+      <span className="font-mono truncate" title={value}>{value}</span>
     </div>
   );
 }

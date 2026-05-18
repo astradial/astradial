@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Plus, Minus, Workflow, Zap, Clock, CalendarClock, Webhook, MoreHorizontal, Play, History, Copy, ChevronDown } from "lucide-react";
+import { Plus, Minus, Workflow, Zap, Clock, CalendarClock, Webhook, MoreHorizontal, Play, History, Copy, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { format } from "date-fns";
 
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +56,8 @@ export default function WorkflowsPage() {
   const { orgId } = useParams<{ orgId: string }>();
   const router = useRouter();
   const [workflowList, setWorkflowList] = useState<WorkflowType[]>([]);
+  const [workflowPage, setWorkflowPage] = useState(1);
+  const [workflowPageSize, setWorkflowPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", trigger_type: "webhook" });
@@ -71,12 +73,12 @@ export default function WorkflowsPage() {
   const [scheduledActiveCount, setScheduledActiveCount] = useState(0);
   const [filterStatus,         setFilterStatus]         = useState<string>("all");
   const [filterDate,           setFilterDate]           = useState<string>("");
-  const SCHEDULED_PAGE_SIZE = 50;
-  const isAdmin = typeof window !== "undefined" && (!!getAdminKey() || localStorage.getItem("user_role") === "owner" || localStorage.getItem("user_role") === "admin");
+  const [scheduledPageSize, setScheduledPageSize] = useState(50);
+  const isAdmin = typeof window !== "undefined" && !!getAdminKey();
 
   useEffect(() => { loadWorkflows(); loadAutomationConfig(); }, [orgId]);
   // Reload scheduled list whenever the user changes filter or page
-  useEffect(() => { loadScheduledJobs(); }, [orgId, scheduledPage, filterStatus, filterDate]);
+  useEffect(() => { loadScheduledJobs(); }, [orgId, scheduledPage, scheduledPageSize, filterStatus, filterDate]);
   // Whenever a filter changes, reset back to page 1 (handled by setScheduledPage in the change handlers)
 
   async function loadWorkflows() {
@@ -121,7 +123,7 @@ export default function WorkflowsPage() {
         status: filterStatus === "all" ? undefined : filterStatus,
         date:   filterDate || undefined,
         page:   scheduledPage,
-        limit:  SCHEDULED_PAGE_SIZE,
+        limit:  scheduledPageSize,
       });
       setScheduled(result.jobs);
       setScheduledTotal(result.total);
@@ -296,10 +298,11 @@ export default function WorkflowsPage() {
 
         <TabsContent value="workflows" className="space-y-6 mt-4">
           {/* Workflow list */}
-          <div className="border rounded-lg">
-            <Table>
-              <TableHeader>
-                <TableRow>
+          <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
+            <div className="overflow-auto flex-1 relative">
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                  <TableRow className="border-b-border/50 hover:bg-transparent">
                   <TableHead>Name</TableHead>
                   <TableHead>ID</TableHead>
                   <TableHead>Trigger</TableHead>
@@ -313,7 +316,7 @@ export default function WorkflowsPage() {
                   <TableSkeleton cols={6} />
                 ) : workflowList.length === 0 ? (
                   <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No workflows yet. Click "New Workflow" to create one.</TableCell></TableRow>
-                ) : workflowList.map((wf) => {
+                ) : workflowList.slice((workflowPage - 1) * workflowPageSize, workflowPage * workflowPageSize).map((wf) => {
                   const TriggerIcon = triggerIcons[wf.trigger_type] || Workflow;
                   return (
                     <TableRow key={wf.id} className="cursor-pointer" onClick={() => router.push(`/dashboard/${orgId}/workflows/${wf.id}`)}>
@@ -357,7 +360,7 @@ export default function WorkflowsPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => router.push(`/dashboard/${orgId}/workflows/${wf.id}`)}>Edit</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/workflow/trigger/${wf.id}`); showToast("Trigger URL copied", "success"); }}>Copy Trigger URL</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(`https://gateway.example.com/trigger/${wf.id}`); showToast("Trigger URL copied", "success"); }}>Copy Trigger URL</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(wf.id); showToast("ID copied", "success"); }}>Copy ID</DropdownMenuItem>
                               <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(wf.id)}>Delete</DropdownMenuItem>
                             </DropdownMenuContent>
@@ -367,15 +370,59 @@ export default function WorkflowsPage() {
                     </TableRow>
                   );
                 })}
-              </TableBody>
+            </TableBody>
             </Table>
+            </div>
+            {workflowList.length > 10 && (
+              <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
+                <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                  Showing {(workflowPage - 1) * workflowPageSize + 1}–{Math.min(workflowPage * workflowPageSize, workflowList.length)} of {workflowList.length} entries
+                </div>
+                <div className="flex w-full items-center gap-8 lg:w-fit">
+                  <div className="hidden items-center gap-2 lg:flex">
+                    <Label className="text-sm font-medium">Rows per page</Label>
+                    <Select value={`${workflowPageSize}`} onValueChange={(value) => { setWorkflowPageSize(Number(value)); setWorkflowPage(1); }}>
+                      <SelectTrigger className="w-20">
+                        <SelectValue placeholder={workflowPageSize} />
+                      </SelectTrigger>
+                      <SelectContent side="top">
+                        {[10, 20, 30, 40, 50].map((size) => (
+                          <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex w-fit items-center justify-center text-sm font-medium">
+                    Page {workflowPage} of {Math.ceil(workflowList.length / workflowPageSize) || 1}
+                  </div>
+                  <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                    <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => setWorkflowPage(1)} disabled={workflowPage <= 1}>
+                      <span className="sr-only">Go to first page</span>
+                      <ChevronsLeft className="size-4" />
+                    </Button>
+                    <Button variant="outline" className="size-8" size="icon" onClick={() => setWorkflowPage(p => p - 1)} disabled={workflowPage <= 1}>
+                      <span className="sr-only">Go to previous page</span>
+                      <ChevronLeft className="size-4" />
+                    </Button>
+                    <Button variant="outline" className="size-8" size="icon" onClick={() => setWorkflowPage(p => p + 1)} disabled={workflowPage * workflowPageSize >= workflowList.length}>
+                      <span className="sr-only">Go to next page</span>
+                      <ChevronRight className="size-4" />
+                    </Button>
+                    <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => setWorkflowPage(Math.ceil(workflowList.length / workflowPageSize))} disabled={workflowPage * workflowPageSize >= workflowList.length}>
+                      <span className="sr-only">Go to last page</span>
+                      <ChevronsRight className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Webhook URL info */}
           {workflowList.length > 0 && (
             <div className="rounded-lg border bg-muted/30 p-4">
               <p className="text-sm text-muted-foreground mb-2">Trigger workflows via HTTP:</p>
-              <code className="text-xs break-all">POST {typeof window !== "undefined" ? window.location.origin : ""}/api/workflow/trigger/&#123;workflow_id&#125;</code>
+              <code className="text-xs break-all">POST https://gateway.example.com/trigger/&#123;workflow_id&#125;</code>
             </div>
           )}
         </TabsContent>
@@ -419,7 +466,7 @@ export default function WorkflowsPage() {
             <div className="ml-auto flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
                 {scheduledTotal > 0
-                  ? `${(scheduledPage - 1) * SCHEDULED_PAGE_SIZE + 1}–${Math.min(scheduledPage * SCHEDULED_PAGE_SIZE, scheduledTotal)} of ${scheduledTotal}`
+                  ? `${(scheduledPage - 1) * scheduledPageSize + 1}–${Math.min(scheduledPage * scheduledPageSize, scheduledTotal)} of ${scheduledTotal}`
                   : "0 results"}
               </span>
               <Button variant="outline" size="sm" onClick={loadScheduledJobs} disabled={scheduledLoading}>
@@ -427,10 +474,11 @@ export default function WorkflowsPage() {
               </Button>
             </div>
           </div>
-          <div className="border rounded-lg">
-            <Table>
-              <TableHeader>
-                <TableRow>
+          <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
+            <div className="overflow-auto flex-1 relative">
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                  <TableRow className="border-b-border/50 hover:bg-transparent">
                   <TableHead>Workflow</TableHead>
                   <TableHead>Scheduled At</TableHead>
                   <TableHead>Status</TableHead>
@@ -493,35 +541,53 @@ export default function WorkflowsPage() {
                     </TableRow>
                   );
                 })}
-              </TableBody>
+            </TableBody>
             </Table>
-          </div>
-          {/* Pagination controls */}
-          {scheduledTotalPages > 1 && (
-            <div className="flex items-center justify-between mt-3">
-              <span className="text-xs text-muted-foreground">
-                Page {scheduledPage} of {scheduledTotalPages}
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={scheduledPage <= 1 || scheduledLoading}
-                  onClick={() => setScheduledPage((p) => Math.max(1, p - 1))}
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={scheduledPage >= scheduledTotalPages || scheduledLoading}
-                  onClick={() => setScheduledPage((p) => Math.min(scheduledTotalPages, p + 1))}
-                >
-                  Next
-                </Button>
-              </div>
             </div>
-          )}
+            {scheduledTotal > 10 && (
+              <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
+                <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                  Showing {(scheduledPage - 1) * scheduledPageSize + 1}–{Math.min(scheduledPage * scheduledPageSize, scheduledTotal)} of {scheduledTotal} entries
+                </div>
+                <div className="flex w-full items-center gap-8 lg:w-fit">
+                  <div className="hidden items-center gap-2 lg:flex">
+                    <Label className="text-sm font-medium">Rows per page</Label>
+                    <Select value={`${scheduledPageSize}`} onValueChange={(value) => { setScheduledPageSize(Number(value)); setScheduledPage(1); }}>
+                      <SelectTrigger className="w-20">
+                        <SelectValue placeholder={scheduledPageSize} />
+                      </SelectTrigger>
+                      <SelectContent side="top">
+                        {[10, 20, 30, 40, 50].map((size) => (
+                          <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex w-fit items-center justify-center text-sm font-medium">
+                    Page {scheduledPage} of {scheduledTotalPages || 1}
+                  </div>
+                  <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                    <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => setScheduledPage(1)} disabled={scheduledPage <= 1 || scheduledLoading}>
+                      <span className="sr-only">Go to first page</span>
+                      <ChevronsLeft className="size-4" />
+                    </Button>
+                    <Button variant="outline" className="size-8" size="icon" onClick={() => setScheduledPage(p => Math.max(1, p - 1))} disabled={scheduledPage <= 1 || scheduledLoading}>
+                      <span className="sr-only">Go to previous page</span>
+                      <ChevronLeft className="size-4" />
+                    </Button>
+                    <Button variant="outline" className="size-8" size="icon" onClick={() => setScheduledPage(p => Math.min(scheduledTotalPages, p + 1))} disabled={scheduledPage >= scheduledTotalPages || scheduledLoading}>
+                      <span className="sr-only">Go to next page</span>
+                      <ChevronRight className="size-4" />
+                    </Button>
+                    <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => setScheduledPage(scheduledTotalPages)} disabled={scheduledPage >= scheduledTotalPages || scheduledLoading}>
+                      <span className="sr-only">Go to last page</span>
+                      <ChevronsRight className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
     </div>

@@ -47,10 +47,8 @@ export default function AdminDidsPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      // Use server-side bridge route (avoids org token requirement)
-      const fetchRes = await fetch("/api/admin/dids");
-      if (!fetchRes.ok) throw new Error("Failed to load DIDs");
-      const res = await fetchRes.json() as AdminDidsResponse;
+      const params = filter !== "all" ? { pool_status: filter } : undefined;
+      const res = await didAdmin.all(params);
       setData(res);
       // Extract unique orgs
       const orgMap = new Map<string, string>();
@@ -70,53 +68,53 @@ export default function AdminDidsPage() {
 
     setBulkSaving(true);
     try {
-      const fetchRes = await fetch("/api/admin/dids/bulk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numbers, provider: bulkForm.provider, region: bulkForm.region, monthly_price: bulkForm.monthly_price ? parseFloat(bulkForm.monthly_price) : undefined }),
+      const res = await didAdmin.bulkAdd({
+        numbers,
+        provider: bulkForm.provider || undefined,
+        region: bulkForm.region || undefined,
+        monthly_price: bulkForm.monthly_price ? parseFloat(bulkForm.monthly_price) : undefined,
       });
-      const data = await fetchRes.json();
-      if (!fetchRes.ok) throw new Error(data.error || "Failed");
-      showToast(`Added ${data.created} DIDs${data.skipped > 0 ? `, ${data.skipped} already existed` : ""}`, "success");
+      showToast(`Added ${res.created} DIDs${res.skipped > 0 ? `, ${res.skipped} already existed` : ""}`, "success");
       setBulkOpen(false);
       loadAll();
     } catch (e: unknown) { showToast((e as Error).message, "error"); }
     setBulkSaving(false);
   }
 
-  async function adminAction(action: string, did_id: string, extra?: Record<string, unknown>) {
-    try {
-      const res = await fetch(`/api/admin/dids/${action}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ did_id, ...extra }),
-      });
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed"); }
-      showToast(action.charAt(0).toUpperCase() + action.slice(1) + "d", "success");
-      loadAll();
-    } catch (e: unknown) { showToast((e as Error).message, "error"); }
+  async function handleApprove(id: string) {
+    try { await didAdmin.approve(id); showToast("Approved", "success"); loadAll(); }
+    catch (e: unknown) { showToast((e as Error).message, "error"); }
   }
 
-  async function handleApprove(id: string) { adminAction("approve", id); }
-  async function handleReject(id: string) { adminAction("reject", id); }
+  async function handleReject(id: string) {
+    try { await didAdmin.reject(id); showToast("Rejected", "success"); loadAll(); }
+    catch (e: unknown) { showToast((e as Error).message, "error"); }
+  }
 
   async function handleAssign() {
     if (!assignDid || !assignOrgId) return;
-    adminAction("assign", assignDid.id, { org_id: assignOrgId });
-    setAssignOpen(false);
+    try { await didAdmin.assign(assignDid.id, assignOrgId); showToast("Assigned", "success"); setAssignOpen(false); loadAll(); }
+    catch (e: unknown) { showToast((e as Error).message, "error"); }
   }
 
-  async function handleRelease(id: string) { adminAction("release", id); }
+  async function handleRelease(id: string) {
+    try { await didAdmin.release(id); showToast("Released to pool", "success"); loadAll(); }
+    catch (e: unknown) { showToast((e as Error).message, "error"); }
+  }
 
   async function handleEditSave() {
     if (!editDid) return;
-    adminAction("update", editDid.id, {
-      description: editForm.description || null,
-      region: editForm.region || null,
-      provider: editForm.provider || null,
-      monthly_price: editForm.monthly_price || null,
-    });
-    setEditOpen(false);
+    try {
+      await didAdmin.update(editDid.id, {
+        description: editForm.description || null,
+        region: editForm.region || null,
+        provider: editForm.provider || null,
+        monthly_price: editForm.monthly_price ? parseFloat(editForm.monthly_price) as unknown as number : null,
+      } as Partial<PoolDid>);
+      showToast("Updated", "success");
+      setEditOpen(false);
+      loadAll();
+    } catch (e: unknown) { showToast((e as Error).message, "error"); }
   }
 
   function openAssign(did: PoolDid) { setAssignDid(did); setAssignOrgId(""); setAssignOpen(true); }
@@ -179,15 +177,16 @@ export default function AdminDidsPage() {
               <TableHead>Region</TableHead>
               <TableHead>Provider</TableHead>
               <TableHead>Routing</TableHead>
+              <TableHead>Environment</TableHead>
               <TableHead>Price/mo</TableHead>
               <TableHead className="w-32"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
             ) : data.dids.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No DIDs found</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No DIDs found</TableCell></TableRow>
             ) : data.dids.map(did => (
               <TableRow key={did.id}>
                 <TableCell className="font-mono text-sm font-medium">{formatNumber(did.number)}</TableCell>
@@ -197,6 +196,25 @@ export default function AdminDidsPage() {
                 <TableCell>{did.provider || "—"}</TableCell>
                 <TableCell>
                   {did.routing_type ? <Badge variant="outline" className="text-xs capitalize">{did.routing_type} → {did.routing_destination}</Badge> : <span className="text-muted-foreground text-xs">—</span>}
+                </TableCell>
+                <TableCell>
+                  <Select
+                    value={did.routing_environment || "prod"}
+                    onValueChange={async (v) => {
+                      try {
+                        await didAdmin.setRoutingEnvironment(did.id, v as "prod" | "staging" | "oss");
+                        showToast(`Routing set to ${v} for ${did.number}`, "success");
+                        loadAll();
+                      } catch (e) { showToast((e as Error).message, "error"); }
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="prod">Prod</SelectItem>
+                      <SelectItem value="staging">Staging</SelectItem>
+                      <SelectItem value="oss">OSS</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </TableCell>
                 <TableCell>{did.monthly_price != null ? `₹${Number(did.monthly_price).toLocaleString()}` : "—"}</TableCell>
                 <TableCell>

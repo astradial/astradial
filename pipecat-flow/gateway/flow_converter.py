@@ -6,6 +6,8 @@ Supports:
 - Template resolution via {args.x}, {state.x}, {call.x}, {value_map.name.key}
 """
 
+import os
+
 from loguru import logger
 
 from pipecat_flows import FlowArgs, FlowManager, FlowsFunctionSchema, NodeConfig
@@ -126,7 +128,7 @@ def editor_json_to_dynamic_flow(editor_json: dict):
                                 try:
                                     import wave
                                     from pipecat.frames.frames import OutputAudioRawFrame
-                                    wav_path = "/opt/pipecat-flow/audio/system/transfer_hold.wav"
+                                    wav_path = "/app/pipecat-flow/audio/system/transfer_hold.wav"
                                     with wave.open(wav_path, "rb") as wf:
                                         audio_data = wf.readframes(wf.getnframes())
                                         sample_rate = wf.getframerate()
@@ -147,7 +149,7 @@ def editor_json_to_dynamic_flow(editor_json: dict):
                                             await client.post(
                                                 "http://127.0.0.1:8000/api/v1/calls/transfer-channel",
                                                 json={"channel_id": ch_id, "queue": queue, "org_id": getattr(flow_manager, 'call_metadata', {}).get('org_id', '')},
-                                                headers={"X-Internal-Key": "4f6d990b285c38112ebea37f5ce11969232d61478ebef9a3"},
+                                                headers={"X-Internal-Key": os.getenv("INTERNAL_API_KEY", "")},
                                             )
                                         logger.info(f"transfer: redirected {ch_id} to queue {queue}")
                                     except Exception as e:
@@ -180,7 +182,7 @@ def editor_json_to_dynamic_flow(editor_json: dict):
                                             await client.post(
                                                 "http://127.0.0.1:8000/api/v1/calls/hangup",
                                                 json={"channel_id": ch_id},
-                                                headers={"X-Internal-Key": "4f6d990b285c38112ebea37f5ce11969232d61478ebef9a3"},
+                                                headers={"X-Internal-Key": os.getenv("INTERNAL_API_KEY", "")},
                                             )
                                         logger.info(f"end_call: sent hangup for channel {ch_id}")
                                     except Exception as e:

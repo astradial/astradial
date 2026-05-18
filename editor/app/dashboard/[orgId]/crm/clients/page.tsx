@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
-import { Plus, Search, Building2, MoreHorizontal, Pencil, Trash2, UserPlus } from "lucide-react";
+import { Plus, Search, Building2, MoreHorizontal, Pencil, Trash2, UserPlus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ export default function ClientsPage() {
   const [data, setData] = useState<Company[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [statData, setStatData] = useState<CrmStats | null>(null);
@@ -48,12 +49,12 @@ export default function ClientsPage() {
   const [assignTarget, setAssignTarget] = useState<Company | null>(null);
   const [assignTo, setAssignTo] = useState("");
 
-  useEffect(() => { load(); loadStats(); loadUsers(); }, [orgId, page, search]);
+  useEffect(() => { load(); loadStats(); loadUsers(); }, [orgId, page, pageSize, search]);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await companies.list({ page, limit: 25, search: search || undefined });
+      const res = await companies.list({ page, limit: pageSize, search: search || undefined });
       setData(res.data);
       setTotal(res.total);
     } catch (e: unknown) { showToast((e as Error).message, "error"); }
@@ -161,10 +162,11 @@ export default function ClientsPage() {
       </div>
 
       {/* Table */}
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
+      <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
+        <div className="overflow-auto flex-1 relative">
+          <Table>
+            <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+              <TableRow className="border-b-border/50 hover:bg-transparent">
               <TableHead>Company</TableHead>
               <TableHead>Industry</TableHead>
               <TableHead>Size</TableHead>
@@ -210,20 +212,53 @@ export default function ClientsPage() {
                 </TableCell>
               </TableRow>
             ))}
-          </TableBody>
-        </Table>
-      </Card>
-
-      {/* Pagination */}
-      {total > 25 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">{total} companies</p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
-            <Button variant="outline" size="sm" disabled={page * 25 >= total} onClick={() => setPage(p => p + 1)}>Next</Button>
+            </TableBody>
+          </Table>
           </div>
+          {total > 10 && (
+            <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
+              <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total} entries
+              </div>
+              <div className="flex w-full items-center gap-8 lg:w-fit">
+                <div className="hidden items-center gap-2 lg:flex">
+                  <Label className="text-sm font-medium">Rows per page</Label>
+                  <Select value={`${pageSize}`} onValueChange={(value) => { setPageSize(Number(value)); setPage(1); }}>
+                    <SelectTrigger className="w-20">
+                      <SelectValue placeholder={pageSize} />
+                    </SelectTrigger>
+                    <SelectContent side="top">
+                      {[10, 20, 30, 40, 50].map((size) => (
+                        <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex w-fit items-center justify-center text-sm font-medium">
+                  Page {page} of {Math.ceil(total / pageSize) || 1}
+                </div>
+                <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                  <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => setPage(1)} disabled={page <= 1}>
+                    <span className="sr-only">Go to first page</span>
+                    <ChevronsLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => setPage(p => p - 1)} disabled={page <= 1}>
+                    <span className="sr-only">Go to previous page</span>
+                    <ChevronLeft className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="size-8" size="icon" onClick={() => setPage(p => p + 1)} disabled={page * pageSize >= total}>
+                    <span className="sr-only">Go to next page</span>
+                    <ChevronRight className="size-4" />
+                  </Button>
+                  <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => setPage(Math.ceil(total / pageSize))} disabled={page * pageSize >= total}>
+                    <span className="sr-only">Go to last page</span>
+                    <ChevronsRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-      )}
 
       {/* Create/Edit Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>

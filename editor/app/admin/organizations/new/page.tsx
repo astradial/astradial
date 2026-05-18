@@ -77,8 +77,7 @@ export default function CreateOrgPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
-        if (res.status === 409) throw new Error("Organisation name already exists. Choose a different name.");
-        throw new Error(err.error || err.message || "Creation failed");
+        throw new Error(err.error || "Creation failed");
       }
 
       const data = await res.json();

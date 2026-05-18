@@ -1,0 +1,166 @@
+{
+  "name": "Hotel Check-in Automation",
+  "description": "Welcome guest, check-in call, daily wake-up, checkout reminder",
+  "trigger_type": "webhook",
+  "trigger_config": {
+    "expected_fields": [
+      { "name": "name", "type": "text" },
+      { "name": "phone", "type": "phone" },
+      { "name": "checkin_date", "type": "date" },
+      { "name": "checkout_date", "type": "date" },
+      { "name": "checkin_time", "type": "time" },
+      { "name": "event_date", "type": "date" }
+    ],
+    "schedule_from_data": true,
+    "scheduled_actions": [
+      {
+        "node_id": "checkin_call",
+        "date_field": "checkin_date",
+        "time": "10:00",
+        "type": "once"
+      },
+      {
+        "node_id": "checkin_whatsapp",
+        "date_field": "checkin_date",
+        "time": "10:00",
+        "type": "once"
+      },
+      {
+        "node_id": "wakeup_call",
+        "date_field": "checkin_date",
+        "time": "07:00",
+        "offset_days": 1,
+        "repeat_until": "checkout_date",
+        "repeat_interval": "1 day",
+        "type": "recurring"
+      },
+      {
+        "node_id": "checkout_eve_whatsapp",
+        "date_field": "checkout_date",
+        "time": "20:00",
+        "offset_days": -1,
+        "type": "once"
+      },
+      {
+        "node_id": "checkout_whatsapp",
+        "date_field": "checkout_date",
+        "time": "09:00",
+        "type": "once"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger",
+      "position": { "x": 300, "y": 30 },
+      "data": {
+        "label": "Booking Webhook",
+        "config": {
+          "triggerType": "webhook",
+          "expected_fields": "name, phone, checkin_date, checkout_date, checkin_time, event_date",
+          "description": "Receives hotel booking data"
+        }
+      }
+    },
+    {
+      "id": "welcome_whatsapp",
+      "type": "send_whatsapp",
+      "position": { "x": 300, "y": 180 },
+      "data": {
+        "label": "Welcome WhatsApp",
+        "config": {
+          "phone": "{trigger.phone}",
+          "message": "Welcome {trigger.name}! Your booking at Grand Estancia is confirmed.\nCheck-in: {trigger.checkin_date}\nCheckout: {trigger.checkout_date}\nWe look forward to hosting you!",
+          "timing": "immediate"
+        }
+      }
+    },
+    {
+      "id": "checkin_whatsapp",
+      "type": "send_whatsapp",
+      "position": { "x": 100, "y": 350 },
+      "data": {
+        "label": "Check-in WhatsApp",
+        "config": {
+          "phone": "{trigger.phone}",
+          "message": "Hi {trigger.name}! Check-in time! Your room is ready. Please visit the front desk.",
+          "timing": "scheduled",
+          "run_at_date": "{trigger.checkin_date}",
+          "run_at_time": "10:00"
+        }
+      }
+    },
+    {
+      "id": "checkin_call",
+      "type": "place_call",
+      "position": { "x": 500, "y": 350 },
+      "data": {
+        "label": "Check-in Welcome Call",
+        "config": {
+          "destination": "{trigger.phone}",
+          "caller_id": "08065978002",
+          "timing": "scheduled",
+          "run_at_date": "{trigger.checkin_date}",
+          "run_at_time": "10:00"
+        }
+      }
+    },
+    {
+      "id": "wakeup_call",
+      "type": "place_call",
+      "position": { "x": 300, "y": 520 },
+      "data": {
+        "label": "Daily Wake-up Call",
+        "config": {
+          "destination": "{trigger.phone}",
+          "caller_id": "08065978002",
+          "timing": "recurring",
+          "run_at_date": "{trigger.checkin_date}",
+          "run_at_time": "07:00",
+          "offset_days": "+1",
+          "repeat_until_date": "{trigger.checkout_date}"
+        }
+      }
+    },
+    {
+      "id": "checkout_eve_whatsapp",
+      "type": "send_whatsapp",
+      "position": { "x": 100, "y": 690 },
+      "data": {
+        "label": "Checkout Eve Reminder",
+        "config": {
+          "phone": "{trigger.phone}",
+          "message": "Hi {trigger.name}! Reminder: Checkout is tomorrow by 10 AM. Have a wonderful stay tonight!",
+          "timing": "scheduled",
+          "run_at_date": "{trigger.checkout_date}",
+          "run_at_time": "20:00",
+          "offset_days": "-1"
+        }
+      }
+    },
+    {
+      "id": "checkout_whatsapp",
+      "type": "send_whatsapp",
+      "position": { "x": 500, "y": 690 },
+      "data": {
+        "label": "Checkout Day Reminder",
+        "config": {
+          "phone": "{trigger.phone}",
+          "message": "Good morning {trigger.name}! Checkout reminder — please check out by 10 AM. Thank you for staying with us at Grand Estancia!",
+          "timing": "scheduled",
+          "run_at_date": "{trigger.checkout_date}",
+          "run_at_time": "09:00"
+        }
+      }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "trigger", "target": "welcome_whatsapp" },
+    { "id": "e2", "source": "welcome_whatsapp", "target": "checkin_whatsapp" },
+    { "id": "e3", "source": "welcome_whatsapp", "target": "checkin_call" },
+    { "id": "e4", "source": "checkin_call", "target": "wakeup_call" },
+    { "id": "e5", "source": "wakeup_call", "target": "checkout_eve_whatsapp" },
+    { "id": "e6", "source": "wakeup_call", "target": "checkout_whatsapp" }
+  ]
+}

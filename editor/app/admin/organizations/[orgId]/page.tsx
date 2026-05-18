@@ -21,6 +21,8 @@ export default function OrgDetailPage() {
   const [org, setOrg] = useState<Record<string, unknown> | null>(null);
   const [compliance, setCompliance] = useState<Record<string, unknown> | null>(null);
   const [creds, setCreds] = useState<{ api_key: string; api_secret_plaintext: string } | null>(null);
+  const [owner, setOwner] = useState<{ email: string; name: string } | null>(null);
+  const [memberCount, setMemberCount] = useState(0);
 
   // Editable fields
   const [name, setName] = useState("");
@@ -56,9 +58,11 @@ export default function OrgDetailPage() {
     try {
       const res = await fetch(`/api/admin/org/${orgId}`);
       if (!res.ok) throw new Error("Failed to load org");
-      const { org: data, compliance: compData } = await res.json();
+      const { org: data, compliance: compData, owner: ownerData, members } = await res.json();
 
       setOrg(data);
+      setOwner(ownerData ? { email: ownerData.email, name: ownerData.name } : null);
+      setMemberCount(Array.isArray(members) ? members.length : 0);
       setName(String(data.name || ""));
       setStatus(String(data.status || "active"));
       const contact = (data.contact_info || {}) as Record<string, string>;
@@ -198,6 +202,18 @@ export default function OrgDetailPage() {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-muted-foreground">Owner:</span>{" "}
+              {owner ? (
+                <span>
+                  <span className="font-medium">{owner.name}</span>{" "}
+                  <span className="font-mono text-xs">&lt;{owner.email}&gt;</span>
+                </span>
+              ) : (
+                <span className="text-muted-foreground italic">none assigned</span>
+              )}
+            </div>
+            <div><span className="text-muted-foreground">Members:</span> <span className="font-medium">{memberCount}</span></div>
             <div><span className="text-muted-foreground">Context Prefix:</span> <span className="font-mono">{org?.context_prefix as string}</span></div>
             <div><span className="text-muted-foreground">API Key:</span> <span className="font-mono text-xs">{org?.api_key as string}</span></div>
           </div>

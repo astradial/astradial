@@ -82,8 +82,9 @@ class SipTrunkService {
     config += `transport=transport-${trunk.transport}\n`;
 
     // Authentication order: username/auth_username only (no IP matching).
-    // Per-org trunks identify by SIP credentials, not source IP, so multiple
-    // orgs can use the same provider without identify-rule collisions.
+    // IP-based inbound matching is handled by the system-level tata_gateway
+    // endpoint. Per-org trunks are for OUTBOUND dialing — they should NOT
+    // create identify rules that collide with tata_gateway's IP match.
     config += `identify_by=username,auth_username\n`;
 
     // Allow OPTIONS without authentication (for keepalive/health checks)
@@ -105,9 +106,26 @@ class SipTrunkService {
       config += `aors=${peerName}_aor\n`;
     }
 
-    // Custom configuration from database
-    if (trunk.configuration && typeof trunk.configuration === 'object' && Object.keys(trunk.configuration).length > 0) {
+    // Custom configuration from database. Historically this splatted every
+    // JSON key verbatim as a pjsip option, which breaks Asterisk: if the
+    // column holds metadata like `{system_trunk:true, nuc_gateway:true,
+    // channels:10}`, pjsip rejects the whole endpoint with
+    //   ERROR: Could not find option suitable for category '<name>'
+    //          named 'system_trunk'
+    // and outbound calls die with "no endpoint found". Filter out the
+    // known metadata keys we use elsewhere (sipTrunks model, queueService,
+    // admin UI) so only genuine pjsip overrides reach the conf file.
+    const METADATA_KEYS = new Set([
+      'system_trunk',
+      'nuc_gateway',
+      'channels',
+      'max_channels',
+      'routing_environment',
+      'notes',
+    ]);
+    if (trunk.configuration && typeof trunk.configuration === 'object') {
       Object.entries(trunk.configuration).forEach(([key, value]) => {
+        if (METADATA_KEYS.has(key)) return;
         config += `${key}=${value}\n`;
       });
     }
@@ -177,14 +195,15 @@ class SipTrunkService {
     }
 
     // Identify configuration — DISABLED for per-org trunks.
-    // Per-org trunks identify by SIP credentials (username/auth_username),
-    // not by source IP. Adding identify rules here can cause collisions
-    // when two orgs share the same upstream provider IP, sending calls
-    // into the wrong org's context.
+    // The system-level tata_gateway endpoint handles all inbound IP
+    // matching from the NUC WireGuard tunnel (10.10.10.2). Per-org
+    // trunks adding their own identify rules with match=10.10.10.2
+    // would collide and steal inbound Tata calls, routing them into
+    // the wrong org context. This was a recurring prod bug.
     //
-    // If a future use case needs per-org IP matching (e.g., a client with
-    // a unique provider IP), add it as an explicit opt-in setting on the
-    // trunk, not a default for all peer2peer.
+    // If a future use case needs per-org IP matching (e.g., a client
+    // with their own SIP trunk on a unique IP), add it as an explicit
+    // opt-in setting on the trunk, not a default for all peer2peer.
 
     return config;
   }

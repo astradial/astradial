@@ -15,7 +15,6 @@ const axios = require('axios');
 const crypto = require('crypto');
 const swaggerUi = require('swagger-ui-express');
 const YAML = require('yamljs');
-const helmet = require('helmet');
 
 // Import database models
 const { sequelize } = require('./models');
@@ -32,16 +31,12 @@ const organizationRoutes = require('./routes/organizations');
 const crmRoutes = require('./routes/crm');
 const didPoolRoutes = require('./routes/didPool');
 const apiKeyRoutes = require('./routes/apiKeys');
+const customerTunnelRoutes = require('./routes/customer-tunnels');
+const ticketAlertRoutes = require('./routes/ticket-alerts');
+const adminWhatsappRoutes = require('./routes/admin-whatsapp');
 
 // Initialize Express app
 const app = express();
-
-app.use(helmet({
-  contentSecurityPolicy: false,  // Disable CSP for now — Swagger UI needs inline scripts
-  crossOriginEmbedderPolicy: false,
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-}));
-
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 
@@ -70,6 +65,41 @@ app.use(morgan(':real-ip - :remote-user [:date[clf]] ":method :url HTTP/:http-ve
 // Load and setup Swagger documentation with dynamic server configuration
 const swaggerDocument = YAML.load('./docs/API_SPECIFICATION.yaml');
 const { execSync } = require('child_process');
+
+/**
+ * Wrap a raw 8 kHz mu-law byte stream in a 58-byte WAVE/mu-law header
+ * so browsers can decode it via <audio>. Asterisk's `.ulaw` file
+ * format is headerless raw mu-law; browsers need a WAV container.
+ * Same payload bytes either way — only a header is prepended.
+ *
+ * WAVE format code 0x0007 = mu-law. The `fact` chunk is mandatory
+ * for non-PCM WAV formats per spec.
+ */
+function wrapMulawAsWav(mulaw) {
+  const dataSize = mulaw.length;
+  const headerSize = 58;
+  const buf = Buffer.alloc(headerSize + dataSize);
+  let p = 0;
+  buf.write('RIFF', p, 'ascii'); p += 4;
+  buf.writeUInt32LE(headerSize + dataSize - 8, p); p += 4;
+  buf.write('WAVE', p, 'ascii'); p += 4;
+  buf.write('fmt ', p, 'ascii'); p += 4;
+  buf.writeUInt32LE(18, p); p += 4;        // fmt chunk size (non-PCM)
+  buf.writeUInt16LE(7, p); p += 2;         // WAVE_FORMAT_MULAW
+  buf.writeUInt16LE(1, p); p += 2;         // channels
+  buf.writeUInt32LE(8000, p); p += 4;      // sample rate
+  buf.writeUInt32LE(8000, p); p += 4;      // byte rate
+  buf.writeUInt16LE(1, p); p += 2;         // block align
+  buf.writeUInt16LE(8, p); p += 2;         // bits per sample
+  buf.writeUInt16LE(0, p); p += 2;         // cbSize extension (none)
+  buf.write('fact', p, 'ascii'); p += 4;
+  buf.writeUInt32LE(4, p); p += 4;         // fact chunk size
+  buf.writeUInt32LE(dataSize, p); p += 4;  // num samples
+  buf.write('data', p, 'ascii'); p += 4;
+  buf.writeUInt32LE(dataSize, p); p += 4;
+  mulaw.copy(buf, p);
+  return buf;
+}
 
 // Get public IP address from Amazon checkip service
 function getPublicIP() {
@@ -151,9 +181,27 @@ app.get('/api-spec.json', (req, res) => {
 app.use('/api-docs', swaggerUi.serveFiles(swaggerDocument, swaggerOptions));
 app.get('/api-docs', swaggerUi.setup(swaggerDocument, swaggerOptions));
 
-// Scalar API Reference UI
+// Scalar API Reference UI — branded, with server selector + sidebar grouping by tag.
 const { apiReference } = require("@scalar/express-api-reference");
-app.use("/reference", apiReference({ spec: { content: swaggerDocument } }));
+app.use("/reference", apiReference({
+  spec: { content: swaggerDocument },
+  theme: "purple",
+  showSidebar: true,
+  hideDownloadButton: false,
+  hideTestRequestButton: false,
+  darkMode: true,
+  metaData: {
+    title: "AstraPBX API Reference",
+    description: "Multi-tenant cloud PBX — control calls, users, queues, IVRs, trunks, and webhooks over HTTP.",
+  },
+  // Render a clean top-left brand link. Scalar picks up `info.title` from the
+  // spec if `metaData.title` isn't set; we set both so the tab title and the
+  // rendered header stay consistent.
+  customCss: `
+    .scalar-api-reference .sidebar { border-right: 1px solid rgba(255,255,255,0.05); }
+    .scalar-api-reference h1.t-editor__heading { font-weight: 600; letter-spacing: -0.01em; }
+  `,
+}));
 
 // Alternative paths for API documentation
 app.use('/api', swaggerUi.serveFiles(swaggerDocument, swaggerOptions));
@@ -190,7 +238,10 @@ const authenticateOrg = async (req, res, next) => {
   const apiKey = req.headers['x-api-key'];
   const authHeader = req.headers['authorization'];
 
-  // Also accept internal key (for server-to-server calls)
+  // Also accept internal key (for workflow engine + editor server-to-server calls).
+  // org_id is optional — admin endpoints (e.g. did-pool/admin/*) operate across
+  // all orgs and don't have a single org scope. Without org_id, req.orgId stays
+  // null and individual handlers can decide whether they need it.
   const internalKey = req.headers['x-internal-key'];
   if (internalKey && internalKey === process.env.INTERNAL_API_KEY) {
     const orgId = req.body?.org_id || req.query?.org_id;
@@ -202,10 +253,7 @@ const authenticateOrg = async (req, res, next) => {
         return next();
       }
     }
-    // Internal key without org_id — allow for admin/cross-org operations
-    req.orgId = null;
-    req.organization = null;
-    req.isInternalAdmin = true;
+    req.internalKeyAuth = true;
     return next();
   }
 
@@ -356,26 +404,6 @@ const triggerWebhooks = async (orgId, event, data) => {
 // ========================================
 
 // Health check
-app.get('/api/v1/server-info', (req, res) => {
-  const os = require('os');
-  const nets = os.networkInterfaces();
-  let lanIp = null;
-  for (const iface of Object.values(nets)) {
-    for (const cfg of iface) {
-      if (cfg.family === 'IPv4' && !cfg.internal && !cfg.address.startsWith('172.')) {
-        lanIp = cfg.address;
-        break;
-      }
-    }
-    if (lanIp) break;
-  }
-  res.json({
-    sip_host: process.env.SIP_HOST || lanIp || 'localhost',
-    sip_port: parseInt(process.env.SIP_PORT) || 5060,
-    hostname: os.hostname(),
-  });
-});
-
 app.get('/health', (req, res) => {
   const eventStatus = eventListenerService.getStatus();
 
@@ -703,13 +731,13 @@ app.post('/api/v1/organizations', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    // Validate organization name format (allow spaces, letters, numbers, hyphens)
-    const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9 _-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
+    // Validate organization name format
+    const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
 
     if (!namePattern.test(name)) {
       return res.status(400).json({
         error: 'Invalid organization name',
-        message: 'Organization name must start and end with alphanumeric characters.'
+        message: 'Organization name must start and end with alphanumeric characters, contain only letters, numbers, and hyphens, and cannot contain spaces or special characters.'
       });
     }
 
@@ -749,7 +777,7 @@ app.post('/api/v1/organizations', authenticateAdmin, async (req, res) => {
         max_dids: 10,
         max_users: 50,
         max_queues: 10,
-        recording_enabled: false,
+        recording_enabled: true,
         webhook_enabled: true,
         features: {
           call_transfer: true,
@@ -774,31 +802,48 @@ app.post('/api/v1/organizations', authenticateAdmin, async (req, res) => {
 
     const organization = await Organization.create(orgData);
 
-    // Auto-provision: create first extension (1001) for the owner
+    // Auto-provision: create org_users owner row + first SIP extension (1001)
+    const ownerEmail = contact_info?.email;
+    if (ownerEmail) {
+      try {
+        await sequelize.query(
+          `INSERT INTO org_users (id, org_id, email, name, role, status, extension, created_at, updated_at)
+           VALUES (UUID(), ?, ?, ?, 'owner', 'active', '1001', NOW(), NOW())`,
+          { replacements: [organization.id, ownerEmail, ownerEmail.split('@')[0]] }
+        );
+        console.log(`✅ Created owner org_user ${ownerEmail} for org ${organization.name}`);
+      } catch (ouErr) {
+        console.warn('⚠️ org_users owner creation failed (non-fatal):', ouErr.message);
+      }
+    }
+
     try {
       const crypto = require('crypto');
       const sipPass = crypto.randomBytes(8).toString('hex');
+      const hashedSipLoginPass = await bcrypt.hash(sipPass, 10);
       await User.create({
         org_id: organization.id,
-        username: 'owner',
-        email: contact_info?.email || '',
+        username: `owner_${organization.context_prefix.replace(/_$/, '')}`,
+        email: ownerEmail || null,
         full_name: 'Owner',
         extension: '1001',
         role: 'admin',
         status: 'active',
-        password: sipPass,
+        password_hash: hashedSipLoginPass,
         sip_password: sipPass,
-        recording_enabled: false,
+        asterisk_endpoint: `${organization.context_prefix}1001`,
+        recording_enabled: true,
         routing_type: 'sip',
+        ring_target: 'ext',
       });
-      console.log(`✅ Auto-provisioned extension 1001 for org ${organization.name}`);
+      console.log(`✅ Auto-provisioned SIP extension 1001 for org ${organization.name}`);
 
       // Auto-deploy Asterisk config for the new org
       await configDeploymentService.deployOrganizationConfiguration(organization.id, organization.name);
       await configDeploymentService.reloadAsteriskConfiguration();
       console.log(`✅ Auto-deployed config for new org ${organization.name}`);
     } catch (provErr) {
-      console.warn('⚠️ Auto-provision failed (non-fatal):', provErr.message);
+      console.warn('⚠️ SIP extension auto-provision failed (non-fatal):', provErr.message);
     }
 
     // Return organization data with plain api_secret only on creation
@@ -831,12 +876,12 @@ app.put('/api/v1/organizations/:id', authenticateOrg, async (req, res) => {
 
     // Handle name update with validation
     if (name !== undefined) {
-      const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9 _-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
+      const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
 
       if (!namePattern.test(name)) {
         return res.status(400).json({
           error: 'Invalid organization name',
-          message: 'Organization name must start and end with alphanumeric characters.'
+          message: 'Organization name must start and end with alphanumeric characters, contain only letters, numbers, and hyphens, and cannot contain spaces or special characters.'
         });
       }
 
@@ -1289,6 +1334,9 @@ app.post('/api/v1/admin/settings/deploy', async (req, res) => {
 app.use('/api/v1/crm', authenticateOrg, crmRoutes);
 app.use('/api/v1/did-pool', authenticateOrg, didPoolRoutes);
 app.use('/api/v1/api-keys', authenticateOrg, apiKeyRoutes);
+app.use('/api/v1/customer-tunnels', authenticateOrg, customerTunnelRoutes);
+app.use('/api/v1/orgs/:orgId/ticket-alerts', authenticateOrg, ticketAlertRoutes);
+app.use('/api/v1/admin/whatsapp', adminWhatsappRoutes);
 
 // ========================================
 // SIP TRUNK MANAGEMENT
@@ -1299,7 +1347,40 @@ app.get('/api/v1/trunks', authenticateOrg, async (req, res) => {
     const trunks = await SipTrunk.findAll({
       where: { org_id: req.orgId }
     });
-    res.json(trunks);
+
+    // Enrich each trunk with live status from Asterisk. The DB's
+    // `registration_status` column was never being populated for peer2peer
+    // trunks (and unreliable even for outbound), so the editor was showing
+    // 'unknown' across the board. The CLI helper does ONE
+    // `pjsip show contacts` + ONE `pjsip show registrations`, parses both,
+    // and we look up by peer_name (or peer_name + '_aor' to handle the
+    // org-trunk vs system-trunk naming split). Errors fall through with
+    // live_status=null so the response shape is stable.
+    let statuses = null;
+    try {
+      const cli = new (require('./services/asterisk/cliService'))();
+      statuses = await cli.getAllTrunkStatuses();
+    } catch (e) {
+      console.error('[trunks] live-status fetch failed:', e.message);
+    }
+
+    const enriched = trunks.map(t => {
+      const data = t.toJSON();
+      let live_status = null;
+      // DB column is `asterisk_peer_name`, NOT `peer_name`. Easy miss —
+      // the model attribute and value are both unintuitive. Org trunks
+      // use generated names like `trunk_<orgPrefix>_<suffix>`; pjsip
+      // exposes them with `_aor` suffix. System tata_gateway has the
+      // bare name. Try both lookups.
+      const peerName = data.asterisk_peer_name;
+      if (statuses && peerName) {
+        const hit = statuses.get(peerName) || statuses.get(`${peerName}_aor`);
+        if (hit) live_status = hit;
+      }
+      return { ...data, live_status };
+    });
+
+    res.json(enriched);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1520,10 +1601,10 @@ app.get('/api/v1/dids/:id', authenticateOrg, async (req, res) => {
 
 app.post('/api/v1/dids', authenticateOrg, async (req, res) => {
   try {
-    const { number, trunk_id, description, routing_type, routing_destination, recording_enabled = false } = req.body;
+    const { number, trunk_id, description, routing_type, routing_destination, recording_enabled = true } = req.body;
 
-    if (!number) {
-      return res.status(400).json({ error: 'Number is required' });
+    if (!number || !trunk_id || !routing_type || !routing_destination) {
+      return res.status(400).json({ error: 'Required fields missing' });
     }
 
     // Check DID limit
@@ -1537,22 +1618,27 @@ app.post('/api/v1/dids', authenticateOrg, async (req, res) => {
       });
     }
 
-    // Verify trunk if provided
-    if (trunk_id) {
-      const trunk = await SipTrunk.findOne({ where: { id: trunk_id, org_id: req.orgId } });
-      if (!trunk) return res.status(400).json({ error: 'Invalid trunk' });
+    // Verify trunk belongs to organization
+    const trunk = await SipTrunk.findOne({
+      where: {
+        id: trunk_id,
+        org_id: req.orgId
+      }
+    });
+
+    if (!trunk) {
+      return res.status(400).json({ error: 'Invalid trunk' });
     }
 
     const did = await DidNumber.create({
       org_id: req.orgId,
-      trunk_id: trunk_id || null,
+      trunk_id,
       number,
       description,
       routing_type,
       routing_destination,
       recording_enabled,
-      status: 'active',
-      pool_status: 'assigned',
+      status: 'active'
     });
 
     res.status(201).json(did);
@@ -1709,6 +1795,121 @@ app.get('/api/v1/users', authenticateOrg, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/v1/users/registrations
+ *
+ * Returns the live PJSIP registration state for every user in the org.
+ * Joins the DB user list with the parsed `pjsip show contacts` map.
+ *
+ * Cached: the underlying Asterisk CLI call is memoized for 30s, so a
+ * heavy editor (24 users × 30s polling = ~50 calls/min/operator) sees
+ * the same Map without re-shelling. Pass `?force=1` to bypass.
+ *
+ * Response shape: array of
+ *   { user_id, extension, asterisk_endpoint, registered, status,
+ *     contact_ip, contact_port, rtt_ms, last_check_at }
+ *
+ * - registered: boolean — true iff status is 'reachable' or 'nonqual'
+ *   (NonQual means the contact is registered but qualify hasn't completed,
+ *   typically a NAT-keepalive gap). False if absent from Asterisk OR
+ *   status is 'unreachable'.
+ * - status: 'reachable' | 'unreachable' | 'nonqual' | 'unregistered'
+ *
+ * Must be defined BEFORE /api/v1/users/:id because Express matches in
+ * registration order; otherwise "registrations" would be matched as
+ * an `:id` parameter.
+ */
+app.get('/api/v1/users/registrations', authenticateOrg, async (req, res) => {
+  // Look up users FIRST so we can always return a per-user row even when
+  // Asterisk is unreachable (gracefully-degraded response — see below).
+  let userRows;
+  try {
+    userRows = await User.findAll({
+      where: { org_id: req.orgId },
+      attributes: ['id', 'extension', 'asterisk_endpoint']
+    });
+  } catch (dbErr) {
+    console.error('GET /api/v1/users/registrations: DB query failed:', dbErr);
+    return res.status(500).json({ error: dbErr.message });
+  }
+
+  const pjsipRegSvc = require('./services/asterisk/pjsipRegistrationsService');
+  const force = req.query.force === '1' || req.query.force === 'true';
+  let map;
+  let fetchedAt;
+  let fromCache = false;
+  let asteriskUnreachable = false;
+  let asteriskError = null;
+  try {
+    const result = await pjsipRegSvc.getAllUserRegistrations({ force });
+    map = result.map;
+    fetchedAt = result.fetchedAt;
+    fromCache = result.fromCache;
+  } catch (asteriskErr) {
+    // Asterisk CLI unreachable (dev env without Asterisk, transient outage,
+    // pjsip module not loaded). Return a 200 with `asterisk_unreachable:true`
+    // and ALL users marked unknown — frontend can show a degraded banner
+    // instead of falsely showing all dots green from stale data. (UAT review
+    // of PR B flagged this as the most important fix — silent failure during
+    // a BSNL/Rail incident would mislead the operator into thinking all
+    // phones are healthy.)
+    console.error('GET /api/v1/users/registrations: Asterisk query failed:', asteriskErr);
+    map = new Map();
+    fetchedAt = Date.now();
+    asteriskUnreachable = true;
+    asteriskError = asteriskErr.message;
+  }
+
+  const rows = userRows.map((u) => {
+    // PJSIP endpoint name = the stored `asterisk_endpoint` field, written
+    // at user create/update time. The model enforces non-null so we trust
+    // it (no fallback construction — earlier versions had a dead-code
+    // fallback that was unreachable AND would have mis-matched if it
+    // ever fired due to inconsistent prefix conventions across routes).
+    const endpointName = u.asterisk_endpoint;
+    const reg = map.get(endpointName);
+    if (!reg) {
+      return {
+        user_id: u.id,
+        extension: u.extension,
+        asterisk_endpoint: endpointName,
+        // When Asterisk is unreachable, status is "unknown" — distinct
+        // from "unregistered" which means Asterisk says no contact exists.
+        registered: false,
+        status: asteriskUnreachable ? 'unknown' : 'unregistered',
+        contact_ip: null,
+        contact_port: null,
+        rtt_ms: null,
+        last_check_at: new Date(fetchedAt).toISOString()
+      };
+    }
+    return {
+      user_id: u.id,
+      extension: u.extension,
+      asterisk_endpoint: endpointName,
+      registered: reg.status === 'reachable' || reg.status === 'nonqual',
+      status: reg.status,
+      contact_ip: reg.contact_ip,
+      contact_port: reg.contact_port,
+      rtt_ms: reg.rtt_ms,
+      last_check_at: new Date(fetchedAt).toISOString()
+    };
+  });
+
+  res.json({
+    registrations: rows,
+    fetched_at: new Date(fetchedAt).toISOString(),
+    from_cache: fromCache,
+    count: rows.length,
+    // Surface to the frontend whether the underlying Asterisk query
+    // worked. Frontend renders a degraded-state banner when this is true
+    // so the operator knows the dots they're looking at are unknown,
+    // not authoritatively "unregistered".
+    asterisk_unreachable: asteriskUnreachable,
+    asterisk_error: asteriskError
+  });
+});
+
 app.get('/api/v1/users/:id', authenticateOrg, async (req, res) => {
   try {
     const user = await User.findOne({
@@ -1731,7 +1932,14 @@ app.get('/api/v1/users/:id', authenticateOrg, async (req, res) => {
 
 app.post('/api/v1/users', authenticateOrg, async (req, res) => {
   try {
-    const { extension, username, password, full_name, email, role = 'agent' } = req.body;
+    const {
+      extension, username, password, full_name, email, role = 'agent',
+      // Optional routing fields — were silently dropped before this fix,
+      // causing editor "Phone" / "AI agent" routing selections to revert to
+      // the model defaults (ring_target='ext', routing_type='sip') the
+      // moment the user list refreshed.
+      phone_number, ring_target, routing_type, routing_destination,
+    } = req.body;
 
     if (!extension || !username || !password || !email) {
       return res.status(400).json({ error: 'Required fields missing' });
@@ -1774,7 +1982,14 @@ app.post('/api/v1/users', authenticateOrg, async (req, res) => {
       asterisk_endpoint: `${req.organization.context_prefix}_${extension}`,
       sip_password: sipPassword,
       status: 'active',
-      recording_enabled: req.organization.recording_enabled
+      recording_enabled: req.organization.recording_enabled,
+      // Only include each routing field if the client explicitly sent it,
+      // so omitting them preserves the model's defaults rather than
+      // overwriting with undefined.
+      ...(phone_number !== undefined && { phone_number }),
+      ...(ring_target !== undefined && { ring_target }),
+      ...(routing_type !== undefined && { routing_type }),
+      ...(routing_destination !== undefined && { routing_destination }),
     });
 
     // Return user data excluding sensitive fields but include SIP password on creation
@@ -1798,8 +2013,135 @@ app.put('/api/v1/users/:id', authenticateOrg, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const allowedFields = ['username', 'email', 'full_name', 'role', 'status', 'recording_enabled'];
+    const allowedFields = [
+      'username', 'email', 'full_name', 'role', 'status', 'recording_enabled',
+      'phone_number', 'ring_target', 'routing_type', 'routing_destination'
+      // failover_destination_user_id, failover_timeout_seconds — handled
+      // separately below (need DB validation for same-org constraint
+      // + numeric bounds, so they can't go through the generic loop)
+    ];
     const updateData = {};
+
+    // failover_destination_user_id — must reference a user in the SAME
+    // org (FK alone doesn't catch cross-org refs). NULL clears the
+    // failover. Self-loop is forbidden (single-hop semantic means
+    // pointing at yourself is meaningless and would risk dialplan
+    // ambiguity). Target must be SIP-routed with ring_target='ext':
+    // mobile-callout and AI-agent targets fail silently in the dialplan
+    // (Dial(PJSIP/<them>) → CHANUNAVAIL → fall-through announce), which
+    // the operator never expects — so we reject those at the API.
+    if (req.body.failover_destination_user_id !== undefined) {
+      const fid = req.body.failover_destination_user_id;
+      if (fid === null || fid === '') {
+        updateData.failover_destination_user_id = null;
+      } else if (typeof fid !== 'string') {
+        return res.status(400).json({ error: 'Failover destination must be a user ID (UUID) or empty' });
+      } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fid)) {
+        // Defensive: avoid letting a malformed string hit the UUID column
+        // and explode in Sequelize → caught-500. Surface a clean 400.
+        return res.status(400).json({ error: 'Failover destination is not a valid user ID' });
+      } else {
+        if (fid === user.id) {
+          return res.status(400).json({ error: 'Failover destination cannot be the same user (self-loop forbidden)' });
+        }
+        const failoverUser = await User.findOne({
+          where: { id: fid, org_id: req.orgId },
+          attributes: ['id', 'routing_type', 'ring_target', 'asterisk_endpoint', 'extension']
+        });
+        if (!failoverUser) {
+          return res.status(400).json({
+            error: 'Failover destination must be a user in your organization'
+          });
+        }
+        if (failoverUser.routing_type !== 'sip' || failoverUser.ring_target !== 'ext') {
+          return res.status(400).json({
+            error: `Failover destination must be a SIP/IP-Phone user. Extension ${failoverUser.extension} routes to ${failoverUser.routing_type === 'ai_agent' ? 'an AI agent' : 'an external phone number'} and cannot receive failover calls.`
+          });
+        }
+        if (!failoverUser.asterisk_endpoint) {
+          return res.status(400).json({
+            error: `Failover destination (extension ${failoverUser.extension}) is missing a SIP endpoint and cannot receive failover calls.`
+          });
+        }
+        updateData.failover_destination_user_id = fid;
+      }
+    }
+
+    // failover_phone_number — external phone (E.164-ish with optional
+    // +91 prefix + 10 digits). Mutually exclusive with the user-ID
+    // destination: an operator picks ONE of (SIP user, phone). Both
+    // null = no failover.
+    //
+    // We strip non-digit characters and take the trailing 10 digits at
+    // store time (matching the existing ring_target='phone' shape in
+    // the dialplan generator), but ONLY if the input is recognisable
+    // as a phone number — anything that doesn't parse to 10 digits
+    // gets rejected with 400 so the operator finds out at save time,
+    // not at call time.
+    if (req.body.failover_phone_number !== undefined) {
+      const raw = req.body.failover_phone_number;
+      if (raw === null || raw === '') {
+        updateData.failover_phone_number = null;
+      } else if (typeof raw !== 'string') {
+        return res.status(400).json({ error: 'Failover phone number must be a string' });
+      } else {
+        const digits = String(raw).replace(/[^0-9]/g, '');
+        if (digits.length < 10 || digits.length > 13) {
+          return res.status(400).json({
+            error: 'Failover phone number must contain 10 digits (with an optional +91 country code).'
+          });
+        }
+        // Store as +91XXXXXXXXXX (E.164) for consistency. The dialplan
+        // generator strips back to 10 digits when emitting Dial().
+        const last10 = digits.slice(-10);
+        updateData.failover_phone_number = `+91${last10}`;
+      }
+    }
+
+    // Mutual exclusion: at most one of user-ID / phone-number may be
+    // set. Compute "effective after this request" values for both
+    // fields — if the request didn't touch a field, fall back to the
+    // current stored value — then reject if both are non-null.
+    const effectiveUserId = updateData.failover_destination_user_id !== undefined
+      ? updateData.failover_destination_user_id
+      : user.failover_destination_user_id;
+    const effectivePhone = updateData.failover_phone_number !== undefined
+      ? updateData.failover_phone_number
+      : user.failover_phone_number;
+    if (effectiveUserId && effectivePhone) {
+      return res.status(400).json({
+        error: 'Failover destination must be either a SIP user OR a phone number, not both. Clear one before setting the other.'
+      });
+    }
+
+    // failover_timeout_seconds — bounded 5..120. Lower = more responsive
+    // failover but less chance for the primary to answer.
+    if (req.body.failover_timeout_seconds !== undefined) {
+      const t = Number(req.body.failover_timeout_seconds);
+      if (!Number.isInteger(t) || t < 5 || t > 120) {
+        return res.status(400).json({
+          error: 'Failover timeout (seconds) must be a whole number between 5 and 120'
+        });
+      }
+      updateData.failover_timeout_seconds = t;
+    }
+
+    // outbound_did: must be a DID assigned to this org (or explicit null to clear)
+    if (req.body.outbound_did !== undefined) {
+      if (req.body.outbound_did === null || req.body.outbound_did === '') {
+        updateData.outbound_did = null;
+      } else {
+        const wantNum = String(req.body.outbound_did).trim();
+        const [row] = await sequelize.query(
+          "SELECT number FROM did_numbers WHERE org_id=? AND number=? AND pool_status='assigned' AND status='active' LIMIT 1",
+          { replacements: [req.orgId, wantNum], type: sequelize.QueryTypes.SELECT }
+        );
+        if (!row) {
+          return res.status(400).json({ error: `outbound_did ${wantNum} is not assigned to your organization` });
+        }
+        updateData.outbound_did = wantNum;
+      }
+    }
 
     // Handle password update separately
     if (req.body.password) {
@@ -1830,9 +2172,63 @@ app.put('/api/v1/users/:id', authenticateOrg, async (req, res) => {
       }
     }
 
+    const prevStatus = user.status;
     await user.update(updateData);
 
+    // Off-shift flow: when an agent's status flips, regenerate the org's
+    // queue config. The generator's `member =>` emit skips users whose
+    // status !== 'active', so the flip needs to land in queues.conf or
+    // Asterisk will keep ringing (or keep ignoring) the previous state.
+    if (updateData.status !== undefined && updateData.status !== prevStatus) {
+      try {
+        await configDeploymentService.deployOrganizationConfiguration(req.orgId, req.organization.name);
+        await configDeploymentService.reloadAsteriskConfiguration();
+      } catch (deployErr) {
+        console.warn('⚠️ Auto-deploy after user status change:', deployErr.message);
+      }
+    }
+
     // Return updated user without sensitive fields
+    const { password_hash, sip_password, ...userData } = user.toJSON();
+    res.json(userData);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update only the routing fields of a user. The editor calls this from
+// handleEdit() after the main PUT, so the main PUT can stick to identity
+// fields (name/email/role) while routing has its own dedicated endpoint
+// that mirrors PUT /api/v1/dids/:id/routing.
+app.put('/api/v1/users/:id/routing', authenticateOrg, async (req, res) => {
+  try {
+    const user = await User.findOne({
+      where: { id: req.params.id, org_id: req.orgId }
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const { routing_type, routing_destination, ring_target, phone_number } = req.body;
+
+    const updateData = {};
+    if (routing_type !== undefined) updateData.routing_type = routing_type;
+    if (routing_destination !== undefined) {
+      updateData.routing_destination = routing_destination || null;
+    }
+    if (ring_target !== undefined) updateData.ring_target = ring_target;
+    if (phone_number !== undefined) updateData.phone_number = phone_number || null;
+
+    // ring_target='phone' is meaningless without a phone_number — reject early
+    // rather than silently saving an unreachable route.
+    const finalRingTarget = updateData.ring_target ?? user.ring_target;
+    const finalPhoneNumber = updateData.phone_number ?? user.phone_number;
+    if (finalRingTarget === 'phone' && !finalPhoneNumber) {
+      return res.status(400).json({
+        error: 'phone_number is required when ring_target is "phone"'
+      });
+    }
+
+    await user.update(updateData);
+
     const { password_hash, sip_password, ...userData } = user.toJSON();
     res.json(userData);
   } catch (error) {
@@ -1874,7 +2270,7 @@ app.get('/api/v1/queues', authenticateOrg, async (req, res) => {
         include: [{
           model: User,
           as: 'user',
-          attributes: ['id', 'full_name', 'extension']
+          attributes: ['id', 'full_name', 'extension', 'status']
         }]
       }]
     });
@@ -1897,7 +2293,7 @@ app.get('/api/v1/queues/:id', authenticateOrg, async (req, res) => {
         include: [{
           model: User,
           as: 'user',
-          attributes: ['id', 'full_name', 'extension']
+          attributes: ['id', 'full_name', 'extension', 'status']
         }]
       }]
     });
@@ -1921,7 +2317,7 @@ app.post('/api/v1/queues', authenticateOrg, async (req, res) => {
       timeout = 30,
       retry = 5,
       music_on_hold = 'default',
-      recording_enabled = false
+      recording_enabled = true
     } = req.body;
 
     if (!name || !number) {
@@ -2096,7 +2492,8 @@ app.post('/api/v1/queues/:id/members', authenticateOrg, async (req, res) => {
     }
 
     // Accept either { user_id } (single, legacy) or { user_ids: [...] } (batch).
-    const { user_id, user_ids, penalty = 0 } = req.body;
+    // `ring_timeout_seconds` is optional (5-300); model defaults to 20.
+    const { user_id, user_ids, penalty = 0, ring_timeout_seconds } = req.body;
     const requestedIds = Array.isArray(user_ids)
       ? user_ids.filter(Boolean)
       : (user_id ? [user_id] : []);
@@ -2137,11 +2534,16 @@ app.post('/api/v1/queues/:id/members', authenticateOrg, async (req, res) => {
         continue;
       }
       try {
+        // ring_timeout_seconds is honored only when the caller passes a
+        // valid integer; Sequelize validates 5-300 and defaults to 20.
         const member = await QueueMember.create({
           queue_id: req.params.id,
           user_id: uid,
           penalty,
-          paused: false
+          paused: false,
+          ring_timeout_seconds: Number.isInteger(ring_timeout_seconds)
+            ? ring_timeout_seconds
+            : undefined
         });
         created.push(member);
       } catch (e) {
@@ -2173,6 +2575,63 @@ app.post('/api/v1/queues/:id/members', authenticateOrg, async (req, res) => {
     }
     res.status(201).json({ created, skipped });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update a queue member's penalty (priority) and/or ring_timeout_seconds.
+// Either field may be sent independently. After the update, the org's
+// config is redeployed and Asterisk reloaded so the new value lands on
+// active queues without restart.
+app.patch('/api/v1/queues/:queueId/members/:userId', authenticateOrg, async (req, res) => {
+  try {
+    const queue = await Queue.findOne({
+      where: { id: req.params.queueId, org_id: req.orgId }
+    });
+    if (!queue) return res.status(404).json({ error: 'Queue not found' });
+
+    const { penalty, ring_timeout_seconds } = req.body || {};
+    const updates = {};
+    if (penalty !== undefined) {
+      const p = Number(penalty);
+      if (!Number.isInteger(p) || p < 0 || p > 10) {
+        return res.status(400).json({ error: 'penalty must be an integer 0-10' });
+      }
+      updates.penalty = p;
+    }
+    if (ring_timeout_seconds !== undefined) {
+      const r = Number(ring_timeout_seconds);
+      if (!Number.isInteger(r) || r < 5 || r > 300) {
+        return res.status(400).json({ error: 'ring_timeout_seconds must be an integer 5-300' });
+      }
+      updates.ring_timeout_seconds = r;
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'no updatable fields in request body' });
+    }
+
+    const member = await QueueMember.findOne({
+      where: { queue_id: req.params.queueId, user_id: req.params.userId }
+    });
+    if (!member) return res.status(404).json({ error: 'Member not found' });
+
+    await member.update(updates);
+
+    // Redeploy + reload so the per-member ring time / penalty takes
+    // effect on Asterisk immediately. Failure here is logged but does
+    // not roll back the DB update — the next deploy will pick it up.
+    try {
+      const organization = await Organization.findByPk(req.orgId);
+      await configDeploymentService.deployOrganizationConfiguration(req.orgId, organization.name);
+      await configDeploymentService.reloadAsteriskConfiguration();
+      console.log(`✅ Configuration deployed + Asterisk reloaded after updating queue member ${member.id}`);
+    } catch (deployError) {
+      console.error('⚠️  Failed to deploy/reload after queue-member update:', deployError.message);
+    }
+
+    res.json({ success: true, queue_member: member });
+  } catch (error) {
+    console.error('Error updating queue member:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2338,7 +2797,7 @@ app.post('/api/v1/outbound-routes', authenticateOrg, async (req, res) => {
       prepend_digits,
       caller_id_override,
       caller_id_name_override,
-      recording_enabled: recording_enabled || false,
+      recording_enabled: recording_enabled !== false,
       max_channels,
       route_type: route_type || 'custom',
       priority: priority || 10,
@@ -2583,6 +3042,49 @@ app.post('/api/v1/calls/:callId/recording', authenticateOrg, requireRole('admin'
   }
 });
 
+/**
+ * GET /api/v1/calls/contacts-map
+ *
+ * Returns the org's user / queue / DID lookup data the editor needs
+ * to render call-log rows like a phone-book — replacing raw numbers
+ * ("Queue 5002", "916382136190") with resolved names ("Reception",
+ * "Girija R", DID descriptions, etc.).
+ *
+ * Fetched once per dashboard load; cached client-side. Avoids
+ * per-row JOINs in the heavier /calls SELECT (which already
+ * deduplicates by linkedid and is hot-path).
+ *
+ * Response shape stable — additive only; the editor's resolver
+ * tolerates missing optional fields.
+ */
+app.get('/api/v1/calls/contacts-map', authenticateOrg, async (req, res) => {
+  try {
+    const { User, Queue, DidNumber } = require('./models');
+    const [users, queues, dids] = await Promise.all([
+      User.findAll({
+        where: { org_id: req.orgId },
+        attributes: ['id', 'full_name', 'username', 'extension', 'phone_number',
+                     'ring_target', 'routing_type', 'failover_phone_number', 'status'],
+        raw: true,
+      }),
+      Queue.findAll({
+        where: { org_id: req.orgId },
+        attributes: ['id', 'name', 'number', 'strategy', 'status'],
+        raw: true,
+      }),
+      DidNumber.findAll({
+        where: { org_id: req.orgId },
+        attributes: ['id', 'number', 'description', 'routing_type'],
+        raw: true,
+      }),
+    ]);
+    res.json({ users, queues, dids });
+  } catch (error) {
+    console.error('contacts-map error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/v1/calls/count', authenticateOrg, async (req, res) => {
   try {
     const { status, from, to } = req.query;
@@ -2648,10 +3150,14 @@ function convertDurationToSeconds(durationStr) {
 }
 
 app.get('/api/v1/calls/live', authenticateOrg, async (req, res) => {
+  // Hoisted so the catch block can disconnect the SAME instance — the
+  // previous code created a NEW AsteriskManager in catch and disconnected
+  // that one, leaking the original connection on every error path. Over
+  // time that exhausts the AMI's permit cap and live-calls hangs.
+  let asteriskManager = null;
   try {
-    // Create AMI connection
     const AsteriskManager = require('./services/asterisk/asteriskManager');
-    const asteriskManager = new AsteriskManager();
+    asteriskManager = new AsteriskManager();
 
     await asteriskManager.connect();
 
@@ -2693,12 +3199,20 @@ app.get('/api/v1/calls/live', authenticateOrg, async (req, res) => {
 
         console.log('Parsed channel:', JSON.stringify(currentChannel, null, 2));
 
-        // Process this channel if it has the required data
+        // Process this channel if it has the required data.
+        // Org match is boundary-aware — bare substring `includes(prefix)`
+        // makes `org_mp3` accidentally match `org_mp3t4g5m`, leaking one
+        // org's live channels into another org's view (and vice-versa).
+        // Match the prefix only when followed by `_`, `-`, `@`, end-of-
+        // string, or the start of a channel-id segment, so cross-org
+        // contamination is impossible.
+        const orgBoundaryRe = new RegExp('(^|[^a-zA-Z0-9_])' + orgPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[_\\-@/.])');
+        const containsOrg = (s) => typeof s === 'string' && orgBoundaryRe.test(s);
         if (currentChannel.Channel) {
-          const matchesOrg = currentChannel.Channel?.includes(orgPrefix) ||
-                            currentChannel.CallerIDNum?.includes(orgPrefix) ||
-                            currentChannel.ConnectedLineNum?.includes(orgPrefix) ||
-                            currentChannel.Context?.includes(orgPrefix);
+          const matchesOrg = containsOrg(currentChannel.Channel) ||
+                            containsOrg(currentChannel.CallerIDNum) ||
+                            containsOrg(currentChannel.ConnectedLineNum) ||
+                            containsOrg(currentChannel.Context);
 
           console.log(`Checking org match for channel ${currentChannel.Channel}: orgPrefix=${orgPrefix}, matchesOrg=${matchesOrg}`);
 
@@ -2725,7 +3239,7 @@ app.get('/api/v1/calls/live', authenticateOrg, async (req, res) => {
               // caller_id for inbound = the DID number dialed (from ApplicationData or Exten)
               const appData = currentChannel.ApplicationData || '';
               if (currentChannel.Application === 'Queue') {
-                // In queue: show queue number from ApplicationData (e.g. "org_mnd5khym__5001,ct,45")
+                // In queue: show queue number from ApplicationData (e.g. "org_demo__5001,ct,45")
                 const qNum = appData.split(',')[0]?.split('_').pop() || '';
                 toNumber = qNum ? 'Queue ' + qNum : toNumber;
               } else if (currentChannel.Application === 'Dial') {
@@ -2739,7 +3253,12 @@ app.get('/api/v1/calls/live', authenticateOrg, async (req, res) => {
             // For outbound/internal: extract extension from channel name
             let fromNumber = currentChannel.CallerIDNum || currentChannel.Exten || 'Unknown';
             if (direction !== 'inbound' && chName.includes('PJSIP/')) {
-              const extMatch = chName.match(/PJSIP\/\w+_(\d{4})-/);
+              // Extensions can be 2-6 digits per the dialplan generator;
+              // hard-coding 4 dropped any extension that didn't happen to
+              // be exactly four digits long (3-digit short codes, 5-digit
+              // long-form extensions used by larger orgs) and the UI then
+              // displayed "Unknown" as the from-number.
+              const extMatch = chName.match(/PJSIP\/\w+_(\d{2,6})-/);
               if (extMatch) fromNumber = extMatch[1];
             }
 
@@ -2793,6 +3312,48 @@ app.get('/api/v1/calls/live', authenticateOrg, async (req, res) => {
     }
     const dedupedCalls = Array.from(callMap.values());
 
+    // Resolve `qm<hex>` queue-member helper tokens to operator-friendly
+    // labels. The token appears in fields like `caller_id`, `extension`,
+    // `to`, `application_data` whenever a channel is currently inside
+    // the per-member `qm<hex>` helper context (e.g., a member-leg Local
+    // channel mid-ring). Without this, the live-calls UI shows the raw
+    // 34-char internal handle in the CallerID column.
+    const QM_RE = /qm[a-f0-9]{32}/g;
+    const qmHexes = new Set();
+    const scanFields = ['from', 'to', 'caller_id', 'extension', 'application_data'];
+    for (const ch of dedupedCalls) {
+      for (const f of scanFields) {
+        const v = ch[f];
+        if (typeof v === 'string') {
+          for (const m of v.matchAll(QM_RE)) qmHexes.add(m[0]);
+        }
+      }
+    }
+    if (qmHexes.size > 0) {
+      const memberIds = Array.from(qmHexes).map(qm => {
+        const h = qm.slice(2);
+        return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20,32)}`;
+      });
+      const memberRows = await sequelize.query(
+        "SELECT qm.id, u.extension, u.full_name FROM queue_members qm " +
+        "JOIN users u ON qm.user_id = u.id WHERE qm.id IN (?) AND u.org_id = ?",
+        { replacements: [memberIds, req.orgId], type: sequelize.QueryTypes.SELECT }
+      );
+      const map = new Map();
+      for (const m of memberRows) {
+        map.set('qm' + m.id.replace(/-/g, ''), m);
+      }
+      const subst = (s) => typeof s === 'string'
+        ? s.replace(QM_RE, (qm) => {
+            const m = map.get(qm);
+            return m ? (m.extension || m.full_name || qm) : qm;
+          })
+        : s;
+      for (const ch of dedupedCalls) {
+        for (const f of scanFields) ch[f] = subst(ch[f]);
+      }
+    }
+
     res.json({
       count: dedupedCalls.length,
       calls: dedupedCalls
@@ -2801,13 +3362,11 @@ app.get('/api/v1/calls/live', authenticateOrg, async (req, res) => {
   } catch (error) {
     console.error('Error fetching live calls from AMI:', error);
 
-    // Try to disconnect if still connected
-    try {
-      const AsteriskManager = require('./services/asterisk/asteriskManager');
-      const asteriskManager = new AsteriskManager();
-      await asteriskManager.disconnect();
-    } catch (disconnectError) {
-      // Ignore disconnect errors
+    // Disconnect the SAME AsteriskManager instance we connected above so
+    // the AMI session isn't leaked. The previous code instantiated a new
+    // one here, which left the original connection orphaned.
+    if (asteriskManager) {
+      try { await asteriskManager.disconnect(); } catch { /* ignore */ }
     }
 
     res.status(500).json({
@@ -3695,6 +4254,14 @@ app.post('/api/v1/calls/click-to-call', authenticateOrg, async (req, res) => {
   try {
     const { from, to, to_type = 'extension', caller_id, timeout = 30, context, variables = {} } = req.body;
 
+    // Validate caller_id (or pick org default) — single source of truth
+    let resolvedCid;
+    try {
+      resolvedCid = await resolveCallerId(req.orgId, caller_id);
+    } catch (e) {
+      return res.status(e.statusCode || 500).json({ error: e.message, code: e.code });
+    }
+
     // Validate required fields
     if (!from || !to) {
       return res.status(400).json({
@@ -3774,7 +4341,7 @@ app.post('/api/v1/calls/click-to-call', authenticateOrg, async (req, res) => {
         exten: destination,
         context: destContext,
         priority: 1,
-        callerid: caller_id || from,
+        callerid: resolvedCid,
         timeout: timeout * 1000,
         variables: channelVars,
         async: true
@@ -3789,7 +4356,7 @@ app.post('/api/v1/calls/click-to-call', authenticateOrg, async (req, res) => {
           from,
           to,
           to_type,
-          caller_id: caller_id || from,
+          caller_id: resolvedCid,
           destination,
           context: destContext,
           timeout,
@@ -3843,6 +4410,14 @@ app.post('/api/v1/calls/originate-to-ai', authenticateOrg, async (req, res) => {
       timeout = 30,
       variables = {}
     } = req.body;
+
+    // Validate caller_id (or pick org default) — single source of truth
+    let resolvedCid;
+    try {
+      resolvedCid = await resolveCallerId(orgId, caller_id);
+    } catch (e) {
+      return res.status(e.statusCode || 500).json({ error: e.message, code: e.code });
+    }
 
     // Validate required fields
     if (!to) {
@@ -3925,7 +4500,7 @@ app.post('/api/v1/calls/originate-to-ai', authenticateOrg, async (req, res) => {
         channel: channel,
         application: 'Stasis',
         data: channelVars.WSS_URL ? "pbx_api," + ai_agent_app + "," + channelVars.WSS_URL : "pbx_api," + ai_agent_app,
-        callerid: caller_id || 'AI Agent',
+        callerid: resolvedCid,
         timeout: timeout * 1000,
         variables: channelVars,
         async: true
@@ -3939,7 +4514,7 @@ app.post('/api/v1/calls/originate-to-ai', authenticateOrg, async (req, res) => {
         await sequelize.query(
           `INSERT INTO asterisk_cdr (calldate, src, dst, dcontext, channel, disposition, duration, billsec, accountcode, uniqueid, linkedid, recordingfile)
            VALUES (NOW(), ?, ?, 'ai-outbound', ?, 'ANSWERED', 0, 0, ?, ?, ?, ?)`,
-          { replacements: [caller_id || '08065978002', to, channel, orgId, 'ai_' + Date.now(), 'ai_' + Date.now(), recName] }
+          { replacements: [resolvedCid, to, channel, orgId, 'ai_' + Date.now(), 'ai_' + Date.now(), recName] }
         );
       } catch (e) { console.error('CDR insert for AI call failed:', e.message); }
 
@@ -3949,7 +4524,7 @@ app.post('/api/v1/calls/originate-to-ai', authenticateOrg, async (req, res) => {
         call: {
           to,
           endpoint,
-          caller_id: caller_id || 'AI Agent',
+          caller_id: resolvedCid,
           ai_agent_app,
           wss_url: wss_url || null,
           timeout,
@@ -3999,6 +4574,152 @@ app.get("/api/v1/moh", authenticateOrg, async (req, res) => {
     res.json({ system_classes, org_classes });
   } catch { res.json({ system_classes: ["default"], org_classes: [] }); }
 });
+
+app.post("/api/v1/moh/upload", authenticateOrg, async (req, res) => {
+  try {
+    const multer = require('multer');
+    const fs = require('fs');
+    const p = require('path');
+    const { execFile } = require('child_process');
+    const { promisify } = require('util');
+    const execFileAsync = promisify(execFile);
+    const orgPrefix = req.organization?.context_prefix || '';
+    const tmpUpload = multer({ dest: '/tmp/', limits: { fileSize: 50 * 1024 * 1024 } });
+    tmpUpload.single('audio')(req, res, async (err) => {
+      if (err) return res.status(400).json({ error: err.message });
+      if (!req.file) return res.status(400).json({ error: 'No audio file provided' });
+      const className = (req.body.class_name || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
+      const mohClass = orgPrefix + '_' + className;
+      const classDir = p.join('/var/lib/asterisk/moh', mohClass);
+      fs.mkdirSync(classDir, { recursive: true });
+      // Write THREE files: .wav (legacy fallback / human-readable),
+      // .ulaw (raw G.711 mu-law) and .alaw (raw G.711 a-law). When
+      // Asterisk's MOH plays on a PSTN call it picks the format that
+      // matches the channel's native codec, so:
+      //  - softphone calls (typically mu-law)  → .ulaw, no transcode
+      //  - Tata-trunk inbound (a-law)          → .alaw, no transcode
+      //  - anything else falls back to .wav, which Asterisk transcodes.
+      //
+      // The previous single-file pcm_s16le WAV forced an on-the-fly
+      // transcode on every PSTN call → audible glitches mid-playback
+      // (the customer's complaint). See operations/troubleshooting.md
+      // Error 57/58 — same pattern that fixed greeting audio for Tata
+      // inbound on the Indian alaw trunk.
+      const baseName = p.basename(req.file.originalname, p.extname(req.file.originalname))
+        .replace(/[^a-zA-Z0-9_-]/g, '_') || 'audio';
+      const safeName = `${baseName}.wav`;
+      const dest = p.join(classDir, safeName);
+      const destUlaw = p.join(classDir, `${baseName}.ulaw`);
+      const destAlaw = p.join(classDir, `${baseName}.alaw`);
+      try {
+        // Single ffmpeg invocation with three outputs — each output's
+        // flags come BEFORE its filename. mono / 8kHz across all three;
+        // raw `-f mulaw` / `-f alaw` for the G.711 outputs (no WAV
+        // container so Asterisk doesn't have to parse a header on every
+        // file open during the MOH loop).
+        await execFileAsync('ffmpeg', [
+          '-y', '-loglevel', 'error',
+          '-i', req.file.path,
+          '-ac', '1', '-ar', '8000', '-acodec', 'pcm_s16le', dest,
+          '-ac', '1', '-ar', '8000', '-f', 'mulaw', destUlaw,
+          '-ac', '1', '-ar', '8000', '-f', 'alaw', destAlaw,
+        ]);
+      } catch (ffErr) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        // Best-effort cleanup of any partial outputs so a failed encode
+        // doesn't leave a stale .ulaw / .alaw next to a deleted .wav.
+        for (const f of [dest, destUlaw, destAlaw]) {
+          try { fs.unlinkSync(f); } catch {}
+        }
+        const detail = (ffErr.stderr || ffErr.message || '').toString().trim().slice(-500);
+        return res.status(400).json({ error: `Audio conversion failed: ${detail}` });
+      }
+      try { fs.unlinkSync(req.file.path); } catch {}
+      // Register the class in musiconhold.conf if new, then reload MOH so
+      // Asterisk picks up the new file without a restart. Without
+      // ensureOrgClass, `moh reload` is a no-op for first-upload classes
+      // because the class block doesn't exist in the config yet.
+      try {
+        const MusicOnHoldService = require('./services/asterisk/mohService');
+        const moh = new MusicOnHoldService();
+        await moh.ensureOrgClass(orgPrefix, className);
+        await moh.reloadMusicOnHold();
+      } catch (reloadErr) {
+        console.error('moh register/reload failed:', reloadErr.message);
+      }
+      console.log('MOH uploaded:', dest);
+      res.json({ moh_class_name: mohClass, filename: safeName });
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/v1/moh/import-system-file", authenticateOrg, async (req, res) => {
+  try {
+    const fs = require('fs');
+    const p = require('path');
+    const SYSTEM_MOH_DIR = '/var/lib/asterisk/moh';
+    const orgPrefix = req.organization?.context_prefix || '';
+    const { filename } = req.body;
+    if (!filename || !/^[a-zA-Z0-9._-]+$/.test(filename)) return res.status(400).json({ error: 'Invalid filename' });
+    const srcPath = p.resolve(SYSTEM_MOH_DIR, filename);
+    if (!srcPath.startsWith(SYSTEM_MOH_DIR + '/') || !fs.existsSync(srcPath) || !fs.statSync(srcPath).isFile()) {
+      return res.status(404).json({ error: 'System file not found' });
+    }
+    const basename = p.basename(filename, p.extname(filename)).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const className = orgPrefix + '_sys_' + basename;
+    const classDir = p.join(SYSTEM_MOH_DIR, className);
+    fs.mkdirSync(classDir, { recursive: true });
+    const destPath = p.join(classDir, filename);
+    if (!fs.existsSync(destPath)) {
+      fs.copyFileSync(srcPath, destPath);
+      try {
+        const MusicOnHoldService = require('./services/asterisk/mohService');
+        const moh = new MusicOnHoldService();
+        // ensureOrgClass joins prefix + className with `_`, so pass
+        // `sys_<basename>` to produce `<orgPrefix>_sys_<basename>`.
+        await moh.ensureOrgClass(orgPrefix, 'sys_' + basename);
+        await moh.reloadMusicOnHold();
+      } catch (reloadErr) {
+        console.error('moh register/reload failed:', reloadErr.message);
+      }
+    }
+    console.log('Imported system MOH file to class:', className);
+    res.json({ moh_class_name: className, filename });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/v1/moh/:className/:filename", authenticateOrg, async (req, res) => {
+  try {
+    const fs = require('fs');
+    const p = require('path');
+    const orgPrefix = req.organization?.context_prefix || '';
+    const { className, filename } = req.params;
+    if (!className.startsWith(orgPrefix)) return res.status(403).json({ error: 'Cannot delete files from other orgs' });
+    const filePath = p.resolve('/var/lib/asterisk/moh', className, filename);
+    const base = p.resolve('/var/lib/asterisk/moh', className);
+    if (!filePath.startsWith(base)) return res.status(400).json({ error: 'Invalid path' });
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    // Clean up the .ulaw + .alaw siblings written next to the .wav by
+    // the upload handler. Operators see one filename in the UI but the
+    // upload generates three on disk — leaving stale siblings after a
+    // delete would cause Asterisk to pick a half-deleted set.
+    const baseNoExt = p.basename(filename, p.extname(filename));
+    for (const ext of ['.ulaw', '.alaw', '.wav']) {
+      const sibling = p.resolve(base, `${baseNoExt}${ext}`);
+      if (sibling !== filePath && sibling.startsWith(base + p.sep) && fs.existsSync(sibling)) {
+        try { fs.unlinkSync(sibling); } catch {}
+      }
+    }
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/v1/greetings", authenticateOrg, async (req, res) => {
   try {
     const { Greeting } = require('./models');
@@ -4012,13 +4733,721 @@ app.post("/api/v1/greetings", authenticateOrg, async (req, res) => {
   try {
     const { Greeting } = require('./models');
     const { v4: uuidv4 } = require('uuid');
+    const TTSService = require('./services/ttsService');
     const id = uuidv4();
-    const greeting = await Greeting.create({ id, org_id: req.orgId, ...req.body });
+    const {
+      name,
+      text,
+      language = 'en-IN',
+      voice = 'en-IN-Chirp3-HD-Achernar',
+      tts_model = 'chirp3-hd',
+      style_instructions = null,
+      status = 'active'
+    } = req.body;
+    // Validate the model + style-instructions pairing. style_instructions
+    // is ONLY honored by Gemini models (chirp3-hd has no prompt input).
+    // Reject explicitly instead of silently dropping it so operators
+    // know their style prompt is not being used.
+    const modelDef = TTSService.MODELS[tts_model];
+    if (!modelDef) {
+      return res.status(400).json({ error: `Unknown tts_model: ${tts_model}. Valid: ${Object.keys(TTSService.MODELS).join(', ')}` });
+    }
+    if (style_instructions && !modelDef.supportsStyleInstructions) {
+      return res.status(400).json({ error: `style_instructions is only supported for Gemini TTS models (received tts_model=${tts_model})` });
+    }
+    if (style_instructions && String(style_instructions).length > 500) {
+      return res.status(400).json({ error: 'style_instructions must be ≤ 500 characters' });
+    }
+    let audio_file = null;
+    try {
+      const tts = new TTSService();
+      audio_file = await tts.saveGreetingAudio(id, text, language, voice, {
+        model: tts_model,
+        styleInstructions: style_instructions || undefined,
+      });
+      console.log('TTS audio generated for greeting', id);
+    } catch (ttsErr) {
+      console.error('TTS failed:', ttsErr.message);
+    }
+    const greeting = await Greeting.create({
+      id, org_id: req.orgId, name, text, language, voice,
+      tts_model, style_instructions, status, audio_file
+    });
     res.json(greeting);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+app.put("/api/v1/greetings/:id", authenticateOrg, async (req, res) => {
+  try {
+    const { Greeting } = require('./models');
+    const TTSService = require('./services/ttsService');
+    const greeting = await Greeting.findOne({ where: { id: req.params.id, org_id: req.orgId } });
+    if (!greeting) return res.status(404).json({ error: 'Greeting not found' });
+    const { name, text, language, voice, tts_model, style_instructions, status } = req.body;
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (status !== undefined) updateData.status = status;
+    if (text !== undefined) updateData.text = text;
+    if (language !== undefined) updateData.language = language;
+    if (voice !== undefined) updateData.voice = voice;
+    if (tts_model !== undefined) {
+      if (!TTSService.MODELS[tts_model]) {
+        return res.status(400).json({ error: `Unknown tts_model: ${tts_model}. Valid: ${Object.keys(TTSService.MODELS).join(', ')}` });
+      }
+      updateData.tts_model = tts_model;
+    }
+    if (style_instructions !== undefined) {
+      // Validate against the (incoming or stored) model.
+      const effectiveModel = updateData.tts_model || greeting.tts_model;
+      const modelDef = TTSService.MODELS[effectiveModel];
+      if (style_instructions && modelDef && !modelDef.supportsStyleInstructions) {
+        return res.status(400).json({ error: `style_instructions is only supported for Gemini TTS models (effective tts_model=${effectiveModel})` });
+      }
+      if (style_instructions && String(style_instructions).length > 500) {
+        return res.status(400).json({ error: 'style_instructions must be ≤ 500 characters' });
+      }
+      // Normalize empty-string → null so the textChanged check below
+      // doesn't trigger a billed regen for the no-op "" → null case.
+      updateData.style_instructions = style_instructions || null;
+    }
+    const textChanged =
+      (text !== undefined && text !== greeting.text) ||
+      (language !== undefined && language !== greeting.language) ||
+      (voice !== undefined && voice !== greeting.voice) ||
+      (tts_model !== undefined && tts_model !== greeting.tts_model) ||
+      (updateData.style_instructions !== undefined && updateData.style_instructions !== greeting.style_instructions);
+    if (textChanged) {
+      try {
+        const tts = new TTSService();
+        if (greeting.audio_file) await tts.deleteGreetingAudio(greeting.audio_file);
+        updateData.audio_file = await tts.saveGreetingAudio(
+          greeting.id,
+          updateData.text || greeting.text,
+          updateData.language || greeting.language,
+          updateData.voice || greeting.voice,
+          {
+            model: updateData.tts_model || greeting.tts_model,
+            styleInstructions:
+              (updateData.style_instructions !== undefined ? updateData.style_instructions : greeting.style_instructions) || undefined,
+          }
+        );
+        console.log('TTS audio regenerated for greeting', greeting.id);
+      } catch (ttsErr) {
+        console.error('TTS failed:', ttsErr.message);
+      }
+    }
+    await greeting.update(updateData);
+    res.json(greeting);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/v1/greetings/:id", authenticateOrg, async (req, res) => {
+  try {
+    const { Greeting } = require('./models');
+    const greeting = await Greeting.findOne({ where: { id: req.params.id, org_id: req.orgId } });
+    if (!greeting) return res.status(404).json({ error: 'Greeting not found' });
+    if (greeting.audio_file) {
+      const TTSService = require('./services/ttsService');
+      try { await new TTSService().deleteGreetingAudio(greeting.audio_file); } catch {}
+    }
+    await greeting.destroy();
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// IVR (Interactive Voice Response)
+// Models: Ivr (tree root, greeting + prompts) + IvrMenu (digit → action).
+// Dialplan generation lives in dialplanGenerator.js `generateIvrContext`.
+// TTS generation uses the existing services/ttsService.js (Google TTS).
+// ══════════════════════════════════════════════════════════════════════
+
+// Supported Google TTS languages + their Chirp 3 HD voices. We curate a
+// short list (2 female + 2 male) per language rather than dumping all ~30
+// Chirp 3 HD voices Google offers, because operators typically just want
+// a clear human voice — the celestial-name set is the same across every
+// language so a handful is plenty. The full list can be fetched at
+// runtime via TTSService.listVoices() if needed.
+//
+// Six languages explicitly requested by the user (2026-05-13):
+// English (India), Hindi, Tamil, Telugu, Malayalam, Kannada.
+// Marathi/Gujarati/Bengali/en-US/en-GB were in the old WaveNet list but
+// the user did not call them out for the Chirp 3 HD upgrade; can be
+// added later if needed.
+//
+// Backwards-compatibility: WaveNet voice names like `en-IN-Wavenet-D`
+// still work in Google's API, so any greeting created before this
+// upgrade keeps playing fine — we just no longer surface WaveNet voices
+// in this list.
+const SUPPORTED_TTS_VOICES = [
+  { language: 'en-IN', label: 'English (India)', voices: ['en-IN-Chirp3-HD-Achernar', 'en-IN-Chirp3-HD-Aoede', 'en-IN-Chirp3-HD-Achird', 'en-IN-Chirp3-HD-Algenib'] },
+  { language: 'hi-IN', label: 'Hindi',           voices: ['hi-IN-Chirp3-HD-Achernar', 'hi-IN-Chirp3-HD-Aoede', 'hi-IN-Chirp3-HD-Achird', 'hi-IN-Chirp3-HD-Algenib'] },
+  { language: 'ta-IN', label: 'Tamil',           voices: ['ta-IN-Chirp3-HD-Achernar', 'ta-IN-Chirp3-HD-Aoede', 'ta-IN-Chirp3-HD-Achird', 'ta-IN-Chirp3-HD-Algenib'] },
+  { language: 'te-IN', label: 'Telugu',          voices: ['te-IN-Chirp3-HD-Achernar', 'te-IN-Chirp3-HD-Aoede', 'te-IN-Chirp3-HD-Achird', 'te-IN-Chirp3-HD-Algenib'] },
+  { language: 'ml-IN', label: 'Malayalam',       voices: ['ml-IN-Chirp3-HD-Achernar', 'ml-IN-Chirp3-HD-Aoede', 'ml-IN-Chirp3-HD-Achird', 'ml-IN-Chirp3-HD-Algenib'] },
+  { language: 'kn-IN', label: 'Kannada',         voices: ['kn-IN-Chirp3-HD-Achernar', 'kn-IN-Chirp3-HD-Aoede', 'kn-IN-Chirp3-HD-Achird', 'kn-IN-Chirp3-HD-Algenib'] },
+];
+
+app.get('/api/v1/tts/voices', authenticateOrg, (req, res) => {
+  res.json(SUPPORTED_TTS_VOICES);
+});
+
+// Available TTS models — keyed by model id (chirp3-hd, gemini-flash,
+// gemini-pro). Returns the dropdown-ready metadata: label, description,
+// whether the model accepts a style prompt, and the voice/language set
+// it supports. The editor uses this to drive the Model picker, the
+// Voice picker (filtered by selected model + language), and the
+// conditional Style-Instructions textarea.
+//
+// Voices/languages come straight from TTSService.MODELS — single
+// source of truth. If we add Gemini 3.1 or a Vertex AI direct path
+// later, this endpoint picks it up automatically.
+app.get('/api/v1/tts/models', authenticateOrg, (req, res) => {
+  const TTSService = require('./services/ttsService');
+  const models = Object.entries(TTSService.MODELS).map(([id, m]) => ({
+    id,
+    label: m.label,
+    description: m.description,
+    supportsStyleInstructions: m.supportsStyleInstructions === true,
+    // Chirp 3 HD has per-language voice maps; Gemini models share one
+    // voice list across all languages. Normalize to a per-language map
+    // so the editor can render uniformly.
+    voicesByLanguage: m.voicesByLanguage
+      ? m.voicesByLanguage
+      : Object.fromEntries(m.languages.map((lc) => [lc, m.voices]))
+  }));
+  res.json({ models, defaultModel: TTSService.DEFAULT_MODEL });
+});
+
+// Stream a one-shot TTS preview to the UI without persisting anything to
+// disk. Used by the IVR builder's "Preview voice" button so admins can
+// audition a language+voice+model+style with a short sample text before
+// committing to regenerate a real greeting.
+app.post('/api/v1/tts/preview', authenticateOrg, async (req, res) => {
+  try {
+    const TTSService = require('./services/ttsService');
+    const { text, language, voice, model, style_instructions } = req.body || {};
+    if (!text || !String(text).trim()) {
+      return res.status(400).json({ error: 'text is required' });
+    }
+    // Guardrail: preview text is short. Reject anything > 500 chars so this
+    // endpoint can't be abused as a free unlimited TTS proxy.
+    if (String(text).length > 500) {
+      return res.status(400).json({ error: 'preview text must be ≤ 500 characters' });
+    }
+    // Style prompts are also short by design.
+    if (style_instructions && String(style_instructions).length > 500) {
+      return res.status(400).json({ error: 'style_instructions must be ≤ 500 characters' });
+    }
+    const buf = await new TTSService().generateAudio(
+      String(text),
+      language || 'en-IN',
+      voice || 'en-IN-Chirp3-HD-Achernar',
+      {
+        model: model || 'chirp3-hd',
+        styleInstructions: style_instructions || undefined,
+        // Browser audio elements play WAV cleanly but not raw mu-law.
+        // Force LINEAR16 (16 kHz WAV) so the operator hears full
+        // wideband quality while auditioning a voice — even though
+        // saved greetings go out as mu-law to Asterisk.
+        audioEncoding: 'LINEAR16',
+      }
+    );
+    res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Content-Length', buf.length);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buf);
+  } catch (e) {
+    console.error('POST /tts/preview error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// List IVRs for an org. Includes menu options for builder-side rendering.
+app.get('/api/v1/ivrs', authenticateOrg, async (req, res) => {
+  try {
+    const { Ivr, IvrMenu } = require('./models');
+    const ivrs = await Ivr.findAll({
+      where: { org_id: req.orgId },
+      include: [{ model: IvrMenu, as: 'menuOptions' }],
+      order: [['created_at', 'DESC'], [{ model: IvrMenu, as: 'menuOptions' }, 'order', 'ASC']],
+    });
+    res.json(ivrs);
+  } catch (error) {
+    console.error('GET /ivrs error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/v1/ivrs/:id', authenticateOrg, async (req, res) => {
+  try {
+    const { Ivr, IvrMenu } = require('./models');
+    const ivr = await Ivr.findOne({
+      where: { id: req.params.id, org_id: req.orgId },
+      include: [{ model: IvrMenu, as: 'menuOptions' }],
+    });
+    if (!ivr) return res.status(404).json({ error: 'IVR not found' });
+    res.json(ivr);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper: check that `extension` isn't already taken within the org (and
+// doesn't collide with another tenant-reserved number like a user ext or
+// queue number). Called from both POST and PUT to keep the rule in one
+// place; also guards against DBs where the unique index somehow wasn't
+// applied (e.g. auto-sync tables before the migration ran).
+async function assertIvrExtensionFree(orgId, extension, { ignoreIvrId = null } = {}) {
+  const { Ivr, User, Queue } = require('./models');
+
+  const otherIvr = await Ivr.findOne({
+    where: { org_id: orgId, extension, ...(ignoreIvrId ? { id: { [require('sequelize').Op.ne]: ignoreIvrId } } : {}) },
+  });
+  if (otherIvr) {
+    const e = new Error(`Extension ${extension} is already used by IVR "${otherIvr.name}"`);
+    e.statusCode = 409;
+    throw e;
+  }
+
+  // Also reject if an existing user or queue owns the same number — saves
+  // surprises when the IVR is later published and Asterisk picks whichever
+  // entry it saw last.
+  const clashUser = await User.findOne({ where: { org_id: orgId, extension } });
+  if (clashUser) {
+    const e = new Error(`Extension ${extension} is already assigned to user "${clashUser.username || clashUser.full_name || clashUser.id}"`);
+    e.statusCode = 409;
+    throw e;
+  }
+  const clashQueue = await Queue.findOne({ where: { org_id: orgId, number: extension } });
+  if (clashQueue) {
+    const e = new Error(`Extension ${extension} is already used by queue "${clashQueue.name}"`);
+    e.statusCode = 409;
+    throw e;
+  }
+}
+
+// Guard against negative / non-finite numeric fields on IVR create + update.
+// Asterisk will happily write `WaitExten(-1)` and `GotoIf($[… < -1]?…)`
+// into the .conf if we don't stop it — not a crash, but nonsensical config.
+function validateIvrNumeric(body) {
+  if (body.timeout !== undefined) {
+    const t = Number(body.timeout);
+    if (!Number.isFinite(t) || t < 0) {
+      const e = new Error('timeout must be a non-negative number');
+      e.statusCode = 400;
+      throw e;
+    }
+  }
+  if (body.max_retries !== undefined) {
+    const r = Number(body.max_retries);
+    if (!Number.isFinite(r) || r < 0) {
+      const e = new Error('max_retries must be a non-negative number');
+      e.statusCode = 400;
+      throw e;
+    }
+  }
+  // timeout_action narrowed to known values so a typo doesn't generate
+  // a dialplan that silently falls through to the legacy retry branch.
+  if (body.timeout_action !== undefined) {
+    const valid = ['retry', 'queue', 'extension', 'hangup'];
+    if (!valid.includes(body.timeout_action)) {
+      const e = new Error(`timeout_action must be one of: ${valid.join(', ')}`);
+      e.statusCode = 400;
+      throw e;
+    }
+    // If routing on timeout, destination is required and must be numeric.
+    if ((body.timeout_action === 'queue' || body.timeout_action === 'extension')
+        && (!body.timeout_destination || !/^\d+$/.test(String(body.timeout_destination).trim()))) {
+      const e = new Error(`timeout_destination must be a numeric ${body.timeout_action} number when timeout_action='${body.timeout_action}'`);
+      e.statusCode = 400;
+      throw e;
+    }
+  }
+}
+
+app.post('/api/v1/ivrs', authenticateOrg, async (req, res) => {
+  try {
+    const { Ivr } = require('./models');
+    const { name, extension, description, timeout, max_retries, enable_direct_dial,
+            greeting_language, greeting_voice, timeout_action, timeout_destination } = req.body;
+    if (!name || !extension) return res.status(400).json({ error: 'name and extension required' });
+
+    validateIvrNumeric(req.body);
+    await assertIvrExtensionFree(req.orgId, String(extension).trim());
+
+    const ivr = await Ivr.create({
+      org_id: req.orgId,
+      name: String(name).trim(),
+      extension: String(extension).trim(),
+      description: description || null,
+      // `??` so explicit 0 (= wait forever on WaitExten) is respected.
+      timeout: timeout ?? 10,
+      max_retries: max_retries ?? 3,
+      enable_direct_dial: enable_direct_dial || false,
+      greeting_language: greeting_language || 'en-IN',
+      greeting_voice: greeting_voice || 'en-IN-Chirp3-HD-Achernar',
+      // timeout_action defaults to 'retry' (preserves legacy behavior);
+      // timeout_destination only meaningful for 'queue'/'extension'.
+      timeout_action: timeout_action || 'retry',
+      timeout_destination: timeout_destination || null,
+      status: 'active',
+    });
+    res.status(201).json(ivr);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ error: 'An IVR with that extension already exists in this org' });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/v1/ivrs/:id', authenticateOrg, async (req, res) => {
+  try {
+    const { Ivr } = require('./models');
+    const ivr = await Ivr.findOne({ where: { id: req.params.id, org_id: req.orgId } });
+    if (!ivr) return res.status(404).json({ error: 'IVR not found' });
+
+    validateIvrNumeric(req.body);
+
+    // If the caller is changing extension, validate it against every other
+    // IVR / user / queue in the org before committing.
+    if (req.body.extension !== undefined && String(req.body.extension).trim() !== ivr.extension) {
+      await assertIvrExtensionFree(req.orgId, String(req.body.extension).trim(), { ignoreIvrId: ivr.id });
+    }
+
+    const allowed = ['name', 'extension', 'description', 'timeout', 'max_retries',
+                     'enable_direct_dial', 'invalid_prompt', 'timeout_prompt',
+                     'greeting_language', 'greeting_voice',
+                     // Multi-model TTS fields — operators can change
+                     // the model/style separately from clicking
+                     // "Regenerate greeting" so the form's Save button
+                     // doesn't silently drop them.
+                     'tts_model', 'style_instructions',
+                     // No-input timeout routing. timeout_action is
+                     // validated by validateIvrNumeric above; the
+                     // destination column accepts null when action
+                     // is 'retry' or 'hangup'.
+                     'timeout_action', 'timeout_destination',
+                     'status'];
+    const updates = {};
+    for (const k of allowed) if (req.body[k] !== undefined) updates[k] = req.body[k];
+    // Validate tts_model + style_instructions pairing — Gemini-only
+    // prompts. Same gate as the create/regen paths.
+    if (updates.tts_model !== undefined) {
+      const TTSService = require('./services/ttsService');
+      if (!TTSService.MODELS[updates.tts_model]) {
+        return res.status(400).json({ error: `Unknown tts_model: ${updates.tts_model}. Valid: ${Object.keys(TTSService.MODELS).join(', ')}` });
+      }
+    }
+    if (updates.style_instructions !== undefined) {
+      const TTSService = require('./services/ttsService');
+      const effectiveModel = updates.tts_model || ivr.tts_model;
+      const modelDef = TTSService.MODELS[effectiveModel];
+      if (updates.style_instructions && modelDef && !modelDef.supportsStyleInstructions) {
+        return res.status(400).json({ error: `style_instructions is only supported for Gemini TTS models (effective tts_model=${effectiveModel})` });
+      }
+      // Length cap matches /tts/preview (500 chars).
+      if (updates.style_instructions && String(updates.style_instructions).length > 500) {
+        return res.status(400).json({ error: 'style_instructions must be ≤ 500 characters' });
+      }
+      // Normalize empty string to null so equality checks elsewhere
+      // don't treat "" vs null as different and trigger no-op regens.
+      if (!updates.style_instructions) updates.style_instructions = null;
+    }
+    await ivr.update(updates);
+
+    // Auto-deploy + reload so the editor's "Save" makes Asterisk's
+    // in-memory dialplan match the DB immediately. Without this, IVR
+    // setting changes (timeout_action, timeout_destination, etc.)
+    // stayed DB-only until the operator clicked "Publish" — root
+    // cause of the 2026-05-16 Thangavelu IVR-timeout incident where
+    // changing the no-keypress action had no observable effect.
+    // Same try/catch shape as the user-status-flip auto-deploy
+    // (line ~2184) — failures are warned but don't fail the save.
+    try {
+      await configDeploymentService.deployOrganizationConfiguration(req.orgId, req.organization.name);
+      await configDeploymentService.reloadAsteriskConfiguration();
+    } catch (deployErr) {
+      console.warn('⚠️ Auto-deploy after IVR save:', deployErr.message);
+    }
+    res.json(ivr);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Serve the generated TTS greeting WAV so the UI's Play button can stream
+// it. Auth via JWT in the `?token=` query (for <audio> tags) OR via the
+// internal key + `?org_id=`. Scoped strictly to the IVR's own org so one
+// tenant can't play another's audio.
+app.get('/api/v1/ivrs/:id/greeting-audio', async (req, res) => {
+  const jwt = require('jsonwebtoken');
+  const tk = req.query.token || (req.headers.authorization || '').replace('Bearer ', '');
+  let orgId = null;
+  if (tk) { try { orgId = jwt.verify(tk, process.env.JWT_SECRET).orgId; } catch {} }
+  if (!orgId) {
+    const ik = req.headers['x-internal-key'];
+    if (ik && ik === process.env.INTERNAL_API_KEY) orgId = req.query.org_id;
+  }
+  if (!orgId) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const { Ivr } = require('./models');
+    const fs = require('fs');
+    const path = require('path');
+    const ivr = await Ivr.findOne({ where: { id: req.params.id, org_id: orgId } });
+    if (!ivr) return res.status(404).json({ error: 'IVR not found' });
+    if (!ivr.greeting_prompt) return res.status(404).json({ error: 'No greeting generated yet' });
+
+    const dir = process.env.ASTERISK_GREETINGS_DIR || '/var/lib/asterisk/sounds/greetings';
+    // Prefer the .ulaw (post-2026-05-13 single-format default — Asterisk
+    // reads it natively, browsers need it wrapped). Fall through to .wav
+    // for legacy IVR greetings.
+    const ulawPath = path.join(dir, `${ivr.greeting_prompt}.ulaw`);
+    const wavPath = path.join(dir, `${ivr.greeting_prompt}.wav`);
+    let body, contentLength;
+    if (fs.existsSync(ulawPath)) {
+      const raw = fs.readFileSync(ulawPath);
+      // Wrap raw mu-law in a WAVE/mu-law header so the browser's
+      // <audio> element can decode it. Same payload bytes, 58-byte
+      // header prepended.
+      body = wrapMulawAsWav(raw);
+      contentLength = body.length;
+    } else if (fs.existsSync(wavPath)) {
+      body = fs.readFileSync(wavPath);
+      contentLength = body.length;
+    } else {
+      return res.status(404).json({ error: 'Greeting file missing on disk' });
+    }
+
+    res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Content-Length', contentLength);
+    res.setHeader('Content-Disposition', `inline; filename="${ivr.greeting_prompt}.wav"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(body);
+  } catch (error) {
+    console.error('GET /ivrs/:id/greeting-audio error:', error.message);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/v1/ivrs/:id', authenticateOrg, async (req, res) => {
+  try {
+    const { Ivr } = require('./models');
+    const ivr = await Ivr.findOne({ where: { id: req.params.id, org_id: req.orgId } });
+    if (!ivr) return res.status(404).json({ error: 'IVR not found' });
+
+    // Best-effort clean up the TTS wav file
+    if (ivr.greeting_prompt) {
+      try {
+        const TTSService = require('./services/ttsService');
+        await (new TTSService()).deleteGreetingAudio(ivr.greeting_prompt + '.wav');
+      } catch {}
+    }
+    await ivr.destroy();  // cascades ivr_menus via FK
+    res.status(204).end();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Replace all menu options for an IVR in one request. The visual builder
+// will PUT the whole tree every time the admin clicks Save — easier to
+// reason about than per-option POST/PUT/DELETE.
+app.put('/api/v1/ivrs/:id/menu', authenticateOrg, async (req, res) => {
+  try {
+    const { Ivr, IvrMenu, sequelize } = require('./models');
+    const ivr = await Ivr.findOne({ where: { id: req.params.id, org_id: req.orgId } });
+    if (!ivr) return res.status(404).json({ error: 'IVR not found' });
+
+    const options = Array.isArray(req.body?.options) ? req.body.options : [];
+
+    // Validate each option up front so we never half-apply.
+    const validActions = ['extension', 'queue', 'ivr', 'voicemail', 'hangup', 'callback', 'ai_agent'];
+    const validDigits = /^[0-9*#]$/;
+    for (const o of options) {
+      if (!validDigits.test(String(o.digit))) return res.status(400).json({ error: `Invalid digit: ${o.digit}` });
+      if (!validActions.includes(o.action_type)) return res.status(400).json({ error: `Invalid action_type: ${o.action_type}` });
+      if (o.action_type !== 'hangup' && !o.action_destination) {
+        return res.status(400).json({ error: `action_destination required for action_type=${o.action_type}` });
+      }
+    }
+
+    // Wrap the DELETE + re-INSERT loop in a retry-on-deadlock loop.
+    // Under concurrent PUTs on the same IVR, InnoDB gap locks on the
+    // (ivr_id, digit) unique index sometimes collide — one txn gets
+    // ER_LOCK_DEADLOCK (1213) from MySQL, the other commits. Retrying the
+    // loser 2-3× is cheap and makes the endpoint safe for builder saves
+    // fired in quick succession. If all retries fail, surface 409 rather
+    // than a raw 500 so the client can decide to retry / show a banner.
+    const MAX_ATTEMPTS = 4;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        await sequelize.transaction(async (t) => {
+          await IvrMenu.destroy({ where: { ivr_id: ivr.id }, transaction: t });
+          for (let i = 0; i < options.length; i++) {
+            const o = options[i];
+            await IvrMenu.create({
+              ivr_id: ivr.id,
+              digit: String(o.digit),
+              action_type: o.action_type,
+              action_destination: o.action_destination || null,
+              description: o.description || null,
+              order: o.order ?? i,
+            }, { transaction: t });
+          }
+        });
+        lastErr = null;
+        break;
+      } catch (e) {
+        lastErr = e;
+        const isDeadlock =
+          e?.parent?.code === 'ER_LOCK_DEADLOCK' ||
+          e?.original?.code === 'ER_LOCK_DEADLOCK' ||
+          /deadlock/i.test(String(e?.message || ''));
+        if (!isDeadlock || attempt === MAX_ATTEMPTS) throw e;
+        // Exponential backoff with jitter: 25ms, 50ms, 100ms
+        await new Promise((r) => setTimeout(r, 25 * 2 ** (attempt - 1) + Math.random() * 10));
+      }
+    }
+    if (lastErr) throw lastErr;
+
+    const refreshed = await Ivr.findByPk(ivr.id, {
+      include: [{ model: IvrMenu, as: 'menuOptions' }],
+    });
+
+    // Auto-deploy + reload so digit-option changes (entry blocks) hit
+    // Asterisk's dialplan immediately. Without this, edits in the
+    // builder stayed DB-only until the operator hit "Publish".
+    try {
+      await configDeploymentService.deployOrganizationConfiguration(req.orgId, req.organization.name);
+      await configDeploymentService.reloadAsteriskConfiguration();
+    } catch (deployErr) {
+      console.warn('⚠️ Auto-deploy after IVR menu save:', deployErr.message);
+    }
+    res.json(refreshed);
+  } catch (error) {
+    console.error('PUT /ivrs/:id/menu error:', error.message);
+    const isDeadlock =
+      error?.parent?.code === 'ER_LOCK_DEADLOCK' ||
+      /deadlock/i.test(String(error?.message || ''));
+    if (isDeadlock) {
+      return res.status(409).json({
+        error: 'Menu is being edited by another request — please retry',
+      });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate or regenerate the TTS greeting for an IVR. The editor calls this
+// whenever the admin clicks "Generate greeting" in the UI. Writes a .wav
+// under /var/lib/asterisk/sounds/greetings/ivr_<ivrId>.wav, stores the
+// filename (without extension) on ivr.greeting_prompt, and keeps the source
+// text + language + voice on the row for later re-generation.
+app.post('/api/v1/ivrs/:id/generate-greeting', authenticateOrg, async (req, res) => {
+  try {
+    const { Ivr } = require('./models');
+    const TTSService = require('./services/ttsService');
+
+    const ivr = await Ivr.findOne({ where: { id: req.params.id, org_id: req.orgId } });
+    if (!ivr) return res.status(404).json({ error: 'IVR not found' });
+
+    const { text, language, voice, tts_model, style_instructions } = req.body || {};
+    if (!text || !String(text).trim()) return res.status(400).json({ error: 'text is required' });
+
+    const lang = language || ivr.greeting_language || 'en-IN';
+    const vox = voice || ivr.greeting_voice || 'en-IN-Chirp3-HD-Achernar';
+    const model = tts_model || ivr.tts_model || 'chirp3-hd';
+    const style = style_instructions !== undefined ? style_instructions : ivr.style_instructions;
+
+    // Validate model + style-instructions pairing (Gemini only).
+    const modelDef = TTSService.MODELS[model];
+    if (!modelDef) {
+      return res.status(400).json({ error: `Unknown tts_model: ${model}. Valid: ${Object.keys(TTSService.MODELS).join(', ')}` });
+    }
+    if (style && !modelDef.supportsStyleInstructions) {
+      return res.status(400).json({ error: `style_instructions is only supported for Gemini TTS models (effective tts_model=${model})` });
+    }
+    if (style && String(style).length > 500) {
+      return res.status(400).json({ error: 'style_instructions must be ≤ 500 characters' });
+    }
+
+    const tts = new TTSService();
+    // saveGreetingAudio expects an id to name the file; use an ivr-namespaced
+    // id so multiple orgs' IVRs can't collide on the shared greetings dir.
+    const promptKey = `ivr_${ivr.id}`;
+    await tts.saveGreetingAudio(promptKey, String(text), lang, vox, {
+      model,
+      styleInstructions: style || undefined,
+    });
+
+    await ivr.update({
+      greeting_prompt: `greeting_${promptKey}`,  // matches ttsService's filename scheme, sans .wav
+      greeting_text: String(text),
+      greeting_language: lang,
+      greeting_voice: vox,
+      tts_model: model,
+      style_instructions: style || null,
+    });
+
+    // Auto-deploy + reload. Required at least the FIRST time a
+    // greeting is generated for an IVR — the dialplan's `Background()`
+    // line uses `welcome` as default until `greeting_prompt` is set,
+    // and only a redeploy switches it over. For subsequent regens the
+    // dialplan reference doesn't change (prompt name is stable per
+    // IVR id) so the reload is a cheap no-op but kept for symmetry
+    // with the other IVR endpoints.
+    try {
+      await configDeploymentService.deployOrganizationConfiguration(req.orgId, req.organization.name);
+      await configDeploymentService.reloadAsteriskConfiguration();
+    } catch (deployErr) {
+      console.warn('⚠️ Auto-deploy after IVR greeting generation:', deployErr.message);
+    }
+
+    res.json({
+      success: true,
+      greeting_prompt: ivr.greeting_prompt,
+      language: lang,
+      voice: vox,
+      tts_model: model,
+      style_instructions: ivr.style_instructions,
+    });
+  } catch (error) {
+    console.error('POST /ivrs/:id/generate-greeting error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Publish → regenerates org config (dialplan picks up the new IVR). The
+// editor calls this after the admin finalises the tree.
+app.post('/api/v1/ivrs/:id/publish', authenticateOrg, async (req, res) => {
+  try {
+    const { Ivr } = require('./models');
+    const ivr = await Ivr.findOne({ where: { id: req.params.id, org_id: req.orgId } });
+    if (!ivr) return res.status(404).json({ error: 'IVR not found' });
+    await configDeploymentService.deployOrganizationConfiguration(req.orgId, req.organization.name);
+    await configDeploymentService.reloadAsteriskConfiguration();
+    res.json({ success: true, message: 'IVR published, dialplan regenerated' });
+  } catch (error) {
+    console.error('POST /ivrs/:id/publish error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// End IVR endpoints
+// ══════════════════════════════════════════════════════════════════════
 // Default ticket-whatsapp config shape. Returned verbatim when an org has
 // not configured the feature, and used to fill in any missing keys on a
 // partially-configured org. Without this, the old
@@ -4048,6 +5477,247 @@ function normalizeTicketWA(cfg) {
 }
 app.get("/api/v1/settings/ticket-whatsapp", authenticateOrg, async (req, res) => { try { const o = await Organization.findByPk(req.orgId); res.json(normalizeTicketWA(o?.settings?.ticket_whatsapp)); } catch { res.json(DEFAULT_TICKET_WA); } });
 app.put("/api/v1/settings/ticket-whatsapp", authenticateOrg, async (req, res) => { try { const o = await Organization.findByPk(req.orgId); const s = o.settings || {}; s.ticket_whatsapp = req.body; await o.update({ settings: s }); res.json(normalizeTicketWA(req.body)); } catch (e) { res.status(500).json({ error: e.message }); } });
+
+// ─── Tickets (MariaDB) ──────────────────────────────────────────────────
+// Relational replacement for the Firestore `astrapbx/{orgId}/tickets`
+// collection. Currently dual-writes: CDR poller fires both
+// events.example.com (Firestore path) AND Ticket.upsertFromCdr.
+// Editor + scheduler can read either source until the cutover PR.
+//
+// All routes are org-scoped via authenticateOrg → req.orgId.
+
+/**
+ * GET /api/v1/tickets
+ *
+ * List the org's tickets with optional filters. Also runs the lazy
+ * archive sweep on every list call (no scheduler needed):
+ *   - closed > 24h ago    → status='archived', archived_at=NOW()
+ *   - archived > 30d ago  → DELETE permanently (storage cap)
+ *
+ * Query params:
+ *   - status   — open | in_progress | closed | archived | all (default: open,in_progress)
+ *   - priority — normal | high | urgent (optional filter)
+ *   - search   — partial caller_number or caller_name match
+ *   - limit    — page size (default 50, max 200)
+ *   - offset   — page offset
+ */
+app.get("/api/v1/tickets", authenticateOrg, async (req, res) => {
+  try {
+    const { Ticket } = require('./models');
+    // Lazy sweep before list — runs in millis on indexed columns.
+    Ticket.sweepArchive(req.orgId).catch(err =>
+      console.error('tickets sweep failed:', err.message)
+    );
+
+    const status = String(req.query.status || 'open,in_progress')
+      .toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const priority = req.query.priority ? String(req.query.priority).toLowerCase() : null;
+    const search = req.query.search ? String(req.query.search).trim() : null;
+
+    const where = { org_id: req.orgId };
+    if (!status.includes('all')) where.status = status;
+    if (priority) where.priority = priority;
+    if (search) {
+      // Match caller_number prefix/suffix OR caller_name substring.
+      // search is parameterized via Sequelize Op.like so safe.
+      const { Op } = require('sequelize');
+      where[Op.or] = [
+        { caller_number: { [Op.like]: `%${search.replace(/\D/g, '')}%` } },
+        { caller_name:   { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    // Header-counts payload: `status_counts` is org-scoped, ignores
+    // the caller's filter args, and EXCLUDES `archived` per UI spec.
+    // Single grouped query — cheaper than four COUNTs.
+    // Sort: actionable tickets (open + in_progress) first, then
+    // closed, then archived. Within each group, newest call first.
+    // Uses a CASE expression as the primary sort key so the operator
+    // sees the work-needed pile at the top of the list regardless of
+    // when those tickets were created. Operator feedback 2026-05-16.
+    const _seq = require('sequelize');
+    const _statusBucket = _seq.literal(
+      "CASE WHEN status IN ('open','in_progress') THEN 0 " +
+      "WHEN status = 'closed' THEN 1 " +
+      "ELSE 2 END"
+    );
+    const [rows, count, statusGroups] = await Promise.all([
+      Ticket.findAll({
+        where,
+        order: [
+          [_statusBucket, 'ASC'],
+          ['last_call_at', 'DESC'],
+          ['created_at', 'DESC'],
+        ],
+        limit, offset,
+      }),
+      Ticket.count({ where }),
+      Ticket.findAll({
+        where: { org_id: req.orgId, status: ['open', 'in_progress', 'closed'] },
+        attributes: [
+          'status',
+          [require('sequelize').fn('COUNT', require('sequelize').col('id')), 'cnt'],
+        ],
+        group: ['status'],
+        raw: true,
+      }),
+    ]);
+    const status_counts = { open: 0, in_progress: 0, closed: 0 };
+    for (const g of statusGroups) {
+      if (status_counts[g.status] !== undefined) status_counts[g.status] = Number(g.cnt) || 0;
+    }
+    res.json({ data: rows, total: count, limit, offset, status_counts });
+  } catch (error) {
+    console.error('GET /tickets error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/v1/tickets
+ * Manual ticket creation by operator (rare — most tickets come from
+ * the CDR poller). Body: { caller_number, caller_name?, notes?, priority? }
+ */
+app.post("/api/v1/tickets", authenticateOrg, async (req, res) => {
+  try {
+    const { Ticket } = require('./models');
+    const { caller_number, caller_name, notes, priority } = req.body || {};
+    if (!caller_number) return res.status(400).json({ error: 'caller_number required' });
+    const callerKey = Ticket.normalisePhone(caller_number);
+    if (!callerKey) return res.status(400).json({ error: 'caller_number invalid' });
+    const { ticket, created } = await Ticket.upsertFromCdr({
+      org_id: req.orgId,
+      callerRaw: caller_number,
+      source: 'manual',
+      callerName: caller_name || null,
+    });
+    if (notes || (priority && created)) {
+      const patch = {};
+      if (notes) patch.notes = notes;
+      if (priority && created) patch.priority = priority;
+      await ticket.update(patch);
+    }
+    require('./services/ticketStream').broadcast(req.orgId, { type: 'refresh', ticket_id: ticket.id });
+    res.status(created ? 201 : 200).json({ data: ticket, created });
+  } catch (error) {
+    console.error('POST /tickets error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PATCH /api/v1/tickets/:id
+ * Update status / assignee / notes / tags. Closing a ticket stamps
+ * closed_at so the lazy archive sweep can pick it up 24h later.
+ */
+/**
+ * GET /api/v1/tickets/:id/events
+ *
+ * Append-only timeline of call attempts recorded against this
+ * ticket — populated by `jobs/ticketsFromCallLogsScheduler.js`. The
+ * editor calls this on expand-row to render the "called at 11:00 PM,
+ * 12:00 AM, 12:15 AM" list under the parent ticket.
+ *
+ * Org-scoped: the ticket lookup filters by req.orgId before exposing
+ * any event rows, so an operator can't list events for another org's
+ * ticket even if they guess the ID.
+ *
+ * Returns newest-first (operators care most about the latest miss).
+ * Cap at 200 events — a single ticket should never accumulate more
+ * than that in practice; if it does, the UI shows the most recent
+ * window and the operator can act on the count alone.
+ */
+app.get("/api/v1/tickets/:id/events", authenticateOrg, async (req, res) => {
+  try {
+    const { Ticket, TicketCallEvent } = require('./models');
+    const ticket = await Ticket.findOne({
+      where: { id: req.params.id, org_id: req.orgId },
+      attributes: ['id'],
+    });
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    const rows = await TicketCallEvent.findAll({
+      where: { ticket_id: ticket.id, org_id: req.orgId },
+      order: [['occurred_at', 'DESC']],
+      limit: 200,
+    });
+    res.json({ data: rows, total: rows.length });
+  } catch (error) {
+    console.error('GET /tickets/:id/events error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/api/v1/tickets/:id", authenticateOrg, async (req, res) => {
+  try {
+    const { Ticket } = require('./models');
+    const t = await Ticket.findOne({ where: { id: req.params.id, org_id: req.orgId } });
+    if (!t) return res.status(404).json({ error: 'Ticket not found' });
+    const ALLOWED = ['status', 'priority', 'assignee_user_id', 'notes', 'tags'];
+    const updates = {};
+    for (const k of ALLOWED) {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, k)) updates[k] = req.body[k];
+    }
+    // closed_at stamps when status transitions to 'closed'.
+    // archived_at is managed by sweepArchive — operator can't set it.
+    if (updates.status === 'closed' && t.status !== 'closed') updates.closed_at = new Date();
+    if (updates.status && updates.status !== 'closed') updates.closed_at = null;
+    await t.update(updates);
+    require('./services/ticketStream').broadcast(req.orgId, { type: 'refresh', ticket_id: t.id });
+    res.json({ data: t });
+  } catch (error) {
+    console.error('PATCH /tickets/:id error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/v1/tickets/stream
+ *
+ * Server-Sent Events stream for live updates. Editor opens one
+ * connection per dashboard load and receives `ticket.*` events
+ * whenever the org's tickets change. Lightweight alternative to
+ * Firestore's onSnapshot — no extra dependency.
+ *
+ * v1: emits a periodic heartbeat + a "refresh" event after any
+ * write (POST/PATCH/internal upsert). Editor refetches on refresh.
+ * Server doesn't push individual rows yet — keeps the protocol
+ * simple; row deltas can come later if needed.
+ */
+const ticketStream = require('./services/ticketStream');
+
+app.get("/api/v1/tickets/stream", (req, res) => {
+  // Inline auth — EventSource can't set custom headers, so we accept
+  // the org JWT via `?token=` query string (same pattern the
+  // recording-playback URL uses for <audio> tags). Falls back to
+  // Authorization header for non-browser clients.
+  const jwt = require('jsonwebtoken');
+  const tk = req.query.token || (req.headers.authorization || '').replace('Bearer ', '');
+  let orgId = null;
+  if (tk) { try { orgId = jwt.verify(tk, process.env.JWT_SECRET).orgId; } catch {} }
+  if (!orgId) return res.status(401).json({ error: 'Unauthorized' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');  // disable nginx proxy buffering
+  res.flushHeaders?.();
+
+  ticketStream.register(orgId, res);
+  res.write(`event: open\ndata: ${JSON.stringify({ org_id: orgId })}\n\n`);
+
+  // Heartbeat every 25s prevents idle proxies (cloudflare, nginx) from
+  // closing the connection at their 30/60s defaults.
+  const heartbeat = setInterval(() => {
+    try { res.write(`: heartbeat ${Date.now()}\n\n`); } catch (e) { /* gone */ }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    ticketStream.unregister(orgId, res);
+  });
+});
 // Internal endpoint — get ticket-whatsapp config by org_id (for auto-ticket WhatsApp notifications)
 app.post("/api/v1/settings/ticket-whatsapp/internal", async (req, res) => {
   const ik = req.headers["x-internal-key"];
@@ -4092,6 +5762,24 @@ app.post("/api/v1/settings/msg91/key", async (req, res) => {
     res.json({ authkey });
   } catch { res.json({ authkey: "" }); }
 });
+
+// Internal endpoint — returns the org's bot extensions (users with routing_type='ai_agent').
+// Used by the auto-ticket classifier (LogsUpdate) to know which extensions to apply
+// the 8-second bot-dropped check to. Replaces a hardcoded global list that
+// false-positived for any org reusing extension numbers like 1003/1012/1013.
+app.post("/api/v1/users/internal/bot-extensions", async (req, res) => {
+  const ik = req.headers["x-internal-key"];
+  if (!ik || ik !== process.env.INTERNAL_API_KEY) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const users = await User.findAll({
+      where: { org_id: req.body.org_id, routing_type: 'ai_agent', status: 'active' },
+      attributes: ['extension'],
+    });
+    res.json({ extensions: users.map(u => u.extension).filter(Boolean) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 // ============== CALL LOGS — Enterprise API ==============
 // GET /api/v1/calls — paginated call logs with filtering
 // Supports: limit, offset, direction, disposition, from, to, date_from, date_to, search
@@ -4104,9 +5792,13 @@ app.get('/api/v1/calls', authenticateOrg, async (req, res) => {
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
     const { direction, disposition, from, to, date_from, date_to, search } = req.query;
 
-    // Base match: org ownership via accountcode, peeraccount, or channel prefix
+    // Base match: org ownership via accountcode, peeraccount, or channel
+    // prefix. DO NOT add an unscoped `dcontext = 'ai-outbound'` clause here —
+    // it would show every org's ai-outbound calls to every other org (the
+    // GE-leaked-to-Zauto-AI incident on 2026-04-18). ai-outbound rows are
+    // still matched via t.accountcode (the workflow engine always sets it).
     const conditions = [
-      "(t.accountcode = ? OR t.peeraccount = ? OR t.channel LIKE ? OR t.dcontext = 'ai-outbound')",
+      "(t.accountcode = ? OR t.peeraccount = ? OR t.channel LIKE ?)",
       "(t.channel NOT LIKE 'Local/%' OR t.dstchannel LIKE 'PJSIP/%')",
       "NOT (t.disposition = 'ANSWERED' AND t.billsec = 0 AND t.dcontext != 'ai-outbound')",
       "t.dst != 's'"
@@ -4154,7 +5846,21 @@ app.get('/api/v1/calls', authenticateOrg, async (req, res) => {
     );
     const total = countResult[0]?.total || 0;
 
-    // Main query — dedup by linkedid (keep longest duration leg)
+    // Main query — dedup by linkedid.
+    //
+    // Tiebreaker: prefer rows where a member actually answered with
+    // talk time (ANSWERED + billsec > 0), then longest duration.
+    // Previously this used `ORDER BY duration DESC` which picked the
+    // failed first round (75s NO ANSWER) over the successful second
+    // round (45s ANSWERED) when a queue retried — showing "Missed"
+    // on calls operators actually spoke on. Same fix landed for the
+    // CDR poller (pollCdr) and /calls/history; this endpoint was
+    // missed in earlier PRs.
+    //
+    // to_number JOINs queue_members + users to resolve the per-member
+    // `qm<hex>` Local-channel handle back to the answering user's
+    // extension. Without this JOIN the brackets in "Queue NNNN [...]"
+    // leaked the raw 34-char internal token to the operator UI.
     const rows = await sequelize.query(
       `SELECT
         -- Raw CDR fields (everything Asterisk stores)
@@ -4204,11 +5910,14 @@ app.get('/api/v1/calls', authenticateOrg, async (req, res) => {
         t.src as from_number,
         t.clid as caller_id,
         CASE
-          WHEN t.lastapp = 'Queue' AND t.disposition = 'ANSWERED' AND t.dstchannel LIKE 'Local/%'
-            THEN CONCAT('Queue ', SUBSTRING_INDEX(SUBSTRING_INDEX(t.lastdata, ',', 1), '_', -1),
-              ' [', SUBSTRING_INDEX(SUBSTRING_INDEX(t.dstchannel, '/', -1), '@', 1), ']')
+          WHEN t.lastapp = 'Queue' AND t.disposition = 'ANSWERED' AND t.dstchannel LIKE 'Local/%' AND u.extension IS NOT NULL
+            THEN CONCAT('Queue ', SUBSTRING_INDEX(SUBSTRING_INDEX(t.lastdata, ',', 1), '_', -1), ' [', u.extension, ']')
           WHEN t.lastapp = 'Queue'
             THEN CONCAT('Queue ', SUBSTRING_INDEX(SUBSTRING_INDEX(t.lastdata, ',', 1), '_', -1))
+          WHEN t.dst LIKE 'qm%' AND CHAR_LENGTH(t.dst) = 34 AND u.extension IS NOT NULL
+            THEN u.extension
+          WHEN t.dst LIKE 'qm%' AND CHAR_LENGTH(t.dst) = 34
+            THEN 'queue member'
           ELSE t.dst
         END as to_number,
         t.billsec as talk_time,
@@ -4235,7 +5944,27 @@ app.get('/api/v1/calls', authenticateOrg, async (req, res) => {
           WHEN t.disposition != 'ANSWERED' THEN NULL
           WHEN t.dstchannel LIKE 'PJSIP/%' THEN 'human'
           WHEN t.dstchannel LIKE 'Local/%' THEN 'queue'
-          WHEN t.dstchannel = '' OR t.dstchannel IS NULL THEN 'prompt'
+          -- Empty dstchannel = the channel was Answer()ed by the
+          -- dialplan itself with no peer bridge. Two distinct cases:
+          --   (a) Real AI agent. The dialplan invoked Stasis() with
+          --       the ai_agent application argument. We detect this
+          --       via lastapp=Stasis OR lastdata containing the
+          --       ai_agent invocation pattern. The OR-on-lastdata is
+          --       a defensive widening for cases where post-Stasis
+          --       dialplan continuation (h-extension, hangup handler)
+          --       overwrites lastapp but leaves the original Stasis
+          --       args visible in lastdata.
+          --   (b) anything else (Playback / Hangup / etc.) → the
+          --       dialplan played a system message ("the person at
+          --       extension N is not available" after a failed Dial)
+          --       and nobody actually picked up.
+          -- Conflating these two was the V7-hotel bug where every
+          -- internal call to an unreachable extension was reported
+          -- as "AI Handled" even though the org has no AI users.
+          WHEN (t.dstchannel = '' OR t.dstchannel IS NULL)
+               AND (t.lastapp = 'Stasis' OR t.lastdata LIKE '%,ai_agent,%')
+            THEN 'prompt'
+          WHEN t.dstchannel = '' OR t.dstchannel IS NULL THEN 'dialplan'
           ELSE 'other'
         END as answered_type,
         CASE
@@ -4261,16 +5990,30 @@ app.get('/api/v1/calls', authenticateOrg, async (req, res) => {
           THEN CONCAT('/api/v1/calls/', t.id, '/recording')
           ELSE NULL
         END as recording_url
-      FROM asterisk_cdr t
-      INNER JOIN (
-        SELECT linkedid, MAX(duration) as maxdur
+      FROM (
+        SELECT t.*,
+          ROW_NUMBER() OVER (PARTITION BY linkedid ORDER BY
+            CASE WHEN disposition = 'ANSWERED' AND billsec > 0 THEN 0 ELSE 1 END,
+            duration DESC, id DESC) as rn,
+          CASE
+            WHEN dstchannel LIKE 'Local/qm%@%' THEN SUBSTRING_INDEX(SUBSTRING_INDEX(dstchannel, '/', -1), '@', 1)
+            WHEN dst LIKE 'qm%' AND CHAR_LENGTH(dst) = 34 THEN dst
+            ELSE NULL
+          END as qm_token
         FROM asterisk_cdr t ${where}
-        GROUP BY linkedid
-      ) g ON t.linkedid = g.linkedid AND t.duration = g.maxdur
-      ${where}
+      ) t
+      LEFT JOIN queue_members qm_tbl ON t.qm_token IS NOT NULL AND qm_tbl.id = LOWER(CONCAT_WS('-',
+        SUBSTRING(t.qm_token, 3, 8),
+        SUBSTRING(t.qm_token, 11, 4),
+        SUBSTRING(t.qm_token, 15, 4),
+        SUBSTRING(t.qm_token, 19, 4),
+        SUBSTRING(t.qm_token, 23, 12)
+      ))
+      LEFT JOIN users u ON qm_tbl.user_id = u.id
+      WHERE rn = 1
       ORDER BY t.calldate DESC
       LIMIT ? OFFSET ?`,
-      { replacements: [...params, ...params, limit, offset], type: sequelize.QueryTypes.SELECT }
+      { replacements: [...params, limit, offset], type: sequelize.QueryTypes.SELECT }
     );
 
     res.json({
@@ -4298,7 +6041,9 @@ app.get('/api/v1/calls/history', authenticateOrg, async (req, res) => {
     // Match by accountcode, peeraccount, OR channel containing org prefix
     const org = req.organization;
     const prefix = org?.context_prefix || '';
-    let whereClause = "WHERE (accountcode = ? OR peeraccount = ? OR channel LIKE ? OR dcontext = 'ai-outbound') AND (channel NOT LIKE 'Local/%' OR dstchannel LIKE 'PJSIP/%') AND NOT (disposition = 'ANSWERED' AND billsec = 0 AND dcontext != 'ai-outbound') AND dst != 's'";
+    // Same org-scoping as /api/v1/calls — the old `OR dcontext = 'ai-outbound'`
+    // clause leaked every org's AI outbound calls to every other org. Removed.
+    let whereClause = "WHERE (accountcode = ? OR peeraccount = ? OR channel LIKE ?) AND (channel NOT LIKE 'Local/%' OR dstchannel LIKE 'PJSIP/%') AND NOT (disposition = 'ANSWERED' AND billsec = 0 AND dcontext != 'ai-outbound') AND dst != 's'";
     const params = [orgId, orgId, '%' + prefix + '%'];
 
     if (direction && direction !== 'all') {
@@ -4313,22 +6058,76 @@ app.get('/api/v1/calls/history', authenticateOrg, async (req, res) => {
     );
     const total = countResult[0]?.total || 0;
 
+    // Asterisk emits one CDR per channel leg, so a single call can produce
+    // 2-3 rows with the same linkedid AND a queue retry can produce a
+    // SECOND parent row when the first round timed out and the queue
+    // re-dialed members. Use ROW_NUMBER() to keep one row per linkedid:
+    //  1) prefer rows that were actually answered with talk time (so a
+    //     "missed→retry→answered" call shows as Completed, not Missed),
+    //  2) then prefer the longest leg, breaking final ties by id.
+    // Bug fixed 2026-05-15: prod call 1778864794.938 had Round 1
+    // duration=64s NO_ANSWER and Round 2 duration=36s ANSWERED. The old
+    // `ORDER BY duration DESC` picked Round 1 → UI showed Missed on a
+    // call the operator actually spoke on.
+    //
+    // The to_number CASE puts the answered member's extension digits in
+    // brackets (e.g., "Queue 5002 [1009]") rather than the internal
+    // `qm<hex>` channel handle. The UI's parseQueueTo + contact resolver
+    // then renders "Reception Br1 → Landline" instead of leaking the
+    // qm<hex> string to operators.
     const rows = await sequelize.query(
       "SELECT t.id, t.calldate as started_at, DATE_ADD(t.calldate, INTERVAL t.duration SECOND) as ended_at, " +
       "t.src as from_number, " +
-      "CASE WHEN t.lastapp = 'Queue' AND t.disposition = 'ANSWERED' AND t.dstchannel LIKE 'Local/%' " +
-      "THEN CONCAT('Queue ', SUBSTRING_INDEX(SUBSTRING_INDEX(t.lastdata, ',', 1), '_', -1), ' [', SUBSTRING_INDEX(SUBSTRING_INDEX(t.dstchannel, '/', -1), '@', 1), ']') " +
+      // to_number resolution priority (highest first):
+      //   1. ANSWERED Queue call with Local member → "Queue NNNN [ext]"
+      //   2. Any Queue call (even unanswered) → "Queue NNNN"
+      //   3. dst is a bare qm<hex> (CDR row for a member-leg attempt
+      //      that won the partition) → render the resolved member's
+      //      extension instead of the internal handle
+      //   4. else → t.dst as-is
+      "CASE WHEN t.lastapp = 'Queue' AND t.disposition = 'ANSWERED' AND t.dstchannel LIKE 'Local/%' AND u.extension IS NOT NULL " +
+      "THEN CONCAT('Queue ', SUBSTRING_INDEX(SUBSTRING_INDEX(t.lastdata, ',', 1), '_', -1), ' [', u.extension, ']') " +
       "WHEN t.lastapp = 'Queue' THEN CONCAT('Queue ', SUBSTRING_INDEX(SUBSTRING_INDEX(t.lastdata, ',', 1), '_', -1)) " +
+      "WHEN t.dst LIKE 'qm%' AND CHAR_LENGTH(t.dst) = 34 AND u.extension IS NOT NULL THEN u.extension " +
+      "WHEN t.dst LIKE 'qm%' AND CHAR_LENGTH(t.dst) = 34 THEN 'queue member' " +
       "ELSE t.dst END as to_number, " +
       "t.duration, t.billsec as talk_time, t.disposition as status, t.accountcode as org_id, t.channel as channel_id, " +
       "t.uniqueid as call_id, t.linkedid, t.recordingfile as recording_file, " +
       "CASE WHEN t.dcontext = 'ai-outbound' THEN 'outbound' WHEN t.dcontext LIKE '%incoming%' THEN 'inbound' WHEN t.dcontext LIKE '%outbound%' THEN 'outbound' ELSE 'internal' END as direction, " +
       "CASE WHEN t.recordingfile != '' AND t.billsec > 0 THEN CONCAT('/api/v1/calls/', t.id, '/recording') ELSE NULL END as recording_url " +
-      "FROM asterisk_cdr t INNER JOIN (" +
-      "  SELECT linkedid, MAX(duration) as maxdur FROM asterisk_cdr " + whereClause + " GROUP BY linkedid" +
-      ") g ON t.linkedid = g.linkedid AND t.duration = g.maxdur " +
-      whereClause + " ORDER BY t.calldate DESC LIMIT ? OFFSET ?",
-      { replacements: [...params, ...params, lim, offset], type: sequelize.QueryTypes.SELECT }
+      "FROM (" +
+      "  SELECT *, ROW_NUMBER() OVER (PARTITION BY linkedid ORDER BY " +
+      "    CASE WHEN disposition = 'ANSWERED' AND billsec > 0 THEN 0 ELSE 1 END, " +
+      "    duration DESC, id DESC) as rn, " +
+      // qm_token extracts the 34-char `qm<32-hex>` member-handle from
+      // wherever it appears on the row: either inside dstchannel as
+      // `Local/qm<hex>@<ctx>...`, or as t.dst directly when the row
+      // is for a Local-channel-side CDR. NULL when no qm handle is
+      // present (regular non-queue calls).
+      "    CASE " +
+      "      WHEN dstchannel LIKE 'Local/qm%@%' " +
+      "        THEN SUBSTRING_INDEX(SUBSTRING_INDEX(dstchannel, '/', -1), '@', 1) " +
+      "      WHEN dst LIKE 'qm%' AND CHAR_LENGTH(dst) = 34 " +
+      "        THEN dst " +
+      "      ELSE NULL " +
+      "    END as qm_token " +
+      "  FROM asterisk_cdr " + whereClause +
+      ") t " +
+      // Resolve the qm<hex> token back to queue_members.id and the
+      // answering user's extension. Local-channel handles always have
+      // the format `qm<32-hex>` (= queue_members.id with hyphens
+      // stripped, prepended with "qm"). Reassemble the UUID.
+      "LEFT JOIN queue_members qm_tbl ON t.qm_token IS NOT NULL AND qm_tbl.id = LOWER(CONCAT_WS('-', " +
+      "  SUBSTRING(t.qm_token, 3, 8), " +
+      "  SUBSTRING(t.qm_token, 11, 4), " +
+      "  SUBSTRING(t.qm_token, 15, 4), " +
+      "  SUBSTRING(t.qm_token, 19, 4), " +
+      "  SUBSTRING(t.qm_token, 23, 12)" +
+      ")) " +
+      "LEFT JOIN users u ON qm_tbl.user_id = u.id " +
+      "WHERE rn = 1 " +
+      "ORDER BY t.calldate DESC LIMIT ? OFFSET ?",
+      { replacements: [...params, lim, offset], type: sequelize.QueryTypes.SELECT }
     );
 
     res.json({ items: rows, total, page: parseInt(page), pages: Math.ceil(total / lim), hasMore: offset + rows.length < total });
@@ -4380,24 +6179,6 @@ app.get('/api/v1/calls/stats', authenticateOrg, async (req, res) => {
 // ========================================
 
 // Internal endpoint: get JWT for an org (called by editor's admin-org-token)
-// Link an existing org_users entry (with null org_id) to an org
-app.post('/api/v1/auth/link-admin-org', async (req, res) => {
-  try {
-    const internalKey = req.headers['x-internal-key'];
-    if (!internalKey || internalKey !== process.env.INTERNAL_API_KEY) {
-      return res.status(401).json({ error: 'Invalid internal key' });
-    }
-    const { email, org_id } = req.body;
-    if (!email || !org_id) return res.status(400).json({ error: 'email and org_id required' });
-
-    await sequelize.query(
-      'UPDATE org_users SET org_id = ?, role = "owner", extension = "1001" WHERE email = ? AND org_id IS NULL',
-      { replacements: [org_id, email] }
-    );
-    res.json({ message: 'Linked' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 app.post('/api/v1/auth/admin-token', async (req, res) => {
   try {
     const internalKey = req.headers['x-internal-key'];
@@ -4412,17 +6193,13 @@ app.post('/api/v1/auth/admin-token', async (req, res) => {
       return res.status(404).json({ error: 'Organization not found or inactive' });
     }
 
-    const token = jwt.sign({
-      orgId: org.id,
-      orgName: org.name,
-      apiKey: org.api_key,
-      userId: 'admin',
-      email: 'admin',
-      name: 'Admin',
-      role: 'owner',
-      permissions: getPermissions('owner'),
-    }, JWT_SECRET, { expiresIn: '24h' });
-    res.json({ token, org_name: org.name });
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign(
+      { orgId: org.id, orgName: org.name, apiKey: org.api_key },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    res.json({ token });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -4499,78 +6276,315 @@ app.get('/api/v1/calls/:callId/recording', async (req, res) => {
   } catch {}
 
   try {
-    // Check call_records first, then asterisk_cdr
-    let recordingFile = null;
-    const call = await CallRecord.findOne({ where: { id: req.params.callId, org_id: req.orgId } });
-    if (call && call.recording_file) {
-      recordingFile = call.recording_file;
-    } else {
-      // Try asterisk_cdr table
-      const cdrRows = await sequelize.query(
-        "SELECT recordingfile FROM asterisk_cdr WHERE id = ?", { type: sequelize.QueryTypes.SELECT,
-        replacements: [req.params.callId] }
-      );
-      if (cdrRows && cdrRows[0] && cdrRows[0].recordingfile) {
-        recordingFile = cdrRows[0].recordingfile;
-      }
-    }
-    if (!recordingFile) return res.status(404).json({ error: "No recording" });
-
-    // Audit: log recording access
-    auditLog(orgId, 'recording.play', 'recording', req.params.callId, { filename: recordingFile }, req);
-
     const path = require("path");
     const fs = require("fs");
-    let filePath = path.join("/var/spool/asterisk/monitor", recordingFile);
-    // Also check ARI recording directory
-    if (!fs.existsSync(filePath)) filePath = path.join("/var/spool/asterisk/recording", recordingFile);
+    const { execFile, spawn } = require("child_process");
 
-    // Try local disk first (recent recordings not yet synced)
-    if (fs.existsSync(filePath)) {
+    const MONITOR_DIR = "/var/spool/asterisk/monitor";
+    const ALT_DIR = "/var/spool/asterisk/recording";
+    const STITCH_DIR = path.join(MONITOR_DIR, "stitched");
+    // Source-leg cache lives OUTSIDE monitor/ so it can't be swept to Firebase
+    // by the flat rclone move in move-recordings.sh.
+    const STITCH_SRC_DIR = "/var/spool/asterisk/stitch-src";
+    try { fs.mkdirSync(STITCH_DIR, { recursive: true }); } catch {}
+    try { fs.mkdirSync(STITCH_SRC_DIR, { recursive: true }); } catch {}
+
+    // Resolve local path for a recordingfile, fetching from Firebase if needed.
+    const resolveLocal = async (filename) => {
+      let p = path.join(MONITOR_DIR, filename);
+      if (fs.existsSync(p)) return p;
+      p = path.join(ALT_DIR, filename);
+      if (fs.existsSync(p)) return p;
+      // Fetch from Firebase via rclone into the dedicated src cache.
+      const rclonePath = `firebase:misssellerai.firebasestorage.app/astra_pbx/recordings/${filename}`;
+      const cached = path.join(STITCH_SRC_DIR, filename);
+      if (fs.existsSync(cached)) return cached;
+      const ok = await new Promise((resolve) => {
+        execFile("rclone", ["copyto", rclonePath, cached, "--timeout", "20s"], { timeout: 30000 }, (err) => resolve(!err));
+      });
+      return ok && fs.existsSync(cached) ? cached : null;
+    };
+
+    // ffprobe a local file for its real duration (seconds, float).
+    const probeDuration = (p) => new Promise((resolve) => {
+      execFile("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", p], { timeout: 10000 }, (err, stdout) => {
+        if (err) return resolve(null);
+        const d = parseFloat(String(stdout).trim());
+        resolve(isFinite(d) ? d : null);
+      });
+    });
+
+    // Stream a local audio file with HTTP Range support so the browser
+    // <audio> element can seek/scrub. Browsers send `Range: bytes=N-M`
+    // on the second request once they know the file length; without a
+    // 206 + Content-Range the slider just resets to 0.
+    const streamFileWithRange = (filePath, mimeType, downloadName, extraHeaders) => {
       const stat = fs.statSync(filePath);
-      res.setHeader("Content-Type", "audio/wav");
-      res.setHeader("Content-Length", stat.size);
-      res.setHeader("Content-Disposition", "inline; filename=\"" + recordingFile + "\"");
+      const fileSize = stat.size;
+      const range = req.headers.range;
+      const headersBase = {
+        "Accept-Ranges": "bytes",
+        "Content-Type": mimeType,
+        "Content-Disposition": `inline; filename="${downloadName}"`,
+        ...(extraHeaders || {}),
+      };
+      if (range) {
+        // Format: "bytes=START-END" where END is optional.
+        const m = /bytes=(\d+)-(\d*)/.exec(range);
+        if (m) {
+          const start = parseInt(m[1], 10);
+          const end = m[2] ? parseInt(m[2], 10) : fileSize - 1;
+          if (start >= fileSize || end >= fileSize || start > end) {
+            res.writeHead(416, { "Content-Range": `bytes */${fileSize}` });
+            return res.end();
+          }
+          res.writeHead(206, {
+            ...headersBase,
+            "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+            "Content-Length": end - start + 1,
+          });
+          return fs.createReadStream(filePath, { start, end }).pipe(res);
+        }
+      }
+      res.writeHead(200, { ...headersBase, "Content-Length": fileSize });
       return fs.createReadStream(filePath).pipe(res);
+    };
+
+    // Look up the anchor CDR row (by id) first — this is the row the UI links to.
+    let anchor = null;
+    const callRec = await CallRecord.findOne({ where: { id: req.params.callId, org_id: req.orgId } });
+    if (callRec && callRec.recording_file) {
+      // The CallRecord model doesn't declare `asterisk_linkedid` so we
+      // pull it via raw SQL. Without the linkedid we'd never find sibling
+      // legs and would always serve a single recording even on multi-leg
+      // calls — that masked the legitimate "give me the whole call's
+      // audio" feature.
+      const linkRows = await sequelize.query(
+        "SELECT asterisk_linkedid FROM call_records WHERE id = ?",
+        { type: sequelize.QueryTypes.SELECT, replacements: [req.params.callId] }
+      );
+      const linkedid = linkRows && linkRows[0] ? linkRows[0].asterisk_linkedid : null;
+      anchor = {
+        recordingfile: callRec.recording_file,
+        linkedid: linkedid || null,
+        accountcode: req.orgId,
+      };
+    } else {
+      // P0 security: scope by accountcode so an authenticated user from
+      // org A cannot stream org B's recording by passing org B's CDR id.
+      // The req.orgId comes from the verified JWT (or INTERNAL_API_KEY
+      // path with explicit org_id) above.
+      const rows = await sequelize.query(
+        "SELECT id, linkedid, accountcode, recordingfile FROM asterisk_cdr WHERE id = ? AND accountcode = ?",
+        { type: sequelize.QueryTypes.SELECT, replacements: [req.params.callId, req.orgId] }
+      );
+      if (rows && rows[0]) anchor = rows[0];
+    }
+    if (!anchor || !anchor.recordingfile) return res.status(404).json({ error: "No recording" });
+
+    // Find every leg of the same linkedid that has a recording. Order by
+    // calldate, id — matches how the call progressed in real time.
+    let legFiles = [];
+    if (anchor.linkedid) {
+      const siblings = await sequelize.query(
+        "SELECT recordingfile FROM asterisk_cdr WHERE linkedid = ? AND accountcode = ? AND recordingfile IS NOT NULL AND recordingfile != '' ORDER BY calldate ASC, id ASC",
+        { type: sequelize.QueryTypes.SELECT, replacements: [anchor.linkedid, anchor.accountcode || ''] }
+      );
+      const seen = new Set();
+      for (const r of siblings) {
+        if (!seen.has(r.recordingfile)) { seen.add(r.recordingfile); legFiles.push(r.recordingfile); }
+      }
+    }
+    if (legFiles.length === 0) legFiles = [anchor.recordingfile];
+
+    auditLog(orgId, 'recording.play', 'recording', req.params.callId, { linkedid: anchor.linkedid, legs: legFiles }, req);
+
+    // Single-leg short circuit — serve the file with Range support.
+    if (legFiles.length === 1) {
+      const only = legFiles[0];
+      const local = await resolveLocal(only);
+      if (!local) return res.status(404).json({ error: "Recording not found on disk or storage", file: only });
+      return streamFileWithRange(local, "audio/wav", only);
     }
 
-    // Fall back to Firebase Storage via rclone (rclone moves files there hourly)
-    const { execFile } = require("child_process");
-    const rclonePath = `firebase:misssellerai.firebasestorage.app/astra_pbx/recordings/${recordingFile}`;
+    // Multi-leg: stitch with ffmpeg and cache by linkedid.
+    const safeLinkedid = String(anchor.linkedid).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const stitchedPath = path.join(STITCH_DIR, `${safeLinkedid}.wav`);
+    const stitchedName = `call-${safeLinkedid}.wav`;
+    const stitchedRemote = `firebase:misssellerai.firebasestorage.app/astra_pbx/recordings/stitched/${safeLinkedid}.wav`;
 
-    // Check file exists in storage first
-    const checkProc = await new Promise((resolve) => {
-      execFile("rclone", ["size", rclonePath, "--json"], { timeout: 10000 }, (err, stdout) => {
+    // Fast path: serve local cached stitch if present, with Range support.
+    if (fs.existsSync(stitchedPath)) {
+      return streamFileWithRange(stitchedPath, "audio/wav", stitchedName, {
+        "X-Recording-Legs": String(legFiles.length),
+        "X-Recording-Source": "stitched-local",
+      });
+    }
+
+    // Secondary: pre-built stitch already in Firebase (produced by the hourly
+    // stitch-recordings cron). Stream directly via rclone cat.
+    // Note: rclone cat doesn't support Range, so seek doesn't work in this
+    // path. Acceptable trade-off — the next request after this populates
+    // the local cache, and subsequent requests get full Range support.
+    const remoteMeta = await new Promise((resolve) => {
+      execFile("rclone", ["size", stitchedRemote, "--json"], { timeout: 10000 }, (err, stdout) => {
         if (err) return resolve(null);
         try { return resolve(JSON.parse(stdout)); } catch { return resolve(null); }
       });
     });
-    if (!checkProc || checkProc.count === 0) {
-      return res.status(404).json({ error: "Recording not found on disk or storage", file: recordingFile });
+    if (remoteMeta && remoteMeta.count > 0) {
+      res.setHeader("Content-Type", "audio/wav");
+      if (remoteMeta.bytes) res.setHeader("Content-Length", remoteMeta.bytes);
+      res.setHeader("Content-Disposition", `inline; filename="${stitchedName}"`);
+      res.setHeader("X-Recording-Legs", String(legFiles.length));
+      res.setHeader("X-Recording-Source", "stitched-remote");
+      const rc = spawn("rclone", ["cat", stitchedRemote]);
+      rc.stdout.pipe(res);
+      rc.stderr.on("data", (d) => console.error("rclone err:", d.toString()));
+      rc.on("error", () => { if (!res.headersSent) res.status(500).end(); });
+      return;
     }
 
-    res.setHeader("Content-Type", "audio/wav");
-    if (checkProc.bytes) res.setHeader("Content-Length", checkProc.bytes);
-    res.setHeader("Content-Disposition", "inline; filename=\"" + recordingFile + "\"");
-    const rclone = require("child_process").spawn("rclone", ["cat", rclonePath]);
-    rclone.stdout.pipe(res);
-    rclone.stderr.on("data", (d) => console.error("rclone err:", d.toString()));
-    rclone.on("error", () => res.status(500).end());
+    // Fallback: resolve inputs (fetching from Firebase if needed) and stitch now.
+    //
+    // Multi-leg deduplication — fixes the "5-minute call recorded as 10 min
+    // of the same audio twice" bug. Asterisk's MixMonitor on each leg records
+    // BOTH sides of that leg via the bridge, so when a call passes through a
+    // queue and an answering agent, the queue-side leg and the agent-side leg
+    // contain nearly identical conversation audio. Concatenating them back-
+    // to-back duplicates the conversation.
+    //
+    // Fix: use each leg's (mtime - duration) as its real start time and
+    // (mtime) as end time. Greedy by duration DESC, keep only legs whose
+    // time window does NOT overlap any already-kept leg. This naturally:
+    //   • picks the inbound-side MixMonitor that covers the whole call when
+    //     it exists (drops redundant agent-leg recordings)
+    //   • keeps short ring-no-answer legs that precede the answered leg
+    //   • keeps every leg of a real attended-transfer where one ends before
+    //     the next begins
+    const probedLegs = [];
+    for (const f of legFiles) {
+      const p = await resolveLocal(f);
+      if (!p) continue;
+      const dur = await probeDuration(p);
+      if (!dur) continue;
+      const endTime = fs.statSync(p).mtimeMs / 1000;
+      probedLegs.push({ filename: f, path: p, startTime: endTime - dur, endTime, duration: dur });
+    }
+    if (probedLegs.length === 0) return res.status(404).json({ error: "No recording legs found on disk or storage" });
+
+    // Greedy non-overlap selection. 1s tolerance absorbs MixMonitor open/close
+    // jitter on legs that started/ended together.
+    const TOL = 1.0;
+    const byDurationDesc = [...probedLegs].sort((a, b) => b.duration - a.duration);
+    const kept = [];
+    for (const leg of byDurationDesc) {
+      const overlaps = kept.some(k => leg.startTime < k.endTime - TOL && leg.endTime > k.startTime + TOL);
+      if (!overlaps) kept.push(leg);
+    }
+    kept.sort((a, b) => a.startTime - b.startTime);
+    const inputs = kept.map(k => k.path);
+    const skipped = probedLegs.length - kept.length;
+
+    if (inputs.length === 1) {
+      // After dedup it's a single leg — serve it directly with Range support.
+      return streamFileWithRange(inputs[0], "audio/wav", path.basename(inputs[0]), {
+        "X-Recording-Legs": `${inputs.length}/${probedLegs.length}`,
+        "X-Recording-Source": "dedup-single",
+      });
+    }
+
+    await new Promise((resolve, reject) => {
+      const args = [];
+      for (const p of inputs) { args.push('-i', p); }
+      const streams = inputs.map((_, i) => `[${i}:a]`).join('');
+      args.push(
+        '-filter_complex', `${streams}concat=n=${inputs.length}:v=0:a=1[out]`,
+        '-map', '[out]',
+        '-acodec', 'pcm_s16le', '-ar', '8000', '-ac', '1',
+        '-y', stitchedPath
+      );
+      const ff = spawn('ffmpeg', args);
+      let stderr = '';
+      ff.stderr.on('data', d => { stderr += d.toString(); });
+      ff.on('error', reject);
+      ff.on('close', code => code === 0 ? resolve() : reject(new Error('ffmpeg concat failed: ' + stderr.slice(-400))));
+    });
+
+    return streamFileWithRange(stitchedPath, "audio/wav", stitchedName, {
+      "X-Recording-Legs": `${inputs.length}/${probedLegs.length}`,
+      "X-Recording-Source": skipped > 0 ? "stitched-dedup-ondemand" : "stitched-ondemand",
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('GET /api/v1/calls/:callId/recording error:', error.message);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
   }
 });
 
 
-// Call journey — all CDR records for a linked call
+// Call journey — all CDR records for a linked call.
+// MUST scope by accountcode (org_id) on the primary SELECT — without it,
+// any authenticated org can read any other org's call history by guessing
+// a linkedid. Confirmed missing in 2026-05-16 audit (P0 cross-org leak).
 app.get('/api/v1/calls/:linkedId/journey', authenticateOrg, async (req, res) => {
   try {
     const rows = await sequelize.query(
       "SELECT id, calldate, src, dst, dcontext, channel, dstchannel, lastapp, lastdata, " +
       "duration, billsec, disposition, uniqueid, linkedid, recordingfile, clid " +
-      "FROM asterisk_cdr WHERE linkedid = ? ORDER BY calldate ASC, sequence ASC",
-      { replacements: [req.params.linkedId], type: sequelize.QueryTypes.SELECT }
+      "FROM asterisk_cdr WHERE linkedid = ? AND accountcode = ? ORDER BY calldate ASC, sequence ASC",
+      { replacements: [req.params.linkedId, req.orgId], type: sequelize.QueryTypes.SELECT }
     );
+
+    // Resolve internal Asterisk handles to operator-friendly labels:
+    //  - `qm<hex>` (per-member Local channel name) → user.full_name (ext NNNN)
+    //  - `<queue-number>` extracted from `lastdata` → queue.name
+    // Without this, the UI shows "Ring qm4398f99b…" and "Queue 5002"
+    // which leaks internal plumbing to operators and is unreadable
+    // during incident triage.
+    const qmHexes = new Set();
+    const queueNums = new Set();
+    for (const r of rows) {
+      if (r.channel && r.channel.startsWith('Local/qm')) {
+        const tok = r.channel.split('/')[1]?.split('@')[0] || '';
+        if (/^qm[a-f0-9]{32}$/.test(tok)) qmHexes.add(tok);
+      }
+      if (r.lastapp === 'Queue' && r.lastdata) {
+        const qn = r.lastdata.split(',')[0]?.split('_').pop();
+        if (qn) queueNums.add(qn);
+      }
+      if (r.lastapp === 'Dial' && r.lastdata) {
+        const dialTok = r.lastdata.split(',')[0]?.split('/').pop()?.split('@')[0] || '';
+        if (/^qm[a-f0-9]{32}$/.test(dialTok)) qmHexes.add(dialTok);
+      }
+    }
+    const memberByQm = new Map();
+    if (qmHexes.size > 0) {
+      const memberIds = Array.from(qmHexes).map(qm => {
+        const h = qm.slice(2);
+        return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20,32)}`;
+      });
+      const memberRows = await sequelize.query(
+        "SELECT qm.id, u.extension, u.full_name FROM queue_members qm " +
+        "JOIN users u ON qm.user_id = u.id WHERE qm.id IN (?) AND u.org_id = ?",
+        { replacements: [memberIds, req.orgId], type: sequelize.QueryTypes.SELECT }
+      );
+      for (const m of memberRows) {
+        memberByQm.set('qm' + m.id.replace(/-/g, ''), m);
+      }
+    }
+    const queueByNum = new Map();
+    if (queueNums.size > 0) {
+      const queueRows = await sequelize.query(
+        "SELECT number, name FROM queues WHERE org_id = ? AND number IN (?)",
+        { replacements: [req.orgId, Array.from(queueNums)], type: sequelize.QueryTypes.SELECT }
+      );
+      for (const q of queueRows) queueByNum.set(String(q.number), q.name);
+    }
+    const labelForQm = (qm) => {
+      const m = memberByQm.get(qm);
+      if (!m) return qm;
+      return `${m.full_name || 'Unknown'} (ext ${m.extension})`;
+    };
 
     // Build journey steps
     const steps = rows.map(r => {
@@ -4581,11 +6595,11 @@ app.get('/api/v1/calls/:linkedId/journey', authenticateOrg, async (req, res) => 
 
       if (r.channel && r.channel.startsWith('Local/')) {
         ext = r.channel.split('/')[1]?.split('@')[0] || '';
-        action = 'Ring ' + ext;
+        action = 'Ring ' + (/^qm[a-f0-9]{32}$/.test(ext) ? labelForQm(ext) : ext);
       }
       if (r.lastapp === 'Queue') {
-        const queueName = (r.lastdata || '').split(',')[0]?.split('_').pop() || '';
-        action = 'Queue ' + queueName;
+        const queueNum = (r.lastdata || '').split(',')[0]?.split('_').pop() || '';
+        action = 'Queue ' + (queueByNum.get(queueNum) || queueNum);
       }
       if (r.lastapp === 'Playback') {
         action = 'Playback: ' + (r.lastdata || '').split('/').pop();
@@ -4593,7 +6607,7 @@ app.get('/api/v1/calls/:linkedId/journey', authenticateOrg, async (req, res) => 
       if (r.lastapp === 'Dial') {
         const dialTarget = (r.lastdata || '').split(',')[0] || '';
         ext = dialTarget.split('/').pop()?.split('@')[0] || '';
-        action = 'Dial ' + ext;
+        action = 'Dial ' + (/^qm[a-f0-9]{32}$/.test(ext) ? labelForQm(ext) : ext);
       }
       if (r.lastapp === 'Stasis') {
         action = 'AI Bot';
@@ -4617,7 +6631,14 @@ app.get('/api/v1/calls/:linkedId/journey', authenticateOrg, async (req, res) => 
     const mainRecord = rows.find(r => !r.channel.startsWith('Local/')) || rows[0];
     const answered = rows.some(r => r.disposition === 'ANSWERED' && r.billsec > 0);
     const answeredBy = rows.find(r => r.disposition === 'ANSWERED' && r.channel.startsWith('Local/'));
-    const answeredExt = answeredBy ? answeredBy.channel.split('/')[1]?.split('@')[0] : null;
+    const answeredRawExt = answeredBy ? (answeredBy.channel.split('/')[1]?.split('@')[0] || null) : null;
+    // Resolve `qm<hex>` to the user's actual extension so the call-logs
+    // "Answered by" cell can use the existing user-extension resolver.
+    let answeredExt = answeredRawExt;
+    if (answeredRawExt && /^qm[a-f0-9]{32}$/.test(answeredRawExt)) {
+      const m = memberByQm.get(answeredRawExt);
+      if (m && m.extension) answeredExt = String(m.extension);
+    }
 
     res.json({
       linkedid: req.params.linkedId,
@@ -4632,6 +6653,103 @@ app.get('/api/v1/calls/:linkedId/journey', authenticateOrg, async (req, res) => 
     res.status(500).json({ error: error.message });
   }
 });
+
+
+
+
+// Admin: regenerate the tata-did-route dispatcher from current did_numbers state.
+// Used after editing routing_environment via the DID admin UI. Requires either
+// admin JWT (isAdmin: true) or a valid INTERNAL_API_KEY.
+app.post('/api/v1/admin/regenerate-gateway', async (req, res) => {
+  try {
+    const internalKey = req.headers['x-internal-key'];
+    let isAuthed = false;
+    if (internalKey && internalKey === process.env.INTERNAL_API_KEY) {
+      isAuthed = true;
+    } else {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      if (token) {
+        try {
+          const decoded = jwt.verify(token, JWT_SECRET);
+          if (decoded.isAdmin) isAuthed = true;
+        } catch (_) {}
+      }
+    }
+    if (!isAuthed) return res.status(401).json({ error: 'Admin auth required' });
+
+    const ConfigService = require('./services/asterisk/configDeploymentService');
+    const configService = new ConfigService();
+    const result = await configService.deployGatewayRouting();
+    await configService.reloadAsteriskConfiguration();
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('regenerate-gateway error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============== CALLER ID RESOLUTION ==============
+// resolveCallerId — single source of truth for outbound CID validation.
+// Priority: 1) explicit caller_id (must be assigned to org), 2) org default
+// (settings.outbound_caller_id), 3) first assigned DID. Throws with
+// statusCode/code so handlers can return a clean 403/400.
+async function resolveCallerId(orgId, requestedCid) {
+  // Normalize incoming caller_id and match flexibly — Indian local format
+  // (08065978002), intl without plus (918065978002), and E.164 (+918065978002)
+  // are all equivalent. DB may store any of the three formats.
+  const normalize = (v) => {
+    if (!v) return null;
+    const digits = String(v).replace(/\D/g, '');
+    return digits || null;
+  };
+  const wantDigits = normalize(requestedCid);
+
+  if (wantDigits) {
+    // Build equivalent format variants so DB rows stored in any Indian format match
+    const variants = new Set([wantDigits, '+' + wantDigits]);
+    // Local (08...) 11 digits ↔ intl (918...) 12 digits
+    if (wantDigits.length === 11 && wantDigits.startsWith('0')) {
+      const intl = '91' + wantDigits.substring(1);
+      variants.add(intl);
+      variants.add('+' + intl);
+    }
+    if (wantDigits.length === 12 && wantDigits.startsWith('91')) {
+      const local = '0' + wantDigits.substring(2);
+      variants.add(local);
+      variants.add('+' + local);
+    }
+    const placeholders = [...variants].map(() => '?').join(',');
+    const [row] = await sequelize.query(
+      `SELECT number FROM did_numbers WHERE org_id=? AND number IN (${placeholders}) AND pool_status='assigned' AND status='active' LIMIT 1`,
+      { replacements: [orgId, ...variants], type: sequelize.QueryTypes.SELECT }
+    );
+    if (!row) {
+      const err = new Error(`caller_id ${requestedCid} is not assigned to your organization`);
+      err.statusCode = 403;
+      err.code = 'caller_id_not_assigned';
+      throw err;
+    }
+    return row.number;
+  }
+
+  // Org default DID (is_default=1) wins over first-by-number fallback
+  const [defaultRow] = await sequelize.query(
+    "SELECT number FROM did_numbers WHERE org_id=? AND pool_status='assigned' AND status='active' AND is_default=1 LIMIT 1",
+    { replacements: [orgId], type: sequelize.QueryTypes.SELECT }
+  );
+  if (defaultRow) return defaultRow.number;
+
+  const [first] = await sequelize.query(
+    "SELECT number FROM did_numbers WHERE org_id=? AND pool_status='assigned' AND status='active' ORDER BY number ASC LIMIT 1",
+    { replacements: [orgId], type: sequelize.QueryTypes.SELECT }
+  );
+  if (first) return first.number;
+
+  const err = new Error('No DID assigned to this organization');
+  err.statusCode = 400;
+  err.code = 'no_caller_id_available';
+  throw err;
+}
 
 // ============== AUDIT LOG HELPER ==============
 function getClientIp(req) {
@@ -4778,81 +6896,73 @@ app.get('/api/v1/audit-log', authenticateOrg, async (req, res) => {
 
 // ============== USER MANAGEMENT + RBAC ==============
 
-// Register a new user (built-in auth — no Firebase)
-app.post('/api/v1/auth/register', async (req, res) => {
-  try {
-    const { email, password, name } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'email and password required' });
-    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-
-    // Check if email already exists
-    const [existing] = await sequelize.query(
-      'SELECT id FROM org_users WHERE email = ? LIMIT 1',
-      { replacements: [email], type: sequelize.QueryTypes.SELECT }
-    );
-    if (existing) return res.status(409).json({ error: 'An account with this email already exists.' });
-
-    // Hash password and store (user without org yet — org created via request-org)
-    const passwordHash = await bcrypt.hash(password, 12);
-    await sequelize.query(
-      `INSERT INTO org_users (id, org_id, email, name, role, status, password_hash, created_at, updated_at)
-       VALUES (UUID(), NULL, ?, ?, 'owner', 'active', ?, NOW(), NOW())`,
-      { replacements: [email, name || email.split('@')[0], passwordHash] }
-    );
-
-    res.status(201).json({ message: 'Account created. You can now sign in.' });
-  } catch (e) {
-    console.error('register error:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// User login with email + password → returns role-enriched JWT
+// User login via Firebase token → returns role-enriched JWT
 app.post('/api/v1/auth/user-login', async (req, res) => {
   try {
-    const { email, password, firebase_token, org_id } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+    // Gate behind USE_FIREBASE flag — OSS-native deployments use
+    // /api/v1/auth/login (api_key + api_secret) instead.
+    if (process.env.USE_FIREBASE !== 'true') {
+      return res.status(503).json({
+        error: 'Firebase auth disabled on this server',
+        detail: 'Set USE_FIREBASE=true with valid GOOGLE_APPLICATION_CREDENTIALS to enable Firebase mode. For OSS local mode, use POST /api/v1/auth/login with your organisation api_key + api_secret.',
+      });
+    }
 
-    // Find user by email
+    const { firebase_token, org_id } = req.body;
+    if (!firebase_token) return res.status(400).json({ error: 'firebase_token required' });
+
+    // Verify Firebase token
+    let firebaseUser;
+    try {
+      const admin = require('firebase-admin');
+      if (!admin.apps.length) {
+        const cred = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+        admin.initializeApp({ credential: admin.credential.cert(require(cred)) });
+      }
+      firebaseUser = await admin.auth().verifyIdToken(firebase_token);
+    } catch (e) {
+      return res.status(401).json({ error: 'Invalid Firebase token', detail: e.message });
+    }
+
+    // Find user by firebase_uid or email
     const [user] = await sequelize.query(
       `SELECT u.*, o.name as org_name, o.context_prefix, o.api_key
-       FROM org_users u LEFT JOIN organizations o ON u.org_id = o.id
-       WHERE u.email = ?
+       FROM org_users u JOIN organizations o ON u.org_id = o.id
+       WHERE (u.firebase_uid = ? OR u.email = ?) AND o.status = 'active'
        ${org_id ? 'AND u.org_id = ?' : ''}
        LIMIT 1`,
-      { replacements: org_id ? [email, org_id] : [email],
+      { replacements: org_id
+        ? [firebaseUser.uid, firebaseUser.email, org_id]
+        : [firebaseUser.uid, firebaseUser.email],
         type: sequelize.QueryTypes.SELECT }
     );
 
-    if (!user) return res.status(404).json({ error: 'No account found with this email.' });
-
-    // Verify password
-    if (!user.password_hash) return res.status(401).json({ error: 'Password not set. Contact your admin.' });
-    const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(401).json({ error: 'Invalid password.' });
-
-    // Check if user has no org yet (registered but hasn't requested org)
-    if (!user.org_id) {
-      return res.status(404).json({ error: 'no_org', message: 'Account exists but no organisation. Create one to continue.' });
+    if (!user) {
+      // Check if user exists but org is pending approval
+      const [pendingUser] = await sequelize.query(
+        `SELECT u.*, o.name as org_name, o.status as org_status
+         FROM org_users u JOIN organizations o ON u.org_id = o.id
+         WHERE (u.firebase_uid = ? OR u.email = ?)
+         LIMIT 1`,
+        { replacements: [firebaseUser.uid, firebaseUser.email], type: sequelize.QueryTypes.SELECT }
+      );
+      if (pendingUser && pendingUser.org_status === 'suspended') {
+        return res.status(202).json({ status: 'pending_approval', org_name: pendingUser.org_name, message: 'Your organisation is awaiting admin approval.' });
+      }
+      return res.status(404).json({ error: 'User not found. Contact your org admin for an invite.' });
     }
-
-    // Check org status
-    const [org] = await sequelize.query(
-      'SELECT status, name FROM organizations WHERE id = ?',
-      { replacements: [user.org_id], type: sequelize.QueryTypes.SELECT }
-    );
-    if (!org) return res.status(404).json({ error: 'Organisation not found.' });
-    if (org.status === 'suspended') {
-      return res.status(202).json({ status: 'pending_approval', org_name: org.name, message: 'Your organisation is awaiting admin approval.' });
-    }
-    if (org.status !== 'active') return res.status(403).json({ error: 'Organisation is not active.' });
-
     if (user.status === 'suspended') return res.status(403).json({ error: 'Account is suspended. Contact your org admin.' });
 
-    // Auto-activate invited users on first login
+    // Auto-activate invited users on first successful Firebase login
     if (user.status === 'invited') {
       await sequelize.query('UPDATE org_users SET status = "active" WHERE id = ?', { replacements: [user.id] });
       user.status = 'active';
+    }
+
+    // Link firebase_uid if not set yet (first login after invite)
+    if (!user.firebase_uid) {
+      await sequelize.query('UPDATE org_users SET firebase_uid = ?, status = "active" WHERE id = ?',
+        { replacements: [firebaseUser.uid, user.id] });
     }
 
     // Update last_login
@@ -4891,32 +7001,121 @@ app.post('/api/v1/auth/user-login', async (req, res) => {
   }
 });
 
-// Self-serve: request a new organisation (requires email — user must be registered)
+// Admin impersonation: mint a user-shaped JWT for the org's owner so the admin
+// dashboard "Enter org" flow acts as that user instead of the global admin key.
+app.post('/api/v1/admin/impersonate/:orgId', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Admin token required' });
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (e) {
+      return res.status(401).json({ error: 'Invalid admin token' });
+    }
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+
+    const { orgId } = req.params;
+    const [target] = await sequelize.query(
+      `SELECT u.*, o.name as org_name, o.context_prefix, o.api_key, o.status as org_status
+       FROM org_users u JOIN organizations o ON u.org_id = o.id
+       WHERE u.org_id = ? AND u.role IN ('owner', 'admin') AND u.status = 'active'
+       ORDER BY FIELD(u.role, 'owner', 'admin'), u.created_at ASC
+       LIMIT 1`,
+      { replacements: [orgId], type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (!target) return res.status(404).json({ error: 'No active owner or admin found in org' });
+    if (target.org_status !== 'active') return res.status(403).json({ error: 'Organization is not active' });
+
+    const userToken = jwt.sign({
+      orgId: target.org_id,
+      orgName: target.org_name,
+      apiKey: target.api_key,
+      userId: target.id,
+      email: target.email,
+      name: target.name,
+      role: target.role,
+      permissions: getPermissions(target.role),
+      impersonating: true,
+      impersonatedBy: decoded.username || 'admin',
+    }, JWT_SECRET, { expiresIn: '24h' });
+
+    await auditLog(target.org_id, 'admin.impersonate', 'user', target.id,
+      { admin_username: decoded.username, target_email: target.email, target_role: target.role }, req);
+
+    res.json({
+      token: userToken,
+      user: {
+        id: target.id,
+        email: target.email,
+        name: target.name,
+        role: target.role,
+        extension: target.extension,
+        org_id: target.org_id,
+        org_name: target.org_name,
+        permissions: getPermissions(target.role),
+        impersonating: true,
+      },
+    });
+  } catch (e) {
+    console.error('admin/impersonate error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Self-serve: request a new organisation (no auth required, Firebase token needed)
 app.post('/api/v1/auth/request-org', async (req, res) => {
   try {
-    const { email, org_name, contact_phone, industry, address, company_size, expected_users, description } = req.body;
-    if (!email || !org_name) return res.status(400).json({ error: 'email and org_name required' });
+    // Gate behind USE_FIREBASE flag.
+    if (process.env.USE_FIREBASE !== 'true') {
+      return res.status(503).json({
+        error: 'Firebase-based org request disabled on this server',
+        detail: 'OSS-native deployments create organisations via POST /api/v1/organizations (admin-key-protected). The Firebase self-serve flow requires USE_FIREBASE=true.',
+      });
+    }
 
-    // Find the registered user
-    const [existingUser] = await sequelize.query(
-      'SELECT id, email, org_id FROM org_users WHERE email = ? LIMIT 1',
-      { replacements: [email], type: sequelize.QueryTypes.SELECT }
+    const { firebase_token, org_name, contact_email, contact_phone, industry, address, company_size, expected_users, description } = req.body;
+    if (!firebase_token || !org_name) return res.status(400).json({ error: 'firebase_token and org_name required' });
+
+    // Verify Firebase token
+    let firebaseUser;
+    try {
+      const admin = require('firebase-admin');
+      if (!admin.apps.length) {
+        admin.initializeApp({ credential: admin.credential.cert(require(process.env.GOOGLE_APPLICATION_CREDENTIALS)) });
+      }
+      firebaseUser = await admin.auth().verifyIdToken(firebase_token);
+    } catch (e) {
+      return res.status(401).json({ error: 'Invalid Firebase token', detail: e.message });
+    }
+
+    // Check if user already has an org
+    const [existing] = await sequelize.query(
+      'SELECT id FROM org_users WHERE email = ? OR firebase_uid = ? LIMIT 1',
+      { replacements: [firebaseUser.email, firebaseUser.uid], type: sequelize.QueryTypes.SELECT }
     );
-    if (!existingUser) return res.status(404).json({ error: 'Register an account first.' });
-    if (existingUser.org_id) return res.status(409).json({ error: 'You already have an organisation.' });
+    if (existing) return res.status(409).json({ error: 'You already have an organisation.' });
 
     // Check if org name is taken
     const nameExists = await Organization.findOne({ where: { name: org_name } });
     if (nameExists) return res.status(409).json({ error: 'Organisation name already taken.' });
 
-    // Self-serve org creation: auto-active so the requester can sign in immediately.
+    // Create org as suspended (pending admin approval)
+    const crypto = require('crypto');
     const apiSecret = uuidv4();
+    const apiKey = `org_${uuidv4().replace(/-/g, '')}`;
+    const bcrypt = require('bcrypt');
     const org = await Organization.create({
       name: org_name,
-      status: 'active',
+      status: 'suspended', // pending approval — admin changes to 'active'
+      context_prefix: generateContextPrefix(),
+      api_key: apiKey,
       api_secret: await bcrypt.hash(apiSecret, 12),
+      domain: `${org_name.toLowerCase().replace(/[^a-z0-9]/g, '')}.local`,
       contact_info: {
-        email: email,
+        email: contact_email || firebaseUser.email,
         phone: contact_phone || null,
         address: address || null,
         industry: industry || null,
@@ -4926,17 +7125,18 @@ app.post('/api/v1/auth/request-org', async (req, res) => {
       },
     });
 
-    // Link user to the new org as owner
+    // Create owner user in org_users
     await sequelize.query(
-      'UPDATE org_users SET org_id = ?, role = "owner", extension = "1001" WHERE id = ?',
-      { replacements: [org.id, existingUser.id] }
+      `INSERT INTO org_users (id, org_id, email, name, role, status, firebase_uid, extension, created_at, updated_at)
+       VALUES (UUID(), ?, ?, ?, 'owner', 'active', ?, '1001', NOW(), NOW())`,
+      { replacements: [org.id, firebaseUser.email, firebaseUser.email.split('@')[0], firebaseUser.uid] }
     );
 
     res.status(201).json({
-      message: 'Organisation created. You can sign in now.',
+      message: 'Organisation requested! Admin will review and approve shortly.',
       org_id: org.id,
       org_name: org.name,
-      status: 'active',
+      status: 'pending_approval',
     });
   } catch (e) {
     console.error('request-org error:', e.message);
@@ -4973,6 +7173,16 @@ app.post('/api/v1/admin/approve-org/:orgId', async (req, res) => {
 
     await org.update({ status: 'active' });
 
+    // Pull the owner email from org_users (created during /auth/request-org) so
+    // the auto-provisioned SIP user is wired to the real owner rather than a
+    // blank email — matches the admin-direct-create shape.
+    const [ownerRow] = await sequelize.query(
+      `SELECT email, name FROM org_users WHERE org_id = ? AND role = 'owner' LIMIT 1`,
+      { replacements: [org.id], type: sequelize.QueryTypes.SELECT }
+    );
+    const ownerEmail = ownerRow?.email || (org.contact_info?.email ?? null);
+    const ownerName = ownerRow?.name || 'Owner';
+
     // Auto-provision extension 1001 for the owner if not exists
     const [existingUser] = await sequelize.query(
       'SELECT id FROM users WHERE org_id = ? AND extension = "1001" LIMIT 1',
@@ -4981,18 +7191,85 @@ app.post('/api/v1/admin/approve-org/:orgId', async (req, res) => {
     if (!existingUser) {
       const crypto = require('crypto');
       const sipPass = crypto.randomBytes(8).toString('hex');
+      const hashedSipLoginPass = await bcrypt.hash(sipPass, 10);
       await User.create({
-        org_id: org.id, username: 'owner', email: '',
-        full_name: 'Owner', extension: '1001', role: 'admin', status: 'active',
-        password: sipPass, sip_password: sipPass, recording_enabled: false, routing_type: 'sip',
+        org_id: org.id,
+        username: `owner_${org.context_prefix.replace(/_$/, '')}`,
+        email: ownerEmail,
+        full_name: ownerName,
+        extension: '1001',
+        role: 'admin',
+        status: 'active',
+        password_hash: hashedSipLoginPass,
+        sip_password: sipPass,
+        asterisk_endpoint: `${org.context_prefix}1001`,
+        recording_enabled: true,
+        routing_type: 'sip',
+        ring_target: 'ext',
       });
+      console.log(`✅ Auto-provisioned SIP ext 1001 for org ${org.name} (owner: ${ownerEmail || 'unknown'})`);
+    }
+
+    // Auto-provision a peer2peer SIP trunk → NUC and a catchall outbound
+    // route so the org can dial PSTN the moment an admin assigns them a DID.
+    // Mirrors GrandEstancia's shape: trunk host = 10.10.10.2 (NUC), route
+    // pattern = _X. (any extension). Idempotent via existence checks.
+    let trunkId = null;
+    const [existingTrunk] = await sequelize.query(
+      'SELECT id FROM sip_trunks WHERE org_id = ? ORDER BY created_at ASC LIMIT 1',
+      { replacements: [org.id], type: sequelize.QueryTypes.SELECT }
+    );
+    if (existingTrunk) {
+      trunkId = existingTrunk.id;
+    } else {
+      const peerName = `${org.context_prefix}trunk${Date.now()}`;
+      const trunk = await SipTrunk.create({
+        org_id: org.id,
+        name: 'Tata SIP Trunk',
+        host: '10.10.10.2',
+        port: 5060,
+        transport: 'udp',
+        trunk_type: 'peer2peer',
+        asterisk_peer_name: peerName,
+        max_channels: 50,
+        status: 'active',
+      });
+      trunkId = trunk.id;
+      console.log(`✅ Auto-provisioned SIP trunk ${peerName} for org ${org.name}`);
+    }
+
+    const [existingRoute] = await sequelize.query(
+      'SELECT id FROM outbound_routes WHERE org_id = ? LIMIT 1',
+      { replacements: [org.id], type: sequelize.QueryTypes.SELECT }
+    );
+    if (!existingRoute && trunkId) {
+      await OutboundRoute.create({
+        org_id: org.id,
+        name: 'Default Outbound',
+        trunk_id: trunkId,
+        dial_pattern: '_X.',
+        strip_digits: 0,
+        route_type: 'custom',
+        priority: 1,
+        recording_enabled: true,
+        status: 'active',
+      });
+      console.log(`✅ Auto-provisioned Default Outbound route for org ${org.name}`);
     }
 
     // Auto-deploy Asterisk config
     try {
       await configDeploymentService.deployOrganizationConfiguration(org.id, org.name);
       await configDeploymentService.reloadAsteriskConfiguration();
+      console.log(`✅ Auto-deployed config for approved org ${org.name}`);
     } catch (deployErr) { console.warn('⚠️ Auto-deploy on org approve:', deployErr.message); }
+
+    // Auto-regenerate dispatcher so any already-assigned DIDs route to the new
+    // org immediately (idempotent if no DIDs assigned yet).
+    try {
+      await configDeploymentService.deployGatewayRouting();
+      console.log(`✅ Regenerated gateway dispatcher after approving ${org.name}`);
+    } catch (gwErr) { console.warn('⚠️ Gateway regen on org approve:', gwErr.message); }
 
     res.json({ message: `Organisation ${org.name} approved and activated`, org });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -5179,9 +7456,17 @@ app.use((req, res) => {
     await sequelize.authenticate();
     console.log('📊 Database connection established successfully.');
 
-    // Sync database models
-    await sequelize.sync();
-    console.log('📊 Database models synchronized.');
+    // NOTE: sequelize.sync() removed (audit finding P0 #1).
+    // We use sequelize-cli migrations as the source of truth for schema.
+    // sync() created tables from model definitions BEFORE migrations on
+    // fresh deploys, causing 1061 Duplicate-key collisions when migrations
+    // tried to addIndex on indexes sync had already created (real incidents:
+    // customer_tunnels in PR #126, tunnel_metrics in PR #132).
+    //
+    // Local dev / fresh databases should be initialized via:
+    //   npx sequelize-cli db:migrate
+    // (or src/scripts/setup-database.js which still uses sync({force}) for
+    // throwaway dev databases).
 
     // Start Event Listener Service (AMI/ARI)
     try {
@@ -5222,6 +7507,26 @@ app.use((req, res) => {
 ╚════════════════════════════════════════════════════════╝
   `);
 
+      // WireGuard customer-tunnels status poller — captures `wg show wg1 dump`
+      // every 60s and writes per-tunnel snapshots to tunnel_metrics for the UI
+      // charts. Safe no-op when wg1 isn't bootstrapped (errors are logged but
+      // the poller keeps trying — auto-recovers when wg1 comes up).
+      try {
+        const { WireguardStatusPoller } = require('./services/network/wireguardStatusPoller');
+        const models = require('./models');
+        const wgPoller = new WireguardStatusPoller({
+          models,
+          intervalMs: Number(process.env.WG_POLLER_INTERVAL_MS) || 60_000
+        });
+        wgPoller.start();
+        // Expose for /health enrichment + graceful shutdown if needed
+        app.locals.wgPoller = wgPoller;
+        console.log('WireGuard status poller started (60s interval)');
+      } catch (err) {
+        console.error('WireGuard status poller failed to start:', err.message);
+        // Don't crash — feature isn't critical for boot
+      }
+
       // CDR poller: check asterisk_cdr for new inbound records every 30s
       // Backup for AMI CDR events which may not fire reliably
       let lastCdrId = 0;
@@ -5232,32 +7537,76 @@ app.use((req, res) => {
           console.log('CDR poller started, last ID: ' + lastCdrId);
         } catch (e) { console.error('CDR poller init failed:', e.message); }
       }
+      // Local classifier — replaces the events.example.com round-trip
+      // for MariaDB ticket writes. Lazy-required to avoid a circular
+      // import during boot. Defined here so pollCdr's closure can see it.
+      const { classifyAndUpsertTicket } = require('./services/ticketClassifier');
       async function pollCdr() {
         try {
-          // Get new records, dedup by linkedid (pick longest duration per call)
+          // Only classify CDR rows whose call has been SETTLED for at
+          // least 30 seconds.
+          //
+          // A queue call can produce multiple parent CDR rows when
+          // app_queue retries members internally (one row per attempt).
+          // If pollCdr classifies the first row immediately, it sees a
+          // NO_ANSWER shape and creates a "Queue Timeout" ticket — even
+          // if the second attempt 5s later got answered and would have
+          // produced an ANSWERED row that should win the dedup. By
+          // waiting 30s past the row's notional end (`calldate + duration`),
+          // every retry CDR for the same linkedid is guaranteed to be
+          // in the DB, so the dedup below picks the right representative
+          // on the first pass and no bogus ticket is ever created.
+          //
+          // Tradeoff: tickets land ~30s after the call ends instead of
+          // ~immediately. Acceptable — operator workflows handle that.
+          // The cross-batch auto-close in the classifier stays as a
+          // belt-and-suspenders safety net for edge cases (clock skew,
+          // batches spanning >30s of activity, etc.).
           const allRows = await sequelize.query(
             "SELECT id, calldate, src, dst, dcontext, channel, dstchannel, lastapp, lastdata, " +
             "duration, billsec, disposition, uniqueid, linkedid, recordingfile, accountcode, peeraccount " +
-            "FROM asterisk_cdr WHERE id > ? AND channel NOT LIKE 'Local/%' ORDER BY id ASC LIMIT 50",
+            "FROM asterisk_cdr WHERE id > ? AND channel NOT LIKE 'Local/%' " +
+            "AND DATE_ADD(calldate, INTERVAL duration SECOND) < (NOW() - INTERVAL 30 SECOND) " +
+            "ORDER BY id ASC LIMIT 50",
             { replacements: [lastCdrId], type: sequelize.QueryTypes.SELECT }
           );
           if (!allRows || allRows.length === 0) return;
           // Update lastCdrId to max of all fetched
           for (const r of allRows) lastCdrId = Math.max(lastCdrId, r.id);
-          // Dedup: keep one record per linkedid (longest duration)
+          // Dedup: keep one record per linkedid. Prefer rows where a
+          // member actually answered with talk time (ANSWERED +
+          // billsec > 0); fall back to longest duration as tiebreak.
+          //
+          // The previous "longest duration wins" rule was a bug for
+          // queue calls that retried: a 75s NO_ANSWER first round on
+          // Landline would beat the 45s ANSWERED round on Raman, and
+          // the classifier would create a "Queue Timeout" ticket on
+          // a call the caller actually had a conversation on.
+          // Reproduced 2026-05-16 on Thangavelu Hospital queue 5002.
           const byLinked = {};
           for (const r of allRows) {
             const lid = r.linkedid || r.uniqueid;
-            if (!byLinked[lid] || r.duration > byLinked[lid].duration) byLinked[lid] = r;
+            const existing = byLinked[lid];
+            if (!existing) { byLinked[lid] = r; continue; }
+            const score = (row) => (row.disposition === 'ANSWERED' && row.billsec > 0) ? 1 : 0;
+            const sNew = score(r);
+            const sOld = score(existing);
+            if (sNew > sOld) { byLinked[lid] = r; }
+            else if (sNew === sOld && r.duration > existing.duration) { byLinked[lid] = r; }
           }
           const rows = Object.values(byLinked);
-          const axios = require('axios');
-          const autoTicketUrl = process.env.AUTO_TICKET_URL || 'https://events.astradial.com';
+          // axios is already required at the top of this file (line 14) and
+          // captured in closure scope here. The previous code re-required it
+          // on every poll cycle (every 30s); during CI deploys the `npm ci`
+          // step briefly tears down + rebuilds node_modules, and if the CDR
+          // poll fired during that window, the inner require would fail with
+          // "Cannot find module '.../axios/dist/node/axios.cjs'". Removed.
+          const autoTicketUrl = process.env.AUTO_TICKET_URL || 'https://events.example.com';
           for (const r of rows) {
             // Determine org_id from accountcode, peeraccount, or channel prefix
             let orgId = r.accountcode || r.peeraccount || '';
             if (!orgId || orgId.length < 10) {
-              // Extract org from channel name (e.g. PJSIP/org_mnd5khym_trunk... -> org_mnd5khym_)
+              // Extract org from channel name (e.g. PJSIP/org_demo_trunk... -> org_demo_)
               const ch = r.channel || '';
               const prefixMatch = ch.match(/PJSIP\/(\w+?)trunk/);
               if (prefixMatch && prefixMatch[1]) {
@@ -5305,11 +7654,13 @@ app.use((req, res) => {
               }
               continue;
             }
-            // Determine direction. The classifier looks at the channel name
-            // for "trunk" (matches per-org outbound trunk endpoints), but
-            // some inbound flows arrive on a non-trunk channel; treat any
-            // CDR whose dcontext ends with "_incoming" as inbound as a
-            // safety net so all inbound dispatch paths are picked up.
+            // Determine direction. The original classifier relied on the
+            // channel name containing "trunk", which matches per-org outbound
+            // trunk endpoints (e.g. PJSIP/org_mna9x47k_trunk-...) but NOT the
+            // shared tata_gateway endpoint that receives calls from the NUC
+            // WireGuard tunnel on the staging cloud. Treat any CDR whose
+            // dcontext ends with "_incoming" as inbound as a safety net so
+            // staging's Tata-dispatch pipeline is picked up by the poller.
             let direction = 'internal';
             const ch = r.channel || '';
             const ctx = r.dcontext || '';
@@ -5321,12 +7672,24 @@ app.use((req, res) => {
             // staging so LogsUpdate writes to the astrapbx_stage namespace
             // instead of polluting prod tickets. Empty header on prod is a
             // no-op — LogsUpdate defaults to the astrapbx collection.
+            //
+            // Flip ANSWERED → NO ANSWER for IVR/queue-abandoned inbound
+            // calls (no real member bridge). Predicate lives in
+            // services/cdrDispositionOverride.js so it stays in lockstep
+            // with ticketClassifier.js's realPjsipBridge/realQueueBridge
+            // shapes. Divergence here previously created bogus
+            // "Queue Timeout" tickets on answered queue calls
+            // (2026-05-16 V7 incident, org 00000001).
+            const { effectiveDisposition } = require('./services/cdrDispositionOverride');
+            const classifierDisposition = direction === 'inbound'
+              ? effectiveDisposition(r)
+              : (r.disposition || '');
             axios.post(`${autoTicketUrl}/auto-ticket/${orgId}`, {
               call_id: r.uniqueid || String(r.id),
               from_number: r.src || '',
               to_number: r.dst || '',
               direction,
-              disposition: r.disposition || '',
+              disposition: classifierDisposition,
               duration: r.billsec || 0,
               total_duration: r.duration || 0,
               channel: r.channel || '',
@@ -5337,11 +7700,54 @@ app.use((req, res) => {
             }, {
               headers: { 'X-Astradial-Env': process.env.ASTRADIAL_ENV || '' },
             }).catch(err => console.error('CDR poll auto-ticket failed:', err.message));
+
+            // Dual-write to MariaDB tickets (Firestore migration).
+            // Classifier runs in-process — no network hop. On a clean
+            // ANSWERED bridge to a human or a bot-handled call, we
+            // skip and produce no ticket. Otherwise dedup-upsert.
+            // Fire-and-forget so a tickets bug never blocks the
+            // Firestore POST during dual-write.
+            //
+            // Flag gate: orgs listed in
+            // `TICKETS_FROM_CALLLOGS_ENABLED_ORG_IDS` use the new
+            // call-logs-driven scheduler (jobs/ticketsFromCallLogsScheduler.js)
+            // instead of this per-row classifier. Skipping here for
+            // those orgs avoids double-write. Firestore POST above is
+            // unaffected and continues for all orgs. The wildcard
+            // '*' means "every org goes through the scheduler" — the
+            // legacy classifier is then effectively retired (it still
+            // exists for the case where the flag is later narrowed).
+            const _clq = require('./services/callLogsTicketQuery');
+            const _callLogsOrgs = _clq.parseEnabledOrgs(process.env.TICKETS_FROM_CALLLOGS_ENABLED_ORG_IDS);
+            if (!_clq.isOrgEnabled(orgId, _callLogsOrgs)) {
+              classifyAndUpsertTicket(r, orgId, classifierDisposition).catch(err =>
+                console.error('CDR poll MariaDB ticket upsert failed:', err.message)
+              );
+            }
           }
         } catch (e) { console.error('CDR poll error:', e.message); }
       }
       console.log("CDR poller: initializing..."); initCdrPoller().then(() => console.log("CDR poller: init done")).catch(e => console.error("CDR poller init CATCH:", e));
       setInterval(pollCdr, 30000);
+
+      // Daily 18:00 IST WhatsApp missed-call alert scheduler. Safe to
+      // arm regardless of MSG91 env state — runOnce() refuses to send
+      // (and audit-logs why) if the auth key or admin config is missing.
+      try {
+        require('./jobs/ticketAlertScheduler').start();
+      } catch (e) {
+        console.error('❌ Failed to start ticket-alert scheduler:', e.message);
+      }
+
+      // Call-logs-driven ticket scheduler. Always arms — loops idle
+      // when `TICKETS_FROM_CALLLOGS_ENABLED_ORG_IDS` is empty so
+      // flipping the env later + restart picks it up without code
+      // changes. Per-org gating happens inside the SQL query.
+      try {
+        require('./jobs/ticketsFromCallLogsScheduler').start();
+      } catch (e) {
+        console.error('❌ Failed to start tickets-from-call-logs scheduler:', e.message);
+      }
 
     });
   } catch (error) {
@@ -5353,9 +7759,28 @@ app.use((req, res) => {
 module.exports = app;
 
 // Graceful shutdown handler
+// Stop background services in order: pollers BEFORE sequelize.close() so the
+// poller doesn't attempt a TunnelMetric.create() against a closed connection.
+async function stopBackgroundServices() {
+  try {
+    if (app.locals.wgPoller) {
+      app.locals.wgPoller.stop();
+      console.log("🛑 WireGuard status poller stopped.");
+    }
+  } catch (e) {
+    console.error("Failed to stop wg poller:", e.message);
+  }
+  try {
+    require('./jobs/ticketAlertScheduler').stop();
+  } catch (e) {
+    console.error("Failed to stop ticket-alert scheduler:", e.message);
+  }
+  await eventListenerService.stop();
+}
+
 process.on("SIGINT", async () => {
   console.log("\n\n👋 Received SIGINT, shutting down gracefully...");
-  await eventListenerService.stop();
+  await stopBackgroundServices();
   await sequelize.close();
   console.log("📊 Database connection closed.");
   console.log("✅ Server shut down complete.\n");
@@ -5364,7 +7789,7 @@ process.on("SIGINT", async () => {
 
 process.on("SIGTERM", async () => {
   console.log("\n\n👋 Received SIGTERM, shutting down gracefully...");
-  await eventListenerService.stop();
+  await stopBackgroundServices();
   await sequelize.close();
   console.log("📊 Database connection closed.");
   console.log("✅ Server shut down complete.\n");

@@ -4,15 +4,16 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { ChevronDown, ChevronUp, Plus, Trash2, Settings, Check } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Trash2, Settings, Check, Sparkles, Key as KeyIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { bots, keys, orgConfig, type Bot, type ApiKey } from "@/lib/gateway/client";
-import { queues as pbxQueues, type PbxQueue } from "@/lib/pbx/client";
+import { queues as pbxQueues, users as pbxUsers, type PbxQueue, type PbxUser } from "@/lib/pbx/client";
 import { toast } from "sonner";
 
 export default function BotsPage() {
@@ -20,8 +21,6 @@ export default function BotsPage() {
   const [botList, setBotList] = useState<Bot[]>([]);
   const [keyList, setKeyList] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newBotName, setNewBotName] = useState("");
-  const [newKeyLabel, setNewKeyLabel] = useState("");
   const [createdKey, setCreatedKey] = useState("");
   const [googleApiKey, setGoogleApiKey] = useState("");
   const [configSaved, setConfigSaved] = useState(false);
@@ -32,6 +31,24 @@ export default function BotsPage() {
   const [savingDepts, setSavingDepts] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
 
+  // Create Agent dialog
+  const [createBotOpen, setCreateBotOpen] = useState(false);
+  const [createBotForm, setCreateBotForm] = useState({
+    name: "",
+    extension: "",
+    gemini_model: "gemini-3.1-flash-live-preview",
+    gemini_voice_id: "Kore",
+  });
+  const [creatingBot, setCreatingBot] = useState(false);
+
+  // Create Key dialog
+  const [createKeyOpen, setCreateKeyOpen] = useState(false);
+  const [createKeyLabel, setCreateKeyLabel] = useState("");
+  const [creatingKey, setCreatingKey] = useState(false);
+
+  // Extension pool — used by Suggest button
+  const [takenExtensions, setTakenExtensions] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     loadAll();
     pbxQueues.list().then(setQueueList).catch(() => {});
@@ -40,14 +57,20 @@ export default function BotsPage() {
   async function loadAll() {
     try {
       setLoading(true);
-      const [b, k, cfg] = await Promise.all([
+      const [b, k, cfg, u] = await Promise.all([
         bots.list(orgId),
         keys.list(orgId),
         orgConfig.get(orgId),
+        pbxUsers.list().catch(() => [] as PbxUser[]),
       ]);
       setBotList(b);
       setKeyList(k);
       if (cfg) setGoogleApiKey(cfg.google_api_key);
+      // Collect extensions already in use (users + bots' linked users)
+      const used = new Set<string>();
+      u.forEach((usr) => { if (usr.extension) used.add(usr.extension); });
+      b.forEach((bot) => { if (bot.extension) used.add(bot.extension); });
+      setTakenExtensions(used);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -55,25 +78,103 @@ export default function BotsPage() {
     }
   }
 
+  // Suggest the lowest unused 4-digit extension starting from 1099.
+  // Bot extensions live in the 1099-1199 range by convention to avoid
+  // clashing with typical human extensions (1001-1098, 0986 etc.).
+  function suggestBotExtension(): string {
+    for (let n = 1099; n <= 1199; n++) {
+      const s = String(n);
+      if (!takenExtensions.has(s)) return s;
+    }
+    return "1099";
+  }
+
+  const GATEWAY_BASE_PUBLIC = process.env.NEXT_PUBLIC_GATEWAY_URL || "https://gateway.example.com";
+  function botWssUrl(botId: string): string {
+    const url = new URL(GATEWAY_BASE_PUBLIC.replace(/\/$/, ""));
+    const scheme = url.protocol === "https:" ? "wss" : "ws";
+    return `${scheme}://${url.host}/ws/${orgId}/${botId}`;
+  }
+
   async function handleCreateBot() {
-    if (!newBotName) return;
+    if (!createBotForm.name.trim()) { toast.error("Agent name required"); return; }
+    if (!createBotForm.extension.trim()) { toast.error("Extension required"); return; }
+    if (takenExtensions.has(createBotForm.extension.trim())) {
+      toast.error(`Extension ${createBotForm.extension} is already in use`);
+      return;
+    }
+    setCreatingBot(true);
+    let newBot: Bot | null = null;
     try {
-      await bots.create(orgId, { name: newBotName, flow_json: { nodes: [] } });
-      setNewBotName("");
+      // 1. Create the bot record
+      newBot = await bots.create(orgId, {
+        name: createBotForm.name.trim(),
+        flow_json: { nodes: [] },
+        gemini_model: createBotForm.gemini_model,
+        gemini_voice_id: createBotForm.gemini_voice_id,
+      });
+      // 2. Create a linked user so the bot is callable at the picked extension.
+      // Uses routing_type=ai_agent + routing_destination=<bot wss URL>; the
+      // pipecat-flow API exposes this pairing via GET /admin/orgs/{id}/bots
+      // which enriches each bot with its user's extension.
+      await pbxUsers.create({
+        username: `bot_${createBotForm.extension}`,
+        extension: createBotForm.extension.trim(),
+        full_name: `${createBotForm.name.trim()} (Agent)`,
+        email: `bot+${createBotForm.extension}@astradial.local`,
+        password: `bot_${newBot.id.slice(0,8)}`,
+        role: "agent",
+        routing_type: "ai_agent",
+        routing_destination: botWssUrl(newBot.id),
+        ring_target: "ext",
+      });
+      toast.success(`Agent ${newBot.name} created at ext ${createBotForm.extension}`);
+      setCreateBotOpen(false);
+      setCreateBotForm({ name: "", extension: "", gemini_model: "gemini-3.1-flash-live-preview", gemini_voice_id: "Kore" });
       await loadAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create bot");
+      // Rollback the bot if user creation failed (keep things consistent)
+      if (newBot) {
+        try { await bots.delete(orgId, newBot.id); } catch {}
+      }
+      toast.error(e instanceof Error ? e.message : "Failed to create agent");
+    } finally {
+      setCreatingBot(false);
+    }
+  }
+
+  async function handleDeleteBot(bot: Bot) {
+    if (!confirm(`Delete agent "${bot.name}"? This also removes its extension ${bot.extension || "(none)"}.`)) return;
+    try {
+      // Delete the linked user first (if any). Match by routing_destination
+      // containing the bot ID; pipecat-flow uses the same matching strategy.
+      if (bot.extension) {
+        const userList = await pbxUsers.list();
+        const linked = userList.find((u) => u.routing_type === "ai_agent" && u.routing_destination?.includes(bot.id));
+        if (linked) {
+          try { await pbxUsers.delete(linked.id); } catch (e) { console.warn("linked user delete failed", e); }
+        }
+      }
+      await bots.delete(orgId, bot.id);
+      toast.success(`Agent ${bot.name} deleted`);
+      await loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete agent");
     }
   }
 
   async function handleCreateKey() {
+    setCreatingKey(true);
     try {
-      const k = await keys.create(orgId, newKeyLabel);
+      const k = await keys.create(orgId, createKeyLabel);
       setCreatedKey(k.key || "");
-      setNewKeyLabel("");
+      setCreateKeyLabel("");
+      setCreateKeyOpen(false);
       await loadAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create key");
+      toast.error(e instanceof Error ? e.message : "Failed to create key");
+    } finally {
+      setCreatingKey(false);
     }
   }
 
@@ -215,17 +316,51 @@ export default function BotsPage() {
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 
-      {/* Bots */}
+      {/* WebSocket URL */}
       <section className="space-y-3">
-        <h2 className="text-lg font-medium">SuperHuman Agents</h2>
-        <div className="flex gap-2">
-          <Input
-            placeholder="SuperHuman"
-            value={newBotName}
-            onChange={(e) => setNewBotName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCreateBot()}
-          />
-          <Button onClick={handleCreateBot}>Create Agent</Button>
+        <h2 className="text-lg font-medium">WebSocket Connection</h2>
+        <div className="rounded-lg border bg-muted/30 p-4">
+          <p className="text-sm text-muted-foreground mb-2">Connect AstraPBX using:</p>
+          <code className="text-xs break-all">
+            wss://gateway.example.com/ws/{orgId}/&#123;bot_id&#125;?key=&#123;api_key&#125;
+          </code>
+        </div>
+      </section>
+
+      {/* Tabs: Agents | API Keys */}
+      <Tabs defaultValue="agents">
+        <TabsList>
+          <TabsTrigger value="agents" className="gap-1.5">
+            <Sparkles className="h-3.5 w-3.5" />
+            Superhuman Agent
+            {botList.length > 0 && (
+              <Badge variant="secondary" className="h-5 px-1.5 text-xs ml-1">{botList.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="keys" className="gap-1.5">
+            <KeyIcon className="h-3.5 w-3.5" />
+            API Keys
+            {keyList.length > 0 && (
+              <Badge variant="secondary" className="h-5 px-1.5 text-xs ml-1">{keyList.length}</Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ── Agents Tab ── */}
+        <TabsContent value="agents" className="mt-4">
+          <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-medium">SuperHuman Agents</h2>
+            <p className="text-xs text-muted-foreground">AI voice agents callable at a dedicated extension</p>
+          </div>
+          <Button size="sm" onClick={() => {
+            setCreateBotForm({ name: "", extension: suggestBotExtension(), gemini_model: "gemini-3.1-flash-live-preview", gemini_voice_id: "Kore" });
+            setCreateBotOpen(true);
+          }}>
+            <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+            Create Agent
+          </Button>
         </div>
         {loading ? (
           <div className="space-y-2">
@@ -265,6 +400,9 @@ export default function BotsPage() {
                     <Link href={`/dashboard/${orgId}/bots/${bot.id}`}>
                       <Button variant="outline" size="sm">Edit Flow</Button>
                     </Link>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => handleDeleteBot(bot)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </div>
 
@@ -346,18 +484,21 @@ export default function BotsPage() {
             ))}
           </div>
         )}
-      </section>
+          </section>
+        </TabsContent>
 
-      {/* API Keys */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">API Keys</h2>
-        <div className="flex gap-2">
-          <Input
-            placeholder="Key label (optional)"
-            value={newKeyLabel}
-            onChange={(e) => setNewKeyLabel(e.target.value)}
-          />
-          <Button onClick={handleCreateKey}>Create Key</Button>
+        {/* ── API Keys Tab ── */}
+        <TabsContent value="keys" className="mt-4">
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-medium">API Keys</h2>
+                <p className="text-xs text-muted-foreground">For external integrations connecting to the gateway</p>
+              </div>
+          <Button size="sm" onClick={() => { setCreateKeyLabel(""); setCreateKeyOpen(true); }}>
+            <KeyIcon className="h-3.5 w-3.5 mr-1.5" />
+            Create Key
+          </Button>
         </div>
         {createdKey && (
           <div className="rounded-lg border border-yellow-300 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-800 p-3 space-y-2">
@@ -401,18 +542,108 @@ export default function BotsPage() {
             ))}
           </div>
         )}
-      </section>
+          </section>
+        </TabsContent>
+      </Tabs>
 
-      {/* WebSocket URL */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">WebSocket Connection</h2>
-        <div className="rounded-lg border bg-muted/30 p-4">
-          <p className="text-sm text-muted-foreground mb-2">Connect AstraPBX using:</p>
-          <code className="text-xs break-all">
-            wss://{typeof window !== "undefined" ? window.location.host : "localhost:7860"}/ws/{orgId}/&#123;bot_id&#125;?key=&#123;api_key&#125;
-          </code>
-        </div>
-      </section>
-    </div>
+      {/* Create Agent dialog */}
+      <Dialog open={createBotOpen} onOpenChange={setCreateBotOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create SuperHuman Agent</DialogTitle>
+            <DialogDescription>Give your AI agent a name and the extension customers will dial to reach it.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Agent Name</Label>
+              <Input
+                placeholder="e.g. Reception AI"
+                value={createBotForm.name}
+                onChange={(e) => setCreateBotForm({ ...createBotForm, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Callable Extension</Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="1099"
+                  value={createBotForm.extension}
+                  onChange={(e) => setCreateBotForm({ ...createBotForm, extension: e.target.value.replace(/[^0-9]/g, "") })}
+                  className="font-mono"
+                />
+                <Button type="button" variant="outline" size="sm" onClick={() => setCreateBotForm({ ...createBotForm, extension: suggestBotExtension() })}>
+                  Suggest
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                {createBotForm.extension && takenExtensions.has(createBotForm.extension)
+                  ? `⚠ Extension ${createBotForm.extension} is already in use`
+                  : "Must be unique across users and agents in this org"}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Model</Label>
+                <Select value={createBotForm.gemini_model} onValueChange={(v) => setCreateBotForm({ ...createBotForm, gemini_model: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash (Live)</SelectItem>
+                    <SelectItem value="gemini-3.0-pro-live">Gemini 3.0 Pro (Live)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Voice</Label>
+                <Select value={createBotForm.gemini_voice_id} onValueChange={(v) => setCreateBotForm({ ...createBotForm, gemini_voice_id: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Kore">Kore</SelectItem>
+                    <SelectItem value="Puck">Puck</SelectItem>
+                    <SelectItem value="Charon">Charon</SelectItem>
+                    <SelectItem value="Fenrir">Fenrir</SelectItem>
+                    <SelectItem value="Aoede">Aoede</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateBotOpen(false)} disabled={creatingBot}>Cancel</Button>
+            <Button onClick={handleCreateBot} disabled={creatingBot || !createBotForm.name || !createBotForm.extension}>
+              {creatingBot ? "Creating..." : "Create Agent"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create API Key dialog */}
+      <Dialog open={createKeyOpen} onOpenChange={setCreateKeyOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create API Key</DialogTitle>
+            <DialogDescription>Generate a new key for external integrations to connect to the gateway.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Label (optional)</Label>
+              <Input
+                placeholder="e.g. Twilio webhook, Zapier"
+                value={createKeyLabel}
+                onChange={(e) => setCreateKeyLabel(e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground">Helps you identify where the key is used.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateKeyOpen(false)} disabled={creatingKey}>Cancel</Button>
+            <Button onClick={handleCreateKey} disabled={creatingKey}>
+              {creatingKey ? "Creating..." : "Create Key"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
+      </div>
   );
 }

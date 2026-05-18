@@ -336,7 +336,11 @@ export default function EditorShell() {
   const { theme } = useTheme();
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden">
+    // `h-full w-full` (not `h-screen w-screen`) so the shell fills its
+    // parent container, not the viewport. This matters now that the bot
+    // editor lives inside the dashboard tab — `w-screen` was pushing the
+    // right-edge Inspector panel outside the tab's visible area.
+    <div className="h-full w-full flex overflow-hidden">
       <div
         className={`flex flex-col overflow-hidden transition-all duration-300 ease-in-out ${
           showNodesPanel ? "w-56" : "w-0"

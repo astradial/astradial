@@ -8,9 +8,9 @@ All changes follow the **feature → staging → production** pipeline. No direc
 1. Create feature branch from main
 2. Develop and test locally
 3. PR → staging (auto-deploys to staging VPS)
-4. Test on staging (stageeditor.astradial.com)
+4. Test on staging (staging-editor.example.com)
 5. PR → main (auto-deploys to production VPS)
-6. Live on editor.astradial.com
+6. Live on editor.example.com
 ```
 
 ## Step-by-step example
@@ -48,11 +48,11 @@ Go to GitHub → **Pull Requests** → **New Pull Request**
 - Title: `feat: WhatsApp template selector`
 - Description: what changed + how to test
 
-**On merge → auto-deploys to staging VPS** (self-hosted runner at 94.136.188.221).
+**On merge → auto-deploys to staging VPS** (self-hosted runner at 203.0.113.2).
 
 ### 5. Test on staging
 
-Open `https://stageeditor.astradial.com` and verify:
+Open `https://staging-editor.example.com` and verify:
 - Feature works as expected
 - No regressions on other pages
 - Check browser console for errors
@@ -64,18 +64,18 @@ Go to GitHub → **Pull Requests** → **New Pull Request**
 - Compare: `staging`
 - Title: `merge: staging → main — WhatsApp templates`
 
-**On merge → auto-deploys to production VPS** (self-hosted runner at 89.116.31.109).
+**On merge → auto-deploys to production VPS** (self-hosted runner at 203.0.113.1).
 
 ### 7. Verify production
 
-Open `https://editor.astradial.com` and confirm the feature is live.
+Open `https://editor.example.com` and confirm the feature is live.
 
 ## Branch rules
 
 | Branch | Purpose | Auto-deploy target | Who can merge |
 |--------|---------|-------------------|---------------|
-| `main` | Production | editor.astradial.com (89.116.31.109) | Owner / Admin after staging test |
-| `staging` | Testing | stageeditor.astradial.com (94.136.188.221) | Developer after code review |
+| `main` | Production | editor.example.com (203.0.113.1) | Owner / Admin after staging test |
+| `staging` | Testing | staging-editor.example.com (203.0.113.2) | Developer after code review |
 | `feature/*` | Development | None (local only) | — |
 
 ## Environment files
@@ -84,7 +84,7 @@ These are NOT in git (gitignored). Each VPS has its own:
 
 | File | Prod | Staging |
 |------|------|---------|
-| `.env.local` | `/opt/pipecat-flow-editor/.env.local` | Same path on staging VPS |
+| `.env.local` | `/app/editor/.env.local` | Same path on staging VPS |
 
 **Never commit `.env.local`, `.env`, or any file containing secrets.**
 

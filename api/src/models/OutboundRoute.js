@@ -65,7 +65,7 @@ module.exports = (sequelize) => {
     },
     recording_enabled: {
       type: DataTypes.BOOLEAN,
-      defaultValue: false,
+      defaultValue: true,
       comment: 'Enable call recording for this route'
     },
     max_channels: {

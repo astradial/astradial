@@ -37,12 +37,30 @@ async function didAuditLog(did, action, details, req) {
 }
 
 // Auto-deploy: regenerate gateway routing + org config + reload Asterisk
+// If the org has exactly one assigned+active DID and none is marked default,
+// mark it as default. Called after approve/assign so new orgs never end up
+// without an org default.
+async function autoSetDefaultIfFirst(orgId) {
+  if (!orgId) return;
+  try {
+    const dids = await DidNumber.findAll({ where: { org_id: orgId, pool_status: 'assigned', status: 'active' } });
+    if (dids.length === 0) return;
+    const hasDefault = dids.some(d => d.is_default);
+    if (hasDefault) return;
+    await dids[0].update({ is_default: true });
+    console.log(`✅ Auto-set ${dids[0].number} as default DID for org ${orgId}`);
+  } catch (e) { console.error('autoSetDefaultIfFirst failed:', e.message); }
+}
+
 async function autoDeploy(orgId) {
   try {
     if (orgId) {
       const org = await Organization.findByPk(orgId);
       if (org) await configService.deployOrganizationConfiguration(orgId, org.name);
     }
+    // Gateway routing is deployed inside deployOrganizationConfiguration,
+    // but also deploy standalone in case orgId is null
+    await configService.deployGatewayRouting();
     await configService.reloadAsteriskConfiguration();
     console.log('✅ Auto-deploy completed after DID change');
   } catch (e) {
@@ -54,11 +72,14 @@ async function autoDeploy(orgId) {
 // ORG-FACING ENDPOINTS (authenticated org user)
 // ══════════════════════════════════════════════════════════════════════
 
-// Browse available DIDs in the pool
+// Browse available DIDs in the pool — filtered to this environment so
+// orgs on prod only see DIDs earmarked for prod (and likewise on staging).
+// Admin endpoint /admin/all stays unfiltered for cross-env management.
 router.get('/available', async (req, res) => {
   try {
+    const env = process.env.ASTRADIAL_ENV === 'staging' ? 'staging' : 'prod';
     const dids = await DidNumber.findAll({
-      where: { pool_status: 'available', status: 'active' },
+      where: { pool_status: 'available', status: 'active', routing_environment: env },
       attributes: ['id', 'number', 'description', 'region', 'provider', 'monthly_price'],
       order: [['monthly_price', 'ASC'], ['number', 'ASC']],
     });
@@ -123,6 +144,25 @@ router.get('/my', async (req, res) => {
       order: [['requested_at', 'DESC']],
     });
     res.json({ assigned, pending });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Set this DID as the org's default outbound caller ID.
+// Must be owned by the user's org and assigned. Clears is_default on all
+// other DIDs of the same org first. Requires owner or admin role.
+router.post('/:id/set-default', requireRole('admin'), async (req, res) => {
+  try {
+    const did = await DidNumber.findByPk(req.params.id);
+    if (!did || did.org_id !== req.orgId) return res.status(404).json({ error: 'DID not found' });
+    if (did.pool_status !== 'assigned' || did.status !== 'active') {
+      return res.status(400).json({ error: 'DID must be assigned + active' });
+    }
+    await sequelize.transaction(async (t) => {
+      await DidNumber.update({ is_default: false }, { where: { org_id: req.orgId }, transaction: t });
+      await did.update({ is_default: true }, { transaction: t });
+    });
+    autoDeploy(req.orgId);
+    res.json({ message: `${did.number} set as default outbound caller ID`, did });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -211,6 +251,9 @@ router.post('/admin/:id/approve', async (req, res) => {
       requested_at: null,
     });
 
+    // Auto-set as default if this is the org's only assigned DID
+    await autoSetDefaultIfFirst(did.org_id);
+
     autoDeploy(did.org_id);
     didAuditLog(did, 'did.approved', { org_id: did.org_id }, req);
 
@@ -257,6 +300,8 @@ router.post('/admin/:id/assign', async (req, res) => {
       requested_at: null,
     });
 
+    await autoSetDefaultIfFirst(org_id);
+
     autoDeploy(org_id);
 
     res.json({ message: `DID ${did.number} assigned to ${org.name}`, did });
@@ -291,7 +336,7 @@ router.put('/admin/:id', async (req, res) => {
     const did = await DidNumber.findByPk(req.params.id);
     if (!did) return res.status(404).json({ error: 'DID not found' });
 
-    const allowed = ['description', 'region', 'provider', 'monthly_price', 'status', 'trunk_id'];
+    const allowed = ['description', 'region', 'provider', 'monthly_price', 'status', 'trunk_id', 'routing_environment'];
     const data = {};
     for (const k of allowed) { if (req.body[k] !== undefined) data[k] = req.body[k]; }
 

@@ -77,6 +77,79 @@ class AsteriskCLIService {
   }
 
   /**
+   * Live trunk status from Asterisk in a single round-trip.
+   *
+   * Runs `pjsip show contacts` once and `pjsip show registrations` once,
+   * parses both, and returns a unified Map keyed by AOR name with the
+   * shape { status, rtt_ms, source }. Callers (e.g. GET /api/v1/trunks)
+   * look up each trunk by `peer_name` or `peer_name + "_aor"` — handles
+   * both naming conventions in the codebase (org trunks use the `_aor`
+   * suffix; the system `tata_gateway` trunk does not).
+   *
+   * Status values, normalized to lowercase:
+   *   - 'reachable'    — peer2peer/inbound, OPTIONS qualify success
+   *   - 'unreachable'  — peer2peer/inbound, OPTIONS qualify failed
+   *   - 'nonqual'      — qualify disabled (no probe being sent)
+   *   - 'registered'   — outbound registration succeeded
+   *   - 'failed'       — outbound registration failed (auth/timeout/etc)
+   *   - 'unknown'      — entry not found, or live query errored
+   *
+   * Output of `pjsip show contacts` is positional whitespace-aligned text.
+   * The relevant line shape is:
+   *   "  Contact:  <aor>/<uri> <hash> <Avail|Unavail|NonQual> <rtt|-nan>"
+   */
+  async getAllTrunkStatuses() {
+    const map = new Map();
+
+    // ---- Pass 1: peer2peer / inbound — qualified contacts ----
+    const contacts = await this.executeCommand('pjsip show contacts');
+    if (contacts.success && contacts.output) {
+      for (const line of contacts.output.split('\n')) {
+        // Match "  Contact:  <aor>/<contact-uri> <hash> <status> <rtt>"
+        // The aor portion may contain dots/digits/letters/underscores.
+        const m = line.match(
+          /^\s*Contact:\s+([^\/\s]+)\/[^\s]+\s+\S+\s+(Avail|Unavail|NonQual)\s+(\S+)/
+        );
+        if (!m) continue;
+        const [, aor, statusRaw, rttRaw] = m;
+        const statusMap = {
+          Avail: 'reachable',
+          Unavail: 'unreachable',
+          NonQual: 'nonqual',
+        };
+        const rtt = Number.isFinite(parseFloat(rttRaw)) ? parseFloat(rttRaw) : null;
+        // Don't overwrite an already-set entry (a trunk's AOR may have multiple
+        // contacts during failover; first/best wins for the badge).
+        if (!map.has(aor)) {
+          map.set(aor, { status: statusMap[statusRaw], rtt_ms: rtt, source: 'qualify' });
+        }
+      }
+    }
+
+    // ---- Pass 2: outbound — registrations Asterisk drives outward ----
+    const regs = await this.executeCommand('pjsip show registrations');
+    if (regs.success && regs.output) {
+      for (const line of regs.output.split('\n')) {
+        // Match " <Endpoint>  <Server>  Registered|Rejected|...|Trying"
+        const m = line.match(
+          /^\s*([A-Za-z0-9_\-]+)\s+\S+\s+(Registered|Rejected|Unauthorized|Auth.+Sent|Sent|No.+Auth|Trying|Cancelled)\b/
+        );
+        if (!m) continue;
+        const [, endpoint, statusRaw] = m;
+        const status = statusRaw.toLowerCase().includes('register') && /^Registered$/i.test(statusRaw)
+          ? 'registered'
+          : 'failed';
+        // Outbound supersedes peer2peer for the same key (an outbound trunk
+        // can also have OPTIONS qualify, but registration state is what
+        // operators care about for that trunk type).
+        map.set(endpoint, { status, rtt_ms: null, source: 'registration' });
+      }
+    }
+
+    return map;
+  }
+
+  /**
    * Show all queues
    */
   async showQueues() {

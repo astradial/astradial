@@ -285,7 +285,7 @@ curl -X GET http://103.92.154.211:3003/api/v1/calls/live \
 ## Swagger UI
 Interactive API documentation available at:
 ```
-https://devpbx.astradial.com/docs/
+https://api.example.com/docs/
 ```
 Old `/api-docs` path redirects to `/docs`.
 

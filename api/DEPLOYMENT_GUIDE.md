@@ -152,7 +152,7 @@ port = 5038
 bindaddr = 127.0.0.1
 
 [pbx_ami_user]
-secret = pbx_ami_secret_prod_2024
+secret = CHANGE_ME_ami_password
 deny = 0.0.0.0/0.0.0.0
 permit = 127.0.0.0/255.255.255.0
 read = all
@@ -207,7 +207,7 @@ DB_DIALECT=mysql
 AMI_HOST=localhost
 AMI_PORT=5038
 AMI_USERNAME=pbx_ami_user
-AMI_PASSWORD=pbx_ami_secret_prod_2024
+AMI_PASSWORD=CHANGE_ME_ami_password
 
 # Security
 JWT_SECRET=production_jwt_secret_change_this_to_random_string

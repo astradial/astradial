@@ -15,20 +15,30 @@ async function pbxFetch(path: string, orgId: string, opts: RequestInit = {}) {
   });
 }
 
-// GET org details + compliance
+// GET org details + compliance + members
 export async function GET(req: NextRequest, { params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
   try {
-    const [orgRes, compRes] = await Promise.all([
+    const [orgRes, compRes, usersRes] = await Promise.all([
       pbxFetch(`/organizations/${orgId}?org_id=${orgId}`, orgId),
       pbxFetch(`/compliance?org_id=${orgId}`, orgId),
+      pbxFetch(`/org-users?org_id=${orgId}`, orgId),
     ]);
 
     const org = orgRes.ok ? await orgRes.json() : null;
     if (!org) return NextResponse.json({ error: "Organisation not found" }, { status: 404 });
 
     const compliance = compRes.ok ? await compRes.json() : null;
-    return NextResponse.json({ org, compliance });
+
+    let owner = null;
+    let members: Array<Record<string, unknown>> = [];
+    if (usersRes.ok) {
+      const userData = await usersRes.json();
+      members = Array.isArray(userData?.data) ? userData.data : [];
+      owner = members.find((u) => u.role === "owner") ?? null;
+    }
+
+    return NextResponse.json({ org, compliance, owner, members });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
   }

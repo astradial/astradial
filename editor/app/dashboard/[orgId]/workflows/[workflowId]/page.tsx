@@ -96,7 +96,7 @@ export default function WorkflowEditorPage() {
   useEffect(() => {
     gwBots.list(orgId).then((b) => setBotList(b.map((bot) => ({
       id: bot.id, name: bot.name,
-      wss_url: `wss://${typeof window !== "undefined" ? window.location.host : "localhost:7860"}/ws/${orgId}/${bot.id}`,
+      wss_url: `wss://gateway.example.com/ws/${orgId}/${bot.id}`,
     })))).catch(() => {});
     pbxDids.list().then((d) => setDidList(d.filter((x) => x.status === "active").map((x) => ({
       number: x.number, description: x.description,
@@ -317,7 +317,9 @@ export default function WorkflowEditorPage() {
   }
 
   return (
-    <div className="fixed inset-0 bg-background flex flex-col">
+    // Renders inside the dashboard tab (sidebar stays visible). Was
+    // `fixed inset-0` — matches the IVR + bot-editor in-tab layout.
+    <div className="flex h-full flex-col bg-background">
       {/* Top bar */}
       <div className="flex items-center justify-between border-b px-3 py-1.5 bg-background z-50 shrink-0">
         <div className="flex items-center gap-3">

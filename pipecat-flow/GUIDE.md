@@ -165,8 +165,8 @@ For provider auto-detection, see `serializers/provider.py` in the AstraDial proj
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # 2. Clone the project
-git clone <your-repo-url> /opt/pipecat-flow
-cd /opt/pipecat-flow
+git clone <your-repo-url> /app/pipecat-flow
+cd /app/pipecat-flow
 
 # 3. Install dependencies
 uv sync --group dev
@@ -238,11 +238,11 @@ After=network.target
 [Service]
 Type=simple
 User=pipecat
-WorkingDirectory=/opt/pipecat-flow
+WorkingDirectory=/app/pipecat-flow
 ExecStart=/home/pipecat/.local/bin/uv run python hotel_concierge.py -t twilio --host 0.0.0.0 --port 7860
 Restart=always
 RestartSec=5
-EnvironmentFile=/opt/pipecat-flow/.env
+EnvironmentFile=/app/pipecat-flow/.env
 
 [Install]
 WantedBy=multi-user.target

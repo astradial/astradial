@@ -16,6 +16,12 @@ const IvrMenu = require('./IvrMenu')(sequelize);
 const OutboundRoute = require('./OutboundRoute')(sequelize);
 const GlobalSettings = require('./GlobalSettings')(sequelize);
 const Greeting = require('./Greeting')(sequelize);
+const CustomerTunnel = require('./CustomerTunnel')(sequelize);
+const TunnelMetric = require('./TunnelMetric')(sequelize);
+const TicketAlertSubscriber = require('./TicketAlertSubscriber')(sequelize);
+const Ticket = require('./Ticket')(sequelize);
+const TicketCallEvent = require('./TicketCallEvent')(sequelize);
+const AdminWhatsappConfig = require('./AdminWhatsappConfig')(sequelize);
 
 // CRM models
 const CrmCompany = require('./CrmCompany')(sequelize);
@@ -39,6 +45,28 @@ Organization.hasMany(RoutingRule, { foreignKey: 'org_id', as: 'routingRules' });
 Organization.hasMany(Ivr, { foreignKey: 'org_id', as: 'ivrs' });
 Organization.hasMany(OutboundRoute, { foreignKey: 'org_id', as: 'outboundRoutes' });
 Organization.hasMany(Greeting, { foreignKey: 'org_id', as: 'greetings' });
+Organization.hasMany(CustomerTunnel, { foreignKey: 'org_id', as: 'customerTunnels' });
+Organization.hasMany(TicketAlertSubscriber, { foreignKey: 'org_id', as: 'ticketAlertSubscribers' });
+TicketAlertSubscriber.belongsTo(Organization, { foreignKey: 'org_id', as: 'organization' });
+
+// Tickets — relational replacement for Firestore tickets collection.
+// CASCADE on org delete (org cleanup wipes its tickets). assignee
+// FK is `constraints: false` so deleting a user doesn't try to cascade
+// into tickets and only nulls the assignee softly via app code.
+Organization.hasMany(Ticket, { foreignKey: 'org_id', as: 'tickets' });
+Ticket.belongsTo(Organization, { foreignKey: 'org_id', as: 'organization' });
+Ticket.belongsTo(User, { foreignKey: 'assignee_user_id', as: 'assignee', constraints: false });
+
+// TicketCallEvent — append-only timeline of call attempts per ticket.
+// CASCADE on ticket delete so events vanish with their parent during
+// the lazy archive→delete sweep (Ticket.sweepArchive).
+Ticket.hasMany(TicketCallEvent, { foreignKey: 'ticket_id', as: 'callEvents' });
+TicketCallEvent.belongsTo(Ticket, { foreignKey: 'ticket_id', as: 'ticket' });
+
+// CustomerTunnel relationships
+CustomerTunnel.belongsTo(Organization, { foreignKey: 'org_id', as: 'organization' });
+CustomerTunnel.hasMany(TunnelMetric, { foreignKey: 'tunnel_id', as: 'metrics' });
+TunnelMetric.belongsTo(CustomerTunnel, { foreignKey: 'tunnel_id', as: 'tunnel' });
 
 // SipTrunk relationships
 SipTrunk.belongsTo(Organization, { foreignKey: 'org_id', as: 'organization' });
@@ -174,6 +202,12 @@ module.exports = {
   CrmCustomFieldValue,
   CrmPipelineStage,
   OrgApiKey,
+  CustomerTunnel,
+  TunnelMetric,
+  TicketAlertSubscriber,
+  Ticket,
+  TicketCallEvent,
+  AdminWhatsappConfig,
   testConnection,
   syncDatabase
 };

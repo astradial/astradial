@@ -245,7 +245,7 @@ If curl works but Swagger doesn't, it's a browser/Swagger UI issue.
 curl -s http://103.92.154.211:3003/health | jq '.'
 
 # Check Swagger JSON
-curl -s https://devpbx.astradial.com/docs/swagger-ui-init.js | grep -i "bearer"
+curl -s https://api.example.com/docs/swagger-ui-init.js | grep -i "bearer"
 
 # This should show BearerAuth configuration
 ```
@@ -262,7 +262,7 @@ If issues persist:
 4. **Test with curl** to verify API is working
 5. **Check server logs** for detailed error messages
 
-VPS URL: **https://devpbx.astradial.com**
-Swagger UI: **https://devpbx.astradial.com/docs/** (old `/api-docs` path redirects here)
+VPS URL: **https://api.example.com**
+Swagger UI: **https://api.example.com/docs/** (old `/api-docs` path redirects here)
 
 **Note:** Only `BearerAuth` (JWT) is used for authentication. The `ApiKeyAuth` and `ApiSecretAuth` security schemes have been removed from the OpenAPI spec. The Swagger "Authorize" dialog only shows the Bearer token input.

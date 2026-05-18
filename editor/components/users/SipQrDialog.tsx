@@ -21,19 +21,8 @@ interface SipQrDialogProps {
 }
 
 export function SipQrDialog({ user, onClose }: SipQrDialogProps) {
-  const [sipServer, setSipServer] = useState("loading...");
-  const [sipPort, setSipPort] = useState("5060");
-
-  // Get SIP server from API (reads SIP_HOST env var)
-  useEffect(() => {
-    fetch("/api/pbx/server-info").then(r => r.json()).then(d => {
-      if (d.sip_host) setSipServer(d.sip_host);
-      if (d.sip_port) setSipPort(String(d.sip_port));
-    }).catch(() => {
-      const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
-      setSipServer(hostname);
-    });
-  }, []);
+  const sipServer = process.env.NEXT_PUBLIC_SIP_HOST || "sip.example.com";
+  const sipPort = process.env.NEXT_PUBLIC_SIP_PORT || "5080";
   const [copied, setCopied] = useState<string | null>(null);
   const [sipPassword, setSipPassword] = useState(user.sip_password || "");
 
