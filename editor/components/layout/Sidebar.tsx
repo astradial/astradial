@@ -111,7 +111,7 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
   useEffect(() => {
     if (!USE_FIREBASE || !firestoreDb) return;
     try {
-      const ref = collection(firestoreDb, ASTRAPBX_ROOT, orgId, "tickets");
+      const ref = collection(firestoreDb!, ASTRAPBX_ROOT, orgId, "tickets");
       const q = query(ref, where("status", "==", "open"));
       return onSnapshot(q, (snap) => setOpenTickets(snap.size));
     } catch { return () => {}; }

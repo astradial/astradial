@@ -301,7 +301,7 @@ export default function CallsPage() {
   useEffect(() => {
     if (!USE_FIREBASE || !firestoreDb) return;
     const unsub = onSnapshot(
-      doc(firestoreDb, ASTRAPBX_ROOT, orgId, "settings", "phonebook"),
+      doc(firestoreDb!, ASTRAPBX_ROOT, orgId, "settings", "phonebook"),
       (snap) => {
         if (snap.exists()) {
           setPhonebook(snap.data().contacts || []);
@@ -318,7 +318,7 @@ export default function CallsPage() {
       return;
     }
     try {
-      await setDoc(doc(firestoreDb, ASTRAPBX_ROOT, orgId, "settings", "phonebook"), { contacts: entries });
+      await setDoc(doc(firestoreDb!, ASTRAPBX_ROOT, orgId, "settings", "phonebook"), { contacts: entries });
     } catch (e) {
       console.error("Failed to save phonebook:", e);
       showToast("Failed to save phonebook", "error");
