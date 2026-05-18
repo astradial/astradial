@@ -1,0 +1,50 @@
+# Caddyfile.template
+#
+# setup.sh substitutes __EDITOR_FQDN__ and __API_FQDN__ when generating
+# the live Caddyfile (which is .gitignored — different per deployment).
+# Caddy auto-provisions Let's Encrypt TLS for both subdomains on first
+# request, then renews automatically.
+#
+# Don't edit the live Caddyfile by hand — re-run setup.sh to regenerate.
+
+{
+    # Global options
+    email __ADMIN_EMAIL__
+    # For staging/local testing without a real domain, set ACME_CA in .env
+    # to https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+__EDITOR_FQDN__ {
+    encode gzip
+    reverse_proxy editor:3001 {
+        # Pass the original host so Next.js renders correct absolute URLs
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
+
+__API_FQDN__ {
+    encode gzip
+    # CORS for browser calls from the editor subdomain.
+    @options {
+        method OPTIONS
+    }
+    handle @options {
+        header Access-Control-Allow-Origin "https://__EDITOR_FQDN__"
+        header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+        header Access-Control-Allow-Headers "Content-Type, Authorization, x-api-key, X-Internal-Key"
+        header Access-Control-Allow-Credentials "true"
+        header Access-Control-Max-Age "86400"
+        respond 204
+    }
+    reverse_proxy api:3000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_down Access-Control-Allow-Origin "https://__EDITOR_FQDN__"
+        header_down Access-Control-Allow-Credentials "true"
+    }
+}
