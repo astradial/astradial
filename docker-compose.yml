@@ -27,6 +27,27 @@ services:
     networks:
       - astradial
 
+  # PostgreSQL — backs workflow-engine only. The astrapbx api uses
+  # mariadb; we run both because the workflow service was originally
+  # written against Postgres and ports cleanly. Self-bootstraps its
+  # tables on first boot via workflow-engine/src/db.js.
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DATABASE:-workflow_db}
+      POSTGRES_USER: ${PG_USER:-workflow}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-workflow_secure}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-workflow} -d ${PG_DATABASE:-workflow_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - astradial
+
   asterisk:
     build: ./asterisk
     restart: unless-stopped
@@ -150,9 +171,19 @@ services:
       - API_URL=http://api:8000
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
       - PORT=3002
+      # Workflow service uses Postgres (separate from the astrapbx mariadb)
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_USER=${PG_USER:-workflow}
+      - PG_PASSWORD=${PG_PASSWORD:-workflow_secure}
+      - PG_DATABASE=${PG_DATABASE:-workflow_db}
     depends_on:
-      - api
-      - redis
+      api:
+        condition: service_started
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     networks:
       - astradial
 
@@ -182,6 +213,7 @@ services:
 
 volumes:
   mariadb_data:
+  postgres_data:
   asterisk_config:
   asterisk_recordings:
 
