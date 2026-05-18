@@ -601,7 +601,7 @@ export default function QueuesPage() {
               <Select key={`add-member-${editingQueue?.members?.length ?? 0}`} onValueChange={async (userId) => {
                 if (!editingQueue) return;
                 try {
-                  await queues.addMembers(editingQueue.id, [userId]);
+                  await queues.addMember(editingQueue.id, userId);
                   showToast("Member added", "success");
                   await loadAll();
                   const updated = await queues.get(editingQueue.id);
