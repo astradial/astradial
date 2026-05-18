@@ -23,7 +23,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl gnupg bash openssh-client iproute2 \
       asterisk asterisk-modules asterisk-config \
-      supervisor \
+      supervisor sudo \
       libcap2-bin \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
