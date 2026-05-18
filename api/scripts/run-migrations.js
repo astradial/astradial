@@ -41,7 +41,24 @@ async function applyJsMigration(file, qi, Sequelize) {
   if (typeof migration.up !== 'function') {
     throw new Error(`Migration ${file} has no up() function`);
   }
-  await migration.up(qi, Sequelize);
+  try {
+    await migration.up(qi, Sequelize);
+  } catch (e) {
+    // Tolerate well-known idempotency errors — the same migration may have
+    // been applied via a different path (e.g. Sequelize model auto-sync
+    // creating columns) or the operator already ran it manually. Keep
+    // recording the filename in SequelizeMeta so future runs skip it.
+    if (
+      e.message.match(/already exists/i) ||
+      e.message.match(/Duplicate column/i) ||
+      e.message.match(/Duplicate key/i) ||
+      e.message.match(/Duplicate entry/i)
+    ) {
+      console.log(`      (skipping — already applied: ${e.message.slice(0, 80)})`);
+      return;
+    }
+    throw e;
+  }
 }
 
 async function applySqlMigration(file, sequelize) {
