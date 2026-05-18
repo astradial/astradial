@@ -154,6 +154,11 @@ services:
         # bakes NEXT_PUBLIC_* into the static bundle. Default 'false' =
         # OSS local mode (the OssLoginForm renders, api_key + api_secret).
         NEXT_PUBLIC_USE_FIREBASE: ${NEXT_PUBLIC_USE_FIREBASE:-false}
+        # SIP host advertised to softphone provisioning QR. setup.sh
+        # passes the actual host; falls through to runtime derivation
+        # from window.location when unset.
+        NEXT_PUBLIC_SIP_HOST: ${SIP_HOST:-}
+        NEXT_PUBLIC_SIP_PORT: ${SIP_PORT:-5060}
     restart: unless-stopped
     ports:
       - "3001:3001"

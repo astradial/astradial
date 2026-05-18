@@ -53,6 +53,18 @@ external_signaling_address=${HOST_IP}
 local_net=172.16.0.0/12
 PJSIP
 
+# RTP port range — must match the udp port range forwarded by
+# docker-compose.yml so NAT'd RTP packets actually reach asterisk.
+# Asterisk's stock rtp.conf defaults to 10000-20000, but docker-compose
+# only forwards 10000-10100. RTP allocated outside the forward range
+# means the call is silent (no audio in either direction).
+cat > /etc/asterisk/rtp.conf <<RTP
+[general]
+rtpstart=10000
+rtpend=10100
+strictrtp=yes
+RTP
+
 cat > /etc/asterisk/manager.conf <<MGR
 [general]
 enabled=yes
