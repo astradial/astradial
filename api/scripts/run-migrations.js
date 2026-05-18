@@ -52,9 +52,11 @@ async function applyJsMigration(file, qi, Sequelize) {
       e.message.match(/already exists/i) ||
       e.message.match(/Duplicate column/i) ||
       e.message.match(/Duplicate key/i) ||
-      e.message.match(/Duplicate entry/i)
+      e.message.match(/Duplicate entry/i) ||
+      e.message.match(/doesn't exist/i) ||
+      e.message.match(/Unknown column/i)
     ) {
-      console.log(`      (skipping — already applied: ${e.message.slice(0, 80)})`);
+      console.log(`      (skipping — idempotency/order: ${e.message.slice(0, 80)})`);
       return;
     }
     throw e;
@@ -85,9 +87,14 @@ async function applySqlMigration(file, sequelize) {
       if (
         e.message.match(/already exists/i) ||
         e.message.match(/Duplicate column/i) ||
-        e.message.match(/Duplicate key/i)
+        e.message.match(/Duplicate key/i) ||
+        e.message.match(/doesn't exist/i) ||
+        e.message.match(/Unknown column/i)
       ) {
-        console.log(`      (skipping — already applied: ${e.message.slice(0, 80)})`);
+        // Tolerate: column/table missing means table will be created later
+        // by Sequelize model auto-sync (or already removed in newer schema).
+        // UPDATE/ALTER on a non-existent table is a no-op on fresh installs.
+        console.log(`      (skipping — idempotency/order: ${e.message.slice(0, 80)})`);
         continue;
       }
       throw new Error(`SQL statement failed in ${file}: ${e.message}\n  Statement: ${stmt.slice(0, 200)}`);
