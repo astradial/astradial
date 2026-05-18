@@ -234,7 +234,7 @@ export default function DashboardPage() {
     setError("");
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, adminEmail, adminPassword);
+      await signInWithEmailAndPassword(auth!, adminEmail, adminPassword);
 
       // Get gateway admin key from server
       const res = await fetch("/api/auth/admin-login", {
@@ -273,7 +273,7 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       if (password.length < 6) { setError("Password must be at least 6 characters"); setLoading(false); return; }
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      const cred = await createUserWithEmailAndPassword(auth!, email, password);
       await sendEmailVerification(cred.user);
       setSuccess("Account created! Check your email to verify, then sign in.");
       setIsSignUp(false);
@@ -292,7 +292,7 @@ export default function DashboardPage() {
     setSuccess("");
     setLoading(true);
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const cred = await signInWithEmailAndPassword(auth!, email, password);
 
       // Check email verification
       if (!cred.user.emailVerified) {
@@ -502,7 +502,7 @@ export default function DashboardPage() {
                     localStorage.removeItem("admin_session_start");
                     localStorage.removeItem("org_access");
                   }
-                  signOut(auth).catch((err) => console.warn("[admin-logout] firebase signOut failed:", err?.code));
+                  signOut(auth!).catch((err) => console.warn("[admin-logout] firebase signOut failed:", err?.code));
                   setAuthenticated(false);
                 }}
               >
