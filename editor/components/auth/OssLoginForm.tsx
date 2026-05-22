@@ -357,6 +357,29 @@ export function OssLoginForm() {
   }
 
   async function handleApproveOrg(orgId: string) {
+    await adminMutate("POST", `/api/v1/admin/approve-org/${orgId}`, "Approve failed");
+  }
+
+  async function handleSuspendOrg(orgId: string, orgName: string) {
+    if (!confirm(`Suspend "${orgName}"? Users in this org will be unable to log in until you reactivate.`)) return;
+    await adminMutate("POST", `/api/v1/admin/orgs/${orgId}/suspend`, "Suspend failed");
+  }
+
+  async function handleReactivateOrg(orgId: string) {
+    await adminMutate("POST", `/api/v1/admin/orgs/${orgId}/reactivate`, "Reactivate failed");
+  }
+
+  async function handleDeleteOrg(orgId: string, orgName: string) {
+    const ok = confirm(
+      `Permanently mark "${orgName}" as deleted? This hides the org from the admin list. Historical call records and tickets stay in the database. This action cannot be undone from the UI.`,
+    );
+    if (!ok) return;
+    await adminMutate("DELETE", `/api/v1/admin/orgs/${orgId}`, "Delete failed");
+  }
+
+  // Shared admin-mutation runner: bearer auth, error handling, reload-orgs
+  // on success. Keeps the approve/suspend/reactivate/delete handlers thin.
+  async function adminMutate(method: "POST" | "DELETE", path: string, errLabel: string) {
     setOrgLoadError(null);
     try {
       const jwt = readAdminJwt();
@@ -364,8 +387,8 @@ export function OssLoginForm() {
         handleAdminLogout();
         return;
       }
-      const r = await fetch(`${pbxUrl()}/api/v1/admin/approve-org/${orgId}`, {
-        method: "POST",
+      const r = await fetch(`${pbxUrl()}${path}`, {
+        method,
         headers: { Authorization: `Bearer ${jwt}` },
       });
       if (!r.ok) {
@@ -374,7 +397,7 @@ export function OssLoginForm() {
       }
       await loadOrgs();
     } catch (e) {
-      setOrgLoadError(e instanceof Error ? e.message : "Approve failed");
+      setOrgLoadError(e instanceof Error ? e.message : errLabel);
     }
   }
 
@@ -505,6 +528,7 @@ export function OssLoginForm() {
   if (adminAuthenticated) {
     const pendingOrgs = orgList.filter((o) => o.status === "pending");
     const activeOrgs = orgList.filter((o) => o.status === "active" || (o.status === undefined && o.is_active !== false));
+    const suspendedOrgs = orgList.filter((o) => o.status === "suspended");
 
     return (
       <div className="min-h-screen bg-background">
@@ -551,6 +575,14 @@ export function OssLoginForm() {
                             <Button variant="outline" size="sm">Edit</Button>
                           </Link>
                           <Button size="sm" onClick={() => handleApproveOrg(org.id)}>Approve</Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteOrg(org.id, org.name)}
+                          >
+                            Reject
+                          </Button>
                         </div>
                       </div>
                       {ci ? (
@@ -611,11 +643,61 @@ export function OssLoginForm() {
                     <Button variant="outline" size="sm" onClick={() => handleEnterOrg(org.id)}>
                       Enter
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSuspendOrg(org.id, org.name)}
+                    >
+                      Suspend
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => handleDeleteOrg(org.id, org.name)}
+                    >
+                      Delete
+                    </Button>
                   </div>
                 </div>
               ))}
             </div>
           )}
+
+          {suspendedOrgs.length > 0 ? (
+            <div className="mt-8">
+              <h2 className="text-lg font-medium mb-2">
+                Suspended <Badge variant="secondary">{suspendedOrgs.length}</Badge>
+              </h2>
+              <div className="space-y-1">
+                {suspendedOrgs.map((org) => (
+                  <div
+                    key={org.id}
+                    className="flex items-center justify-between rounded-md border border-dashed px-4 py-3 opacity-75"
+                  >
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{org.name}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{org.id}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">Suspended</Badge>
+                      <Button size="sm" onClick={() => handleReactivateOrg(org.id)}>
+                        Reactivate
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteOrg(org.id, org.name)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </main>
       </div>
     );

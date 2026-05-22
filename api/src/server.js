@@ -1041,6 +1041,85 @@ app.post('/api/v1/admin/approve-org/:orgId', async (req, res) => {
   }
 });
 
+// Internal helper — verify admin JWT, return decoded payload or send error.
+// Used by suspend/reactivate/delete endpoints below.
+function _requireAdminJwt(req, res) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) {
+    res.status(401).json({ error: 'Admin token required' });
+    return null;
+  }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (!decoded.isAdmin) {
+      res.status(403).json({ error: 'Admin access required' });
+      return null;
+    }
+    return decoded;
+  } catch {
+    res.status(401).json({ error: 'Invalid admin token' });
+    return null;
+  }
+}
+
+// POST /api/v1/admin/orgs/:orgId/suspend
+// Active → suspended. Org-scoped users can't log in (login-password
+// returns 403). Data is preserved; reversible via /reactivate.
+app.post('/api/v1/admin/orgs/:orgId/suspend', async (req, res) => {
+  try {
+    if (!_requireAdminJwt(req, res)) return;
+    const org = await Organization.findByPk(req.params.orgId);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (org.status === 'deleted') {
+      return res.status(409).json({ error: 'Cannot suspend a deleted organisation' });
+    }
+    await org.update({ status: 'suspended' });
+    res.json({ ok: true, organization: { id: org.id, name: org.name, status: 'suspended' } });
+  } catch (error) {
+    console.error('Suspend-org error:', error);
+    res.status(500).json({ error: 'Suspend failed. Please try again.' });
+  }
+});
+
+// POST /api/v1/admin/orgs/:orgId/reactivate
+// Suspended (or pending) → active. Lets the org log in normally again.
+app.post('/api/v1/admin/orgs/:orgId/reactivate', async (req, res) => {
+  try {
+    if (!_requireAdminJwt(req, res)) return;
+    const org = await Organization.findByPk(req.params.orgId);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (org.status === 'deleted') {
+      return res.status(409).json({ error: 'Cannot reactivate a deleted organisation. Recreate it instead.' });
+    }
+    await org.update({ status: 'active' });
+    res.json({ ok: true, organization: { id: org.id, name: org.name, status: 'active' } });
+  } catch (error) {
+    console.error('Reactivate-org error:', error);
+    res.status(500).json({ error: 'Reactivate failed. Please try again.' });
+  }
+});
+
+// DELETE /api/v1/admin/orgs/:orgId
+// Soft-delete: flips status='deleted'. The row stays in the DB so
+// related CDRs / tickets / queue history aren't orphaned and the
+// context_prefix can't be reused for a future org. To hard-delete,
+// the operator runs a DB script directly — UI never offers it.
+app.delete('/api/v1/admin/orgs/:orgId', async (req, res) => {
+  try {
+    if (!_requireAdminJwt(req, res)) return;
+    const org = await Organization.findByPk(req.params.orgId);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (org.status === 'deleted') {
+      return res.json({ ok: true, message: 'Already deleted', organization: { id: org.id, status: 'deleted' } });
+    }
+    await org.update({ status: 'deleted' });
+    res.json({ ok: true, organization: { id: org.id, name: org.name, status: 'deleted' } });
+  } catch (error) {
+    console.error('Delete-org error:', error);
+    res.status(500).json({ error: 'Delete failed. Please try again.' });
+  }
+});
+
 // POST /api/v1/admin/impersonate/:orgId
 // Admin uses their JWT to get a per-org JWT they can drive the dashboard
 // with. Mirrors platform's /api/admin/impersonate flow.
@@ -1505,7 +1584,10 @@ app.get('/api/v1/admin/organizations', async (req, res) => {
       return res.status(401).json({ error: 'Invalid admin token' });
     }
 
+    // Hide soft-deleted orgs from the admin list. They stay in the DB
+    // so historical CDR / ticket records keep their foreign keys.
     const organizations = await Organization.findAll({
+      where: { status: { [require('sequelize').Op.ne]: 'deleted' } },
       attributes: ['id', 'name', 'context_prefix', 'api_key', 'status', 'contact_info', 'createdAt']
     });
 
