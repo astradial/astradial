@@ -77,7 +77,11 @@ export default function CreateOrgPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(err.error || "Creation failed");
+        // Prefer the server's `message` (detailed user-facing text)
+        // over `error` (short code) so the toast actually explains
+        // what's wrong — e.g. "Organization name must be between 2
+        // and 100 characters long." instead of "Invalid org name".
+        throw new Error(err.message || err.error || "Creation failed");
       }
 
       const data = await res.json();
@@ -170,7 +174,7 @@ export default function CreateOrgPage() {
           <div className="space-y-2">
             <Label>Organisation Name *</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Grand Estancia Salem" />
-            <p className="text-xs text-muted-foreground">3-50 characters, letters/numbers/hyphens only</p>
+            <p className="text-xs text-muted-foreground">2-100 characters. Spaces, punctuation and most symbols are allowed.</p>
           </div>
           <div className="space-y-2">
             <Label>Industry *</Label>
@@ -197,7 +201,7 @@ export default function CreateOrgPage() {
             </div>
           </div>
           <div className="flex justify-end pt-4">
-            <Button onClick={() => setStep(1)} disabled={!name || name.length < 3}>
+            <Button onClick={() => setStep(1)} disabled={!name.trim() || name.trim().length < 2}>
               Next <ArrowRight className="h-4 w-4 ml-1" />
             </Button>
           </div>

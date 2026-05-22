@@ -901,10 +901,7 @@ export function OssLoginForm() {
           </Tabs>
 
           <p className="px-8 text-center text-xs text-muted-foreground">
-            By continuing, you agree to Astradial&apos;s{" "}
-            <Link href="/terms" className="underline hover:text-foreground">Terms of Service</Link>
-            {" "}and{" "}
-            <Link href="/privacy" className="underline hover:text-foreground">Privacy Policy</Link>.
+            By continuing, you agree to the Terms of Service and Privacy Policy of this Astradial deployment.
           </p>
         </div>
       </div>

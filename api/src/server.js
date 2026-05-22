@@ -1235,20 +1235,24 @@ app.post('/api/v1/organizations', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    // Validate organization name format
-    const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
-
-    if (!namePattern.test(name)) {
-      return res.status(400).json({
-        error: 'Invalid organization name',
-        message: 'Organization name must start and end with alphanumeric characters, contain only letters, numbers, and hyphens, and cannot contain spaces or special characters.'
-      });
-    }
-
-    if (name.length < 3 || name.length > 50) {
+    // Display-name validation. Lenient — context_prefix (the value that
+    // actually has to be safe for asterisk contexts + file paths) is
+    // generated separately via generateContextPrefix(). Name just has
+    // to be a sensible business name: 2-100 chars, no control bytes,
+    // and at least one letter/digit so empty-ish strings (whitespace,
+    // "...") are rejected.
+    const trimmedName = String(name).trim();
+    if (trimmedName.length < 2 || trimmedName.length > 100) {
       return res.status(400).json({
         error: 'Invalid organization name length',
-        message: 'Organization name must be between 3 and 50 characters long.'
+        message: 'Organization name must be between 2 and 100 characters long.'
+      });
+    }
+    // eslint-disable-next-line no-control-regex
+    if (/[\x00-\x1f\x7f]/.test(trimmedName) || !/[a-zA-Z0-9]/.test(trimmedName)) {
+      return res.status(400).json({
+        error: 'Invalid organization name',
+        message: 'Organization name must contain at least one letter or digit and no control characters.'
       });
     }
 
