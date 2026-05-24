@@ -72,43 +72,29 @@ services:
     networks:
       - astradial
 
-  asterisk:
-    build: ./asterisk
+  # api + asterisk in one container. The image installs both `asterisk`
+  # and `node` and runs them under supervisord. This mirrors platform's
+  # bare-metal VPS topology (PM2-node + system asterisk co-located), so
+  # every src/services/asterisk/*.js call to `asterisk -rx ...` works
+  # without modification — asterisk is always on localhost from node's
+  # perspective.
+  api:
+    build: ./api
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
+      # HTTP api
+      - "8000:3000"
+      # SIP signalling (UDP + TCP)
       - "5060:5060/udp"
       - "5060:5060/tcp"
+      # RTP media
       - "10000-10100:10000-10100/udp"
-    volumes:
-      - asterisk_config:/etc/asterisk
-      - asterisk_recordings:/var/spool/asterisk/monitor
-    environment:
-      - SIP_HOST=${SIP_HOST:-}
-      - ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
-      - ASTRADIAL_TRUNK_HOST=${ASTRADIAL_TRUNK_HOST:-}
-      - ASTRADIAL_TRUNK_USER=${ASTRADIAL_TRUNK_USER:-}
-      - ASTRADIAL_TRUNK_PASS=${ASTRADIAL_TRUNK_PASS:-}
-      - ASTERISK_AMI_SECRET=${ASTERISK_AMI_SECRET:-astradial}
-    depends_on:
-      mariadb:
-        condition: service_healthy
-    networks:
-      - astradial
-
-  api:
-    build: ./api
-    restart: unless-stopped
-    ports:
-      - "8000:3000"
     environment:
       - HOST=0.0.0.0
       - SIP_HOST=${SIP_HOST:-}
       - SIP_PORT=${SIP_PORT:-5060}
-      - ASTERISK_SSH_HOST=${ASTERISK_SSH_HOST:-}
-      - ASTERISK_SSH_USER=${ASTERISK_SSH_USER:-root}
-      - ASTERISK_SSH_KEY=/root/.ssh/id_rsa
       - DB_HOST=mariadb
       - DB_PORT=3306
       - DB_NAME=${DB_NAME:-astradial}
@@ -122,8 +108,9 @@ services:
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_API_PASSWORD=${ADMIN_API_PASSWORD:-admin}
-      - ASTERISK_HOST=${AMI_HOST:-asterisk}
-      - AMI_HOST=${AMI_HOST:-asterisk}
+      # Asterisk is co-located in this container — AMI and ARI on 127.0.0.1.
+      - ASTERISK_HOST=127.0.0.1
+      - AMI_HOST=127.0.0.1
       - AMI_PORT=5038
       - AMI_USERNAME=astradial
       - AMI_SECRET=${ASTERISK_AMI_SECRET:-astradial}
@@ -134,9 +121,13 @@ services:
       - ASTERISK_AMI_PORT=5038
       - ASTERISK_AMI_USER=astradial
       - ASTERISK_AMI_SECRET=${ASTERISK_AMI_SECRET:-astradial}
+      - ASTERISK_AMI_SECRET_VALUE=${ASTERISK_AMI_SECRET:-astradial}
       - ASTERISK_PJSIP_CONFIG_PATH=/etc/asterisk
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
       - ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
+      - ASTRADIAL_TRUNK_HOST=${ASTRADIAL_TRUNK_HOST:-}
+      - ASTRADIAL_TRUNK_USER=${ASTRADIAL_TRUNK_USER:-}
+      - ASTRADIAL_TRUNK_PASS=${ASTRADIAL_TRUNK_PASS:-}
       # Auth provider: 'true' = Firebase mode (requires GOOGLE_APPLICATION_CREDENTIALS),
       # anything else = local mode (api_key + api_secret via /api/v1/auth/login).
       - USE_FIREBASE=${USE_FIREBASE:-false}
@@ -148,7 +139,6 @@ services:
     volumes:
       - asterisk_config:/etc/asterisk
       - asterisk_recordings:/var/spool/asterisk/monitor
-      - ~/.ssh:/root/.ssh:ro
     networks:
       - astradial
 
@@ -164,6 +154,11 @@ services:
         # bakes NEXT_PUBLIC_* into the static bundle. Default 'false' =
         # OSS local mode (the OssLoginForm renders, api_key + api_secret).
         NEXT_PUBLIC_USE_FIREBASE: ${NEXT_PUBLIC_USE_FIREBASE:-false}
+        # SIP host advertised to softphone provisioning QR. setup.sh
+        # passes the actual host; falls through to runtime derivation
+        # from window.location when unset.
+        NEXT_PUBLIC_SIP_HOST: ${SIP_HOST:-}
+        NEXT_PUBLIC_SIP_PORT: ${SIP_PORT:-5060}
     restart: unless-stopped
     ports:
       - "3001:3001"

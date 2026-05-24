@@ -77,7 +77,11 @@ export default function CreateOrgPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(err.error || "Creation failed");
+        // Prefer the server's `message` (detailed user-facing text)
+        // over `error` (short code) so the toast actually explains
+        // what's wrong — e.g. "Organization name must be between 2
+        // and 100 characters long." instead of "Invalid org name".
+        throw new Error(err.message || err.error || "Creation failed");
       }
 
       const data = await res.json();
@@ -89,14 +93,9 @@ export default function CreateOrgPage() {
         context_prefix: data.context_prefix,
       });
 
-      // Auto-create compliance settings
-      try {
-        await fetch(`/api/pbx/compliance?org_id=${data.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", "X-Internal-Key": "" },
-          body: JSON.stringify(compliance),
-        });
-      } catch {}
+      // Compliance settings — OSS doesn't ship the org_compliance table or
+      // the admin-key auth path needed to write to it. Skip in OSS;
+      // platform users get this via Firebase + INTERNAL_API_KEY.
 
       showToast(`Organisation "${name}" created!`, "success");
       setStep(3); // success step
@@ -140,7 +139,7 @@ export default function CreateOrgPage() {
           <div className="flex justify-between"><span className="text-sm text-muted-foreground">CDR retention</span><span className="text-sm">{compliance.retention_cdr_days} days</span></div>
         </div>
         <div className="flex gap-2 mt-6">
-          <Button variant="outline" onClick={() => router.push("/admin/organizations")}>Back to list</Button>
+          <Button variant="outline" onClick={() => router.push("/dashboard")}>Back to list</Button>
           <Button onClick={() => router.push(`/dashboard/${result.id}`)}>Open Dashboard</Button>
         </div>
       </div>
@@ -150,7 +149,7 @@ export default function CreateOrgPage() {
   return (
     <div className="p-6 max-w-2xl mx-auto">
       {/* Header */}
-      <Button variant="ghost" size="sm" className="mb-4" onClick={() => router.push("/admin/organizations")}>
+      <Button variant="ghost" size="sm" className="mb-4" onClick={() => router.push("/dashboard")}>
         <ArrowLeft className="h-4 w-4 mr-1" />Back
       </Button>
       <h1 className="text-lg font-semibold mb-1">Create Organisation</h1>
@@ -175,7 +174,7 @@ export default function CreateOrgPage() {
           <div className="space-y-2">
             <Label>Organisation Name *</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Grand Estancia Salem" />
-            <p className="text-xs text-muted-foreground">3-50 characters, letters/numbers/hyphens only</p>
+            <p className="text-xs text-muted-foreground">2-100 characters. Spaces, punctuation and most symbols are allowed.</p>
           </div>
           <div className="space-y-2">
             <Label>Industry *</Label>
@@ -202,7 +201,7 @@ export default function CreateOrgPage() {
             </div>
           </div>
           <div className="flex justify-end pt-4">
-            <Button onClick={() => setStep(1)} disabled={!name || name.length < 3}>
+            <Button onClick={() => setStep(1)} disabled={!name.trim() || name.trim().length < 2}>
               Next <ArrowRight className="h-4 w-4 ml-1" />
             </Button>
           </div>

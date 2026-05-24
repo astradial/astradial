@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Admin emails allowed to access gateway admin panel
-const ADMIN_EMAILS = ["admin@example.com"];
+function loadAdminEmails(): string[] {
+  const raw = process.env.ADMIN_EMAIL || process.env.ADMIN_EMAILS || "";
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
 
-// Gateway admin key — stored server-side only
 const GATEWAY_ADMIN_KEY = process.env.GATEWAY_ADMIN_KEY || "";
 
 export async function POST(req: NextRequest) {
@@ -13,7 +17,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Email required" }, { status: 400 });
   }
 
-  if (!ADMIN_EMAILS.includes(email.toLowerCase())) {
+  const allowed = loadAdminEmails();
+  if (allowed.length === 0) {
+    return NextResponse.json(
+      { error: "Admin login disabled — set ADMIN_EMAIL in the server environment" },
+      { status: 503 },
+    );
+  }
+
+  if (!allowed.includes(email.toLowerCase())) {
     return NextResponse.json({ error: "Not an admin account" }, { status: 403 });
   }
 

@@ -20,9 +20,33 @@ interface SipQrDialogProps {
   onClose: () => void;
 }
 
+// Resolve the SIP server hostname for softphone provisioning. Priority:
+//   1. NEXT_PUBLIC_SIP_HOST baked at build time (setup.sh wires this).
+//   2. PBX hostname derived from NEXT_PUBLIC_PBX_URL (api.skylinkonline.net → sip.skylinkonline.net).
+//   3. Same-domain derivation from window.location (pbx.foo.com → sip.foo.com).
+//   4. Window hostname as-is (last resort — works for IP/single-host setups).
+function deriveSipServer(): string {
+  const explicit = process.env.NEXT_PUBLIC_SIP_HOST;
+  if (explicit && explicit.trim()) return explicit.trim();
+
+  const pbxUrl = process.env.NEXT_PUBLIC_PBX_URL;
+  if (pbxUrl) {
+    try {
+      const host = new URL(pbxUrl).hostname;
+      if (host) return host.replace(/^api\./, "sip.").replace(/^pbx\./, "sip.");
+    } catch { /* malformed URL, fall through */ }
+  }
+
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    const h = window.location.hostname;
+    return h.replace(/^pbx\./, "sip.").replace(/^app\./, "sip.");
+  }
+  return "";
+}
+
 export function SipQrDialog({ user, onClose }: SipQrDialogProps) {
-  const sipServer = process.env.NEXT_PUBLIC_SIP_HOST || "sip.example.com";
-  const sipPort = process.env.NEXT_PUBLIC_SIP_PORT || "5080";
+  const sipServer = deriveSipServer();
+  const sipPort = process.env.NEXT_PUBLIC_SIP_PORT || "5060";
   const [copied, setCopied] = useState<string | null>(null);
   const [sipPassword, setSipPassword] = useState(user.sip_password || "");
 

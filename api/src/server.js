@@ -678,6 +678,510 @@ app.post('/api/v1/auth/login', async (req, res) => {
 });
 
 // ========================================
+// AUTHENTICATION — EMAIL + PASSWORD (OSS local mode)
+// ========================================
+//
+// These endpoints back the OSS Sign In UI (editor/app/dashboard/page.tsx)
+// when USE_FIREBASE=false. They mirror platform's Firebase-backed flow
+// in shape — same JSON contracts and JWT claims — so the dashboard
+// renderer is identical, only the source of identity changes.
+//
+// Three flows:
+//   1. /auth/signup            — new user, auto-creates an org, returns JWT
+//   2. /auth/login-password    — existing user signs in with email+password
+//   3. /auth/admin-login-password — system admin (env-credentialled)
+//
+// Existing /auth/login (api_key + api_secret) and /auth/email-login
+// (Firebase-trusted) are untouched.
+
+// POST /api/v1/auth/signup
+// Body: { email, password, name }
+// Creates a user with NO organisation yet. The frontend then collects
+// org details and POSTs them to /auth/request-org with the
+// `isOnboarding` token returned here. An admin must approve the org
+// before the user can sign in normally.
+//
+// This two-step flow mirrors platform's Firebase-based signup →
+// request-org → admin approve flow, without depending on Firebase.
+app.post('/api/v1/auth/signup', async (req, res) => {
+  try {
+    const { email, password, name } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'email and password required' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    const existingRows = await sequelize.query(
+      'SELECT id FROM org_users WHERE LOWER(email) = LOWER(?) LIMIT 1',
+      { replacements: [email], type: sequelize.QueryTypes.SELECT }
+    );
+    if (existingRows && existingRows.length > 0) {
+      return res.status(409).json({ error: 'An account with this email already exists' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userId = uuidv4();
+    const displayName = (name && name.trim()) || email.split('@')[0];
+
+    await sequelize.query(
+      `INSERT INTO org_users (id, org_id, email, name, role, status, password_hash, created_at, updated_at)
+       VALUES (?, NULL, ?, ?, 'owner', 'invited', ?, NOW(), NOW())`,
+      { replacements: [userId, email, displayName, passwordHash] }
+    );
+
+    // Short-lived onboarding token — only useful for /auth/request-org.
+    const token = jwt.sign(
+      { userId, email, role: 'owner', isOnboarding: true },
+      JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    res.status(201).json({
+      token,
+      token_type: 'Bearer',
+      expires_in: '1h',
+      requires_org_request: true,
+      user: {
+        id: userId,
+        email,
+        name: displayName,
+        org_id: null,
+        org_name: null,
+        role: 'owner',
+        permissions: [],
+      },
+    });
+  } catch (error) {
+    console.error('Signup error:', error);
+    // Never leak internal error details to the login form. The full
+    // error (including SQL state) lands in server logs for operators.
+    res.status(500).json({ error: 'Signup failed. Please try again or contact support.' });
+  }
+});
+
+// POST /api/v1/auth/request-org
+// Auth: Bearer <onboarding token from /auth/signup or
+//                /auth/login-password when user has no org yet>
+// Body: { org_name, contact_phone, contact_email?, industry, address?,
+//         company_size?, expected_users?, description? }
+//
+// Creates the organisation in status='pending' and links the
+// authenticated user as its owner. Sysadmin must Approve from the
+// admin dashboard for the org to become usable.
+app.post('/api/v1/auth/request-org', async (req, res) => {
+  try {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Auth token required' });
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    if (!decoded.userId) {
+      return res.status(403).json({ error: 'Token is not eligible for org request' });
+    }
+
+    const {
+      org_name,
+      contact_phone,
+      contact_email,
+      industry,
+      address,
+      company_size,
+      expected_users,
+      description,
+    } = req.body || {};
+
+    if (!org_name || !org_name.trim()) {
+      return res.status(400).json({ error: 'org_name is required' });
+    }
+    if (!contact_phone || !contact_phone.trim()) {
+      return res.status(400).json({ error: 'contact_phone is required' });
+    }
+    if (!industry || !industry.trim()) {
+      return res.status(400).json({ error: 'industry is required' });
+    }
+
+    // Verify the user exists + still has no org (idempotency guard:
+    // resubmitting the form shouldn't create duplicate orgs).
+    const userRows = await sequelize.query(
+      'SELECT id, email, name, org_id FROM org_users WHERE id = ? LIMIT 1',
+      { replacements: [decoded.userId], type: sequelize.QueryTypes.SELECT }
+    );
+    const user = userRows && userRows[0];
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.org_id) {
+      return res.status(409).json({ error: 'You already have an organisation linked to this account' });
+    }
+
+    const apiKey = `org_${uuidv4().replace(/-/g, '')}`;
+    const apiSecret = uuidv4();
+    const hashedSecret = await bcrypt.hash(apiSecret, 10);
+
+    const organization = await Organization.create({
+      name: org_name.trim(),
+      domain: `${org_name.trim().toLowerCase().replace(/\s+/g, '')}.local`,
+      context_prefix: generateContextPrefix(),
+      api_key: apiKey,
+      api_secret: hashedSecret,
+      status: 'pending',
+      contact_info: {
+        email: contact_email || user.email,
+        phone: contact_phone,
+        industry,
+        address: address || null,
+        company_size: company_size || null,
+        expected_users: expected_users || null,
+        description: description || null,
+      },
+    });
+
+    await sequelize.query(
+      'UPDATE org_users SET org_id = ?, status = ? WHERE id = ?',
+      { replacements: [organization.id, 'active', user.id] }
+    );
+
+    res.status(201).json({
+      ok: true,
+      organization: {
+        id: organization.id,
+        name: organization.name,
+        status: 'pending',
+      },
+      message: 'Your organisation is awaiting admin approval. You\'ll be able to log in once approved.',
+    });
+  } catch (error) {
+    console.error('Request-org error:', error);
+    res.status(500).json({ error: 'Failed to submit organisation request. Please try again.' });
+  }
+});
+
+// POST /api/v1/auth/login-password
+// Body: { email, password }
+// Validates bcrypt password_hash on org_users, returns a JWT bound to
+// the user's org and role.
+app.post('/api/v1/auth/login-password', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'email and password required' });
+    }
+
+    const rows = await sequelize.query(
+      `SELECT id, org_id, email, name, role, status, password_hash
+       FROM org_users
+       WHERE LOWER(email) = LOWER(?)
+       LIMIT 1`,
+      { replacements: [email], type: sequelize.QueryTypes.SELECT }
+    );
+    const user = rows && rows[0];
+    if (!user || !user.password_hash) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    if (user.status && user.status !== 'active') {
+      return res.status(403).json({ error: `Account is ${user.status}` });
+    }
+
+    // Three cases:
+    //  (a) User has no org yet → onboarding token, requires_org_request.
+    //  (b) Org is pending admin approval → 202, status hint, no token.
+    //  (c) Org is active → normal full-access JWT.
+    if (!user.org_id) {
+      const onboardingToken = jwt.sign(
+        { userId: user.id, email: user.email, role: 'owner', isOnboarding: true },
+        JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+      return res.status(200).json({
+        token: onboardingToken,
+        token_type: 'Bearer',
+        expires_in: '1h',
+        requires_org_request: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          org_id: null,
+          org_name: null,
+          role: user.role,
+          permissions: [],
+        },
+      });
+    }
+
+    const org = await Organization.findByPk(user.org_id, {
+      attributes: ['name', 'api_key', 'status'],
+    });
+    if (!org) {
+      return res.status(404).json({ error: 'Organization for this account no longer exists' });
+    }
+    if (org.status === 'pending') {
+      return res.status(202).json({
+        pending_approval: true,
+        org_name: org.name,
+        message: `Your organisation "${org.name}" is awaiting admin approval.`,
+      });
+    }
+    if (org.status !== 'active') {
+      return res.status(403).json({ error: `Your organisation is ${org.status}. Contact your administrator.` });
+    }
+
+    const token = jwt.sign(
+      {
+        orgId: user.org_id,
+        orgName: org.name,
+        apiKey: org.api_key,
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      token,
+      token_type: 'Bearer',
+      expires_in: '24h',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        org_id: user.org_id,
+        org_name: org.name,
+        role: user.role,
+        permissions: [],
+      },
+    });
+  } catch (error) {
+    console.error('Login-password error:', error);
+    res.status(500).json({ error: 'Login failed. Please try again.' });
+  }
+});
+
+// POST /api/v1/auth/admin-login-password
+// Body: { email, password }
+// Validates against ADMIN_EMAIL + ADMIN_PASSWORD env vars (the system
+// admin credentials provisioned by setup.sh). Returns a JWT with
+// isAdmin=true that gates /api/v1/admin/* endpoints.
+app.post('/api/v1/auth/admin-login-password', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'email and password required' });
+    }
+
+    const adminEmailRaw = process.env.ADMIN_EMAIL || '';
+    const adminPasswordRaw = process.env.ADMIN_PASSWORD || '';
+    if (!adminEmailRaw || !adminPasswordRaw) {
+      return res.status(503).json({ error: 'Admin login disabled — ADMIN_EMAIL and ADMIN_PASSWORD must be set on the server' });
+    }
+
+    // Support comma-separated ADMIN_EMAIL for multiple sysadmins.
+    const allowed = adminEmailRaw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (!allowed.includes(String(email).toLowerCase()) || password !== adminPasswordRaw) {
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    }
+
+    const token = jwt.sign(
+      { isAdmin: true, email: String(email).toLowerCase(), role: 'admin' },
+      JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+
+    res.json({
+      token,
+      token_type: 'Bearer',
+      expires_in: '8h',
+      admin_key: process.env.INTERNAL_API_KEY || token,
+      user: { email: String(email).toLowerCase(), role: 'admin' },
+    });
+  } catch (error) {
+    console.error('Admin login error:', error);
+    res.status(500).json({ error: 'Admin login failed. Please try again.' });
+  }
+});
+
+// POST /api/v1/admin/approve-org/:orgId
+// Admin flips a pending org to status='active'. Mirrors platform's
+// /api/pbx/admin/approve-org route shape so the same UI works in both.
+app.post('/api/v1/admin/approve-org/:orgId', async (req, res) => {
+  try {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Admin token required' });
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid admin token' });
+    }
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+
+    const org = await Organization.findByPk(req.params.orgId);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (org.status === 'active') {
+      return res.json({ ok: true, message: 'Already active', organization: { id: org.id, status: org.status } });
+    }
+
+    await org.update({ status: 'active' });
+    res.json({ ok: true, organization: { id: org.id, name: org.name, status: 'active' } });
+  } catch (error) {
+    console.error('Approve-org error:', error);
+    res.status(500).json({ error: 'Approve failed. Please try again.' });
+  }
+});
+
+// Internal helper — verify admin JWT, return decoded payload or send error.
+// Used by suspend/reactivate/delete endpoints below.
+function _requireAdminJwt(req, res) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) {
+    res.status(401).json({ error: 'Admin token required' });
+    return null;
+  }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (!decoded.isAdmin) {
+      res.status(403).json({ error: 'Admin access required' });
+      return null;
+    }
+    return decoded;
+  } catch {
+    res.status(401).json({ error: 'Invalid admin token' });
+    return null;
+  }
+}
+
+// POST /api/v1/admin/orgs/:orgId/suspend
+// Active → suspended. Org-scoped users can't log in (login-password
+// returns 403). Data is preserved; reversible via /reactivate.
+app.post('/api/v1/admin/orgs/:orgId/suspend', async (req, res) => {
+  try {
+    if (!_requireAdminJwt(req, res)) return;
+    const org = await Organization.findByPk(req.params.orgId);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (org.status === 'deleted') {
+      return res.status(409).json({ error: 'Cannot suspend a deleted organisation' });
+    }
+    await org.update({ status: 'suspended' });
+    res.json({ ok: true, organization: { id: org.id, name: org.name, status: 'suspended' } });
+  } catch (error) {
+    console.error('Suspend-org error:', error);
+    res.status(500).json({ error: 'Suspend failed. Please try again.' });
+  }
+});
+
+// POST /api/v1/admin/orgs/:orgId/reactivate
+// Suspended (or pending) → active. Lets the org log in normally again.
+app.post('/api/v1/admin/orgs/:orgId/reactivate', async (req, res) => {
+  try {
+    if (!_requireAdminJwt(req, res)) return;
+    const org = await Organization.findByPk(req.params.orgId);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (org.status === 'deleted') {
+      return res.status(409).json({ error: 'Cannot reactivate a deleted organisation. Recreate it instead.' });
+    }
+    await org.update({ status: 'active' });
+    res.json({ ok: true, organization: { id: org.id, name: org.name, status: 'active' } });
+  } catch (error) {
+    console.error('Reactivate-org error:', error);
+    res.status(500).json({ error: 'Reactivate failed. Please try again.' });
+  }
+});
+
+// DELETE /api/v1/admin/orgs/:orgId
+// Soft-delete: flips status='deleted'. The row stays in the DB so
+// related CDRs / tickets / queue history aren't orphaned and the
+// context_prefix can't be reused for a future org. To hard-delete,
+// the operator runs a DB script directly — UI never offers it.
+app.delete('/api/v1/admin/orgs/:orgId', async (req, res) => {
+  try {
+    if (!_requireAdminJwt(req, res)) return;
+    const org = await Organization.findByPk(req.params.orgId);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (org.status === 'deleted') {
+      return res.json({ ok: true, message: 'Already deleted', organization: { id: org.id, status: 'deleted' } });
+    }
+    await org.update({ status: 'deleted' });
+    res.json({ ok: true, organization: { id: org.id, name: org.name, status: 'deleted' } });
+  } catch (error) {
+    console.error('Delete-org error:', error);
+    res.status(500).json({ error: 'Delete failed. Please try again.' });
+  }
+});
+
+// POST /api/v1/admin/impersonate/:orgId
+// Admin uses their JWT to get a per-org JWT they can drive the dashboard
+// with. Mirrors platform's /api/admin/impersonate flow.
+app.post('/api/v1/admin/impersonate/:orgId', async (req, res) => {
+  try {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Admin token required' });
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid admin token' });
+    }
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+
+    const org = await Organization.findByPk(req.params.orgId);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+
+    // Fetch owner so we can return user info matching platform's shape
+    let ownerRow = null;
+    try {
+      const rows = await sequelize.query(
+        `SELECT id, email, name, role FROM org_users WHERE org_id = ? AND role = 'owner' LIMIT 1`,
+        { replacements: [org.id], type: sequelize.QueryTypes.SELECT }
+      );
+      ownerRow = rows && rows[0];
+    } catch { /* table may not exist yet on fresh installs — non-fatal */ }
+
+    const orgToken = jwt.sign(
+      {
+        orgId: org.id,
+        orgName: org.name,
+        apiKey: org.api_key,
+        userId: ownerRow?.id,
+        email: ownerRow?.email,
+        role: ownerRow?.role || 'admin',
+        impersonating: true,
+      },
+      JWT_SECRET,
+      { expiresIn: '4h' }
+    );
+
+    res.json({
+      token: orgToken,
+      user: {
+        id: ownerRow?.id || null,
+        email: ownerRow?.email || null,
+        name: ownerRow?.name || null,
+        org_id: org.id,
+        org_name: org.name,
+        role: ownerRow?.role || 'admin',
+        permissions: [],
+        impersonating: true,
+      },
+    });
+  } catch (error) {
+    console.error('Impersonate error:', error);
+    res.status(500).json({ error: 'Could not enter organisation. Please try again.' });
+  }
+});
+
+// ========================================
 // ORGANIZATION MANAGEMENT
 // ========================================
 
@@ -731,20 +1235,24 @@ app.post('/api/v1/organizations', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    // Validate organization name format
-    const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
-
-    if (!namePattern.test(name)) {
-      return res.status(400).json({
-        error: 'Invalid organization name',
-        message: 'Organization name must start and end with alphanumeric characters, contain only letters, numbers, and hyphens, and cannot contain spaces or special characters.'
-      });
-    }
-
-    if (name.length < 3 || name.length > 50) {
+    // Display-name validation. Lenient — context_prefix (the value that
+    // actually has to be safe for asterisk contexts + file paths) is
+    // generated separately via generateContextPrefix(). Name just has
+    // to be a sensible business name: 2-100 chars, no control bytes,
+    // and at least one letter/digit so empty-ish strings (whitespace,
+    // "...") are rejected.
+    const trimmedName = String(name).trim();
+    if (trimmedName.length < 2 || trimmedName.length > 100) {
       return res.status(400).json({
         error: 'Invalid organization name length',
-        message: 'Organization name must be between 3 and 50 characters long.'
+        message: 'Organization name must be between 2 and 100 characters long.'
+      });
+    }
+    // eslint-disable-next-line no-control-regex
+    if (/[\x00-\x1f\x7f]/.test(trimmedName) || !/[a-zA-Z0-9]/.test(trimmedName)) {
+      return res.status(400).json({
+        error: 'Invalid organization name',
+        message: 'Organization name must contain at least one letter or digit and no control characters.'
       });
     }
 
@@ -1080,8 +1588,11 @@ app.get('/api/v1/admin/organizations', async (req, res) => {
       return res.status(401).json({ error: 'Invalid admin token' });
     }
 
+    // Hide soft-deleted orgs from the admin list. They stay in the DB
+    // so historical CDR / ticket records keep their foreign keys.
     const organizations = await Organization.findAll({
-      attributes: ['id', 'name', 'context_prefix', 'api_key', 'createdAt']
+      where: { status: { [require('sequelize').Op.ne]: 'deleted' } },
+      attributes: ['id', 'name', 'context_prefix', 'api_key', 'status', 'contact_info', 'createdAt']
     });
 
     res.json(organizations);
@@ -1454,11 +1965,31 @@ app.post('/api/v1/trunks', authenticateOrg, async (req, res) => {
       });
     }
 
+    // Normalize host:port — users often paste "sip.provider.com:5060"
+    // into the Host field. Without this, host gets stored verbatim and
+    // the deploy renders "host:5060:5060" because port is appended
+    // again from the separate port column. The port encoded in host
+    // wins; if absent we keep the explicit port value.
+    let normalizedHost = host || null;
+    let normalizedPort = port;
+    if (normalizedHost && typeof normalizedHost === 'string') {
+      const colonIdx = normalizedHost.lastIndexOf(':');
+      if (colonIdx > 0) {
+        const hostPart = normalizedHost.slice(0, colonIdx);
+        const portPart = normalizedHost.slice(colonIdx + 1);
+        const parsedPort = parseInt(portPart, 10);
+        if (Number.isFinite(parsedPort) && parsedPort > 0 && parsedPort <= 65535) {
+          normalizedHost = hostPart;
+          normalizedPort = parsedPort;
+        }
+      }
+    }
+
     const trunk = await SipTrunk.create({
       org_id: req.orgId,
       name,
-      host: trunk_type === 'inbound' ? null : host, // No host for inbound - dynamic registration
-      port: trunk_type === 'inbound' ? null : port,
+      host: trunk_type === 'inbound' ? null : normalizedHost,
+      port: trunk_type === 'inbound' ? null : normalizedPort,
       username,
       password,
       transport,
@@ -1469,6 +2000,18 @@ app.post('/api/v1/trunks', authenticateOrg, async (req, res) => {
       asterisk_peer_name: `${req.organization.context_prefix}trunk${Date.now()}`,
       status: 'active'
     });
+
+    // Auto-deploy: a brand-new trunk does nothing until asterisk knows
+    // about it. Without this the dashboard shows the row with
+    // status=active but pjsip has no endpoint for it. Errors here are
+    // non-fatal — the trunk row is already saved; the operator can
+    // re-deploy via /api/v1/config/deploy if reload fails.
+    try {
+      await configDeploymentService.deployOrganizationConfiguration(req.orgId, req.organization.name);
+      await configDeploymentService.reloadAsteriskConfiguration();
+    } catch (deployErr) {
+      console.warn('⚠️  Trunk created but auto-deploy failed:', deployErr.message);
+    }
 
     res.status(201).json(trunk);
   } catch (error) {
@@ -7433,6 +7976,464 @@ app.get('/api/v1/roles', authenticateOrg, async (req, res) => {
     permissions: getPermissions(role),
   }));
   res.json({ roles });
+});
+
+
+
+// ============================================================
+// Synced from astradial-platform (2026-05-24) — features that hadn't
+// reached OSS yet. See PR for details.
+// ============================================================
+
+// Normalize spam-protection settings — strips garbage from
+// untrusted JSON (PUT body or legacy DB rows) so downstream code can
+// trust the shape. Mirrors astradial-platform's helper.
+function normalizeSpamProtection(raw) {
+  const v = raw && typeof raw === 'object' ? raw : {};
+  const blocked = Array.isArray(v.blocked_circles)
+    ? v.blocked_circles.filter((c) => typeof c === 'string' && /^[A-Z]{2,3}$/.test(c))
+    : [];
+  return {
+    enabled: typeof v.enabled === 'boolean' ? v.enabled : false,
+    blocked_circles: [...new Set(blocked)].sort(),
+    greeting_id: typeof v.greeting_id === 'string' && v.greeting_id ? v.greeting_id : null,
+  };
+}
+
+app.post("/api/v1/greetings/upload", authenticateOrg, async (req, res) => {
+  try {
+    const multer = require('multer');
+    const fs = require('fs');
+    const p = require('path');
+    const { execFile } = require('child_process');
+    const { promisify } = require('util');
+    const { v4: uuidv4 } = require('uuid');
+    const { Greeting } = require('./models');
+    const execFileAsync = promisify(execFile);
+
+    const ALLOWED_EXT = new Set(['.mp3', '.wav', '.m4a', '.aac']);
+    const tmpUpload = multer({ dest: '/tmp/', limits: { fileSize: 50 * 1024 * 1024 } });
+
+    tmpUpload.single('audio')(req, res, async (err) => {
+      if (err) return res.status(400).json({ error: err.message });
+      if (!req.file) return res.status(400).json({ error: 'No audio file provided' });
+
+      const ext = p.extname(req.file.originalname || '').toLowerCase();
+      if (!ALLOWED_EXT.has(ext)) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: `Unsupported format ${ext || '(none)'} — allowed: ${[...ALLOWED_EXT].join(', ')}` });
+      }
+
+      const name = String(req.body.name || '').trim() || `Uploaded ${new Date().toISOString().slice(0, 10)}`;
+      const id = uuidv4();
+      // Match the TTS service's filename scheme so the dialplan
+      // Playback() works the same way regardless of source. Asterisk
+      // looks for greeting_<id>.{ext} and picks the codec-matching
+      // file. The audio_file column stores the bare basename
+      // (no extension) — same convention as TTS.
+      const baseName = `greeting_${id}`;
+      const greetingsDir = '/var/lib/asterisk/sounds/greetings';
+      fs.mkdirSync(greetingsDir, { recursive: true });
+      const destWav = p.join(greetingsDir, `${baseName}.wav`);
+      const destUlaw = p.join(greetingsDir, `${baseName}.ulaw`);
+      const destAlaw = p.join(greetingsDir, `${baseName}.alaw`);
+
+      try {
+        // Single ffmpeg invocation with three outputs — flags BEFORE
+        // each filename. mono / 8kHz across all three. Raw mulaw/alaw
+        // for codec-native playback (no container parse on file open).
+        await execFileAsync('ffmpeg', [
+          '-y', '-loglevel', 'error',
+          '-i', req.file.path,
+          '-ac', '1', '-ar', '8000', '-acodec', 'pcm_s16le', destWav,
+          '-ac', '1', '-ar', '8000', '-f', 'mulaw', destUlaw,
+          '-ac', '1', '-ar', '8000', '-f', 'alaw', destAlaw,
+        ]);
+      } catch (ffErr) {
+        // Cleanup any partial outputs + the tmp upload so a failed
+        // encode doesn't leave stale files behind.
+        try { fs.unlinkSync(req.file.path); } catch {}
+        for (const f of [destWav, destUlaw, destAlaw]) {
+          try { fs.unlinkSync(f); } catch {}
+        }
+        const detail = (ffErr.stderr || ffErr.message || '').toString().trim().slice(-500);
+        return res.status(400).json({ error: `Audio conversion failed: ${detail}` });
+      }
+      try { fs.unlinkSync(req.file.path); } catch {}
+
+      const greeting = await Greeting.create({
+        id, org_id: req.orgId, name,
+        text: null,
+        source: 'upload',
+        audio_file: baseName,
+        status: 'active',
+      });
+      console.log('Greeting uploaded:', destWav);
+      res.json(greeting);
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/v1/ivrs/:id/upload-greeting', authenticateOrg, async (req, res) => {
+  try {
+    const multer = require('multer');
+    const fs = require('fs');
+    const p = require('path');
+    const { execFile } = require('child_process');
+    const { promisify } = require('util');
+    const { Ivr } = require('./models');
+    const execFileAsync = promisify(execFile);
+
+    const ivr = await Ivr.findOne({ where: { id: req.params.id, org_id: req.orgId } });
+    if (!ivr) return res.status(404).json({ error: 'IVR not found' });
+
+    const ALLOWED_EXT = new Set(['.mp3', '.wav', '.m4a', '.aac']);
+    const tmpUpload = multer({ dest: '/tmp/', limits: { fileSize: 50 * 1024 * 1024 } });
+
+    tmpUpload.single('audio')(req, res, async (err) => {
+      if (err) return res.status(400).json({ error: err.message });
+      if (!req.file) return res.status(400).json({ error: 'No audio file provided' });
+
+      const ext = p.extname(req.file.originalname || '').toLowerCase();
+      if (!ALLOWED_EXT.has(ext)) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: `Unsupported format ${ext || '(none)'} — allowed: ${[...ALLOWED_EXT].join(', ')}` });
+      }
+
+      const baseName = `greeting_ivr_${ivr.id}`;
+      const greetingsDir = '/var/lib/asterisk/sounds/greetings';
+      fs.mkdirSync(greetingsDir, { recursive: true });
+      const destWav = p.join(greetingsDir, `${baseName}.wav`);
+      const destUlaw = p.join(greetingsDir, `${baseName}.ulaw`);
+      const destAlaw = p.join(greetingsDir, `${baseName}.alaw`);
+
+      try {
+        await execFileAsync('ffmpeg', [
+          '-y', '-loglevel', 'error',
+          '-i', req.file.path,
+          '-ac', '1', '-ar', '8000', '-acodec', 'pcm_s16le', destWav,
+          '-ac', '1', '-ar', '8000', '-f', 'mulaw', destUlaw,
+          '-ac', '1', '-ar', '8000', '-f', 'alaw', destAlaw,
+        ]);
+      } catch (ffErr) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        for (const f of [destWav, destUlaw, destAlaw]) {
+          try { fs.unlinkSync(f); } catch {}
+        }
+        const detail = (ffErr.stderr || ffErr.message || '').toString().trim().slice(-500);
+        return res.status(400).json({ error: `Audio conversion failed: ${detail}` });
+      }
+      try { fs.unlinkSync(req.file.path); } catch {}
+
+      await ivr.update({
+        greeting_prompt: baseName,
+        greeting_text: null,
+      });
+
+      // Reload dialplan — even though the file name matches the TTS
+      // pattern (so the existing `Background(greetings/...)` line keeps
+      // working for in-place file swaps), the first upload on an IVR
+      // that had no prior greeting still needs a regen to flip the
+      // Background() target from `welcome` to the new prompt.
+      try {
+        await configDeploymentService.deployOrganizationConfiguration(req.orgId, req.organization.name);
+        await configDeploymentService.reloadAsteriskConfiguration();
+      } catch (deployErr) {
+        console.warn('⚠️ Auto-deploy after IVR upload-greeting:', deployErr.message);
+      }
+
+      console.log('IVR greeting uploaded:', destWav);
+      res.json({
+        success: true,
+        greeting_prompt: ivr.greeting_prompt,
+        source: 'upload',
+      });
+    });
+  } catch (error) {
+    console.error('POST /ivrs/:id/upload-greeting error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/v1/settings/spam-protection", authenticateOrg, async (req, res) => {
+  try {
+    const o = await Organization.findByPk(req.orgId);
+    res.json(normalizeSpamProtection(o?.settings?.spam_protection));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put("/api/v1/settings/spam-protection", authenticateOrg, async (req, res) => {
+  try {
+    const o = await Organization.findByPk(req.orgId);
+    if (!o) return res.status(404).json({ error: 'organization not found' });
+    const next = normalizeSpamProtection(req.body);
+    // Validate every code in blocked_circles is a real circle. Cheap
+    // catch — keeps typos out of the persisted state.
+    if (next.blocked_circles.length > 0) {
+      const valid = await sequelize.query(
+        "SELECT DISTINCT circle_code FROM mobile_prefixes WHERE circle_code IN (" + next.blocked_circles.map(() => '?').join(',') + ")",
+        { replacements: next.blocked_circles, type: sequelize.QueryTypes.SELECT }
+      );
+      const validSet = new Set(valid.map((r) => r.circle_code));
+      const unknown = next.blocked_circles.filter((c) => !validSet.has(c));
+      if (unknown.length > 0) {
+        return res.status(400).json({ error: 'unknown circle code(s)', unknown });
+      }
+    }
+    // Detect whether the dialplan needs to be regenerated. The
+    // enforcement branches in dialplanGenerator emit ONLY when
+    // enabled && blocked_circles.length > 0, so we only redeploy
+    // when crossing that threshold OR the active set changes.
+    const prev = normalizeSpamProtection(o?.settings?.spam_protection);
+    const wasActive = prev.enabled && prev.blocked_circles.length > 0;
+    const isActive = next.enabled && next.blocked_circles.length > 0;
+    const circlesChanged = prev.blocked_circles.join(',') !== next.blocked_circles.join(',');
+    const greetingChanged = prev.greeting_id !== next.greeting_id;
+    const needsRedeploy = (wasActive !== isActive) || (isActive && (circlesChanged || greetingChanged));
+
+    const s = JSON.parse(JSON.stringify(o.settings || {}));
+    s.spam_protection = next;
+    await o.update({ settings: s });
+
+    // Auto-deploy the dialplan so the new spam_check / spam_blocked
+    // contexts (or their removal) take effect immediately. Same pattern
+    // as DID/queue/user updates — see server.js:1698 for precedent.
+    // Fire-and-warn — a deploy failure doesn't unsave the DB change;
+    // the operator can re-save to retry the deploy.
+    if (needsRedeploy) {
+      try {
+        await configDeploymentService.deployOrganizationConfiguration(req.orgId, req.organization.name);
+        await configDeploymentService.reloadAsteriskConfiguration();
+      } catch (deployErr) {
+        console.warn('[spam-protection] auto-deploy after settings change failed:', deployErr.message);
+      }
+    }
+
+    res.json(next);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/v1/circles", authenticateOrg, async (req, res) => {
+  try {
+    const rows = await sequelize.query(
+      "SELECT circle_code, MIN(circle_name) AS circle_name, MIN(category) AS category, COUNT(*) AS prefix_count " +
+      "FROM mobile_prefixes " +
+      "GROUP BY circle_code " +
+      "ORDER BY circle_code",
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    const circles = rows.map((r) => ({
+      code: r.circle_code,
+      name: r.circle_name,
+      category: r.category,
+      prefix_count: Number(r.prefix_count) || 0,
+    }));
+    res.json({ circles });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/v1/calls/export', authenticateOrg, async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const org = req.organization;
+    const prefix = org?.context_prefix || '';
+    const { direction, disposition, from, to, search } = req.query;
+
+    // Date range: cap at 31 days (1 calendar month — covers the longest
+    // month so operators can grab "Jan" or "Mar" in one go). Kept tight to
+    // keep export payloads small for busy hospital orgs; if a customer
+    // ever needs a wider window, raise this cap deliberately rather than
+    // hand them a slow endpoint.
+    const MAX_DAYS = 31;
+    const today = new Date(); today.setHours(23, 59, 59, 999);
+    const defaultFrom = new Date(today); defaultFrom.setDate(defaultFrom.getDate() - 30);
+    const parseDateOrNull = (s) => {
+      if (!s) return null;
+      const d = new Date(s);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+    let dateFrom = parseDateOrNull(req.query.date_from) || defaultFrom;
+    let dateTo = parseDateOrNull(req.query.date_to) || today;
+    if (dateFrom > dateTo) {
+      return res.status(400).json({ error: 'date_from must be before date_to' });
+    }
+    const spanDays = Math.ceil((dateTo - dateFrom) / 86400000);
+    if (spanDays > MAX_DAYS) {
+      return res.status(400).json({
+        error: 'Export range is capped at 1 month. Narrow the date filter and try again.',
+        max_days: MAX_DAYS,
+        requested_days: spanDays,
+      });
+    }
+    const dateFromSql = dateFrom.toISOString().slice(0, 19).replace('T', ' ');
+    const dateToSql = dateTo.toISOString().slice(0, 19).replace('T', ' ');
+
+    // Same base predicates as /api/v1/calls so the export shows exactly
+    // what the operator sees in the UI for the same filter combination.
+    const conditions = [
+      "(t.accountcode = ? OR t.peeraccount = ? OR t.channel LIKE ?)",
+      "(t.channel NOT LIKE 'Local/%' OR t.dstchannel LIKE 'PJSIP/%')",
+      "NOT (t.disposition = 'ANSWERED' AND t.billsec = 0 AND t.dcontext != 'ai-outbound')",
+      "t.dst != 's'",
+      "t.calldate >= ?",
+      "t.calldate <= ?",
+    ];
+    const params = [orgId, orgId, '%' + prefix + '%', dateFromSql, dateToSql];
+
+    if (direction && direction !== 'all') {
+      if (direction === 'inbound') conditions.push("t.dcontext LIKE '%incoming%'");
+      else if (direction === 'outbound') conditions.push("(t.dcontext LIKE '%outbound%' OR t.dcontext = 'ai-outbound' OR (t.dcontext LIKE '%internal' AND t.lastapp = 'Dial' AND t.lastdata LIKE '%@%trunk%'))");
+      else if (direction === 'internal') conditions.push("t.dcontext LIKE '%internal%' AND NOT (t.lastapp = 'Dial' AND t.lastdata LIKE '%@%trunk%')");
+    }
+    if (disposition) {
+      conditions.push("t.disposition = ?");
+      params.push(String(disposition).toUpperCase());
+    }
+    if (from) {
+      conditions.push("t.src LIKE ?");
+      params.push('%' + String(from).replace(/\D/g, '') + '%');
+    }
+    if (to) {
+      conditions.push("(t.dst LIKE ? OR t.dstchannel LIKE ?)");
+      const digits = '%' + String(to).replace(/\D/g, '') + '%';
+      params.push(digits, digits);
+    }
+    if (search) {
+      conditions.push("(t.src LIKE ? OR t.dst LIKE ? OR t.clid LIKE ?)");
+      const s = '%' + String(search) + '%';
+      params.push(s, s, s);
+    }
+
+    const where = "WHERE " + conditions.join(" AND ");
+
+    // 50k cap is well above any plausible 3-month hospital volume but
+    // bounds memory if a misconfigured org somehow has millions of rows.
+    const HARD_CAP = 50000;
+    const rows = await sequelize.query(
+      `SELECT
+        t.calldate,
+        t.src AS from_number,
+        CASE
+          WHEN t.lastapp = 'Queue' AND t.disposition = 'ANSWERED' AND t.dstchannel LIKE 'Local/%' AND u.extension IS NOT NULL
+            THEN CONCAT('Queue ', SUBSTRING_INDEX(SUBSTRING_INDEX(t.lastdata, ',', 1), '_', -1), ' [', u.extension, ']')
+          WHEN t.lastapp = 'Queue'
+            THEN CONCAT('Queue ', SUBSTRING_INDEX(SUBSTRING_INDEX(t.lastdata, ',', 1), '_', -1))
+          WHEN t.dst LIKE 'qm%' AND CHAR_LENGTH(t.dst) = 34 AND u.extension IS NOT NULL
+            THEN u.extension
+          WHEN t.dst LIKE 'qm%' AND CHAR_LENGTH(t.dst) = 34
+            THEN 'queue member'
+          ELSE t.dst
+        END AS to_number,
+        CASE
+          WHEN t.dcontext = 'ai-outbound' THEN 'outbound'
+          WHEN t.dcontext LIKE '%incoming%' THEN 'inbound'
+          WHEN t.dcontext LIKE '%outbound%' THEN 'outbound'
+          WHEN t.dcontext LIKE '%internal' AND t.lastapp = 'Dial' AND t.lastdata LIKE '%@%trunk%' THEN 'outbound'
+          ELSE 'internal'
+        END AS direction,
+        t.duration,
+        t.billsec AS talk_time,
+        (t.duration - t.billsec) AS wait_time,
+        t.disposition,
+        CASE t.userfield
+          WHEN 'org_cap_rejected'   THEN 'org_cap'
+          WHEN 'trunk_cap_rejected' THEN 'trunk_cap'
+          ELSE NULL
+        END AS cap_rejected,
+        CASE WHEN t.recordingfile != '' AND t.billsec > 0
+          THEN CONCAT('/api/v1/calls/', t.id, '/recording')
+          ELSE NULL
+        END AS recording_url
+      FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY linkedid ORDER BY
+          CASE WHEN disposition = 'ANSWERED' AND billsec > 0 THEN 0 ELSE 1 END,
+          duration DESC, id DESC) AS rn,
+          CASE
+            WHEN dstchannel LIKE 'Local/qm%@%'
+              THEN SUBSTRING_INDEX(SUBSTRING_INDEX(dstchannel, '/', -1), '@', 1)
+            WHEN dst LIKE 'qm%' AND CHAR_LENGTH(dst) = 34
+              THEN dst
+            ELSE NULL
+          END AS qm_token
+        FROM asterisk_cdr t ${where}
+      ) t
+      LEFT JOIN queue_members qm_tbl ON t.qm_token IS NOT NULL AND qm_tbl.id = LOWER(CONCAT_WS('-',
+        SUBSTRING(t.qm_token, 3, 8),
+        SUBSTRING(t.qm_token, 11, 4),
+        SUBSTRING(t.qm_token, 15, 4),
+        SUBSTRING(t.qm_token, 19, 4),
+        SUBSTRING(t.qm_token, 23, 12)
+      ))
+      LEFT JOIN users u ON qm_tbl.user_id = u.id
+      WHERE t.rn = 1
+      ORDER BY t.calldate DESC
+      LIMIT ${HARD_CAP}`,
+      { replacements: params, type: sequelize.QueryTypes.SELECT }
+    );
+
+    // CSV escape per RFC 4180: wrap in quotes only if needed; double internal
+    // quotes. NULL → empty cell. Numbers stringified plain.
+    const esc = (v) => {
+      if (v == null) return '';
+      const s = String(v);
+      if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    };
+    const headers = [
+      'Date Time',
+      'From',
+      'To',
+      'Direction',
+      'Duration (s)',
+      'Talk Time (s)',
+      'Wait Time (s)',
+      'Status',
+      'Cap Rejected',
+      'Recording URL',
+    ];
+    const lines = [headers.join(',')];
+    for (const r of rows) {
+      lines.push([
+        // ISO 8601 for sortable timestamps in Excel + locale-independent.
+        r.calldate ? new Date(r.calldate).toISOString() : '',
+        r.from_number,
+        r.to_number,
+        r.direction,
+        r.duration ?? 0,
+        r.talk_time ?? 0,
+        r.wait_time ?? 0,
+        r.disposition,
+        r.cap_rejected,
+        r.recording_url,
+      ].map(esc).join(','));
+    }
+    const csv = lines.join('\r\n') + '\r\n';
+
+    const dateTag = new Date().toISOString().slice(0, 10);
+    const orgSlug = (org?.context_prefix || 'org').replace(/[^a-zA-Z0-9_-]/g, '');
+    const filename = `calls-${orgSlug}-${dateTag}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('X-Export-Rows', String(rows.length));
+    res.setHeader('X-Export-Range-Days', String(spanDays));
+    // UTF-8 BOM so Excel opens the file with correct encoding (otherwise
+    // Indian phone numbers with non-ASCII city/state names in caller IDs
+    // render mojibake).
+    res.write('﻿');
+    res.end(csv);
+  } catch (error) {
+    console.error('GET /api/v1/calls/export error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // 404 handler - MUST BE LAST
