@@ -1239,14 +1239,17 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 .cmp-drawer-overlay {
   position: fixed; inset: 0;
   background: oklch(0 0 0 / 0.35);
-  z-index: 40; animation: cmpFadeIn .15s;
+  /* Sit above the sticky site header (z-50) so the modal truly takes
+     over — otherwise the header's GitHub button shows through and the
+     drawer title is clipped behind the header bar. */
+  z-index: 60; animation: cmpFadeIn .15s;
 }
 .cmp-drawer {
   position: fixed; top: 0; right: 0;
   height: 100vh; width: 520px; max-width: 100%;
   background: var(--card);
   border-left: 1px solid var(--border);
-  z-index: 41;
+  z-index: 61;
   display: flex; flex-direction: column;
   box-shadow: -8px 0 30px rgba(0,0,0,0.1);
   animation: cmpSlideR .18s ease-out;
