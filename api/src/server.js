@@ -7978,366 +7978,7 @@ app.get('/api/v1/roles', authenticateOrg, async (req, res) => {
   res.json({ roles });
 });
 
-// 404 handler - MUST BE LAST
-// ========================================
-app.use((req, res) => {
-  res.status(404).json({
-    error: 'Not Found',
-    message: `Endpoint ${req.originalUrl} not found`,
-    documentation: '/api'
-  });
-});
 
-// ========================================
-// START SERVER
-// ========================================
-
-// Initialize database and start server
-(async () => {
-  try {
-    // Test database connection
-    await sequelize.authenticate();
-    console.log('📊 Database connection established successfully.');
-
-    // NOTE: sequelize.sync() removed (audit finding P0 #1).
-    // We use sequelize-cli migrations as the source of truth for schema.
-    // sync() created tables from model definitions BEFORE migrations on
-    // fresh deploys, causing 1061 Duplicate-key collisions when migrations
-    // tried to addIndex on indexes sync had already created (real incidents:
-    // customer_tunnels in PR #126, tunnel_metrics in PR #132).
-    //
-    // Local dev / fresh databases should be initialized via:
-    //   npx sequelize-cli db:migrate
-    // (or src/scripts/setup-database.js which still uses sync({force}) for
-    // throwaway dev databases).
-
-    // Start Event Listener Service (AMI/ARI)
-    try {
-      await eventListenerService.start();
-    } catch (error) {
-      console.error('⚠️  Warning: Event Listener Service failed to start:', error.message);
-      console.error('   Webhooks and events may not work properly.');
-      console.error('   Check Asterisk AMI/ARI configuration and try again.');
-    }
-
-    // Start server
-    app.listen(PORT, HOST, () => {
-  console.log(`
-╔════════════════════════════════════════════════════════╗
-║         Multi-Tenant PBX API Server Started           ║
-╠════════════════════════════════════════════════════════╣
-║                                                        ║
-║  🚀 Server:     http://${HOST}:${PORT}                    ║
-║  📚 API Docs:   http://${HOST}:${PORT}/api               ║
-║  💚 Health:     http://${HOST}:${PORT}/health            ║
-║                                                        ║
-║  🔐 Get Started:                                       ║
-║     1. Create organization:                           ║
-║        POST /api/v1/organizations                     ║
-║     2. Use returned API key in X-API-Key header       ║
-║     3. Start configuring trunks, DIDs, users, etc.    ║
-║                                                        ║
-║  📊 Features:                                          ║
-║     ✅ Multi-tenant isolation                         ║
-║     ✅ SIP trunk management                           ║
-║     ✅ DID number routing                             ║
-║     ✅ User & queue management                        ║
-║     ✅ Call routing (queue, AI agent, extension)      ║
-║     ✅ Webhook notifications                          ║
-║     ✅ Call recording control                         ║
-║     ✅ Live call statistics                           ║
-║                                                        ║
-╚════════════════════════════════════════════════════════╝
-  `);
-
-      // WireGuard customer-tunnels status poller — captures `wg show wg1 dump`
-      // every 60s and writes per-tunnel snapshots to tunnel_metrics for the UI
-      // charts. Safe no-op when wg1 isn't bootstrapped (errors are logged but
-      // the poller keeps trying — auto-recovers when wg1 comes up).
-      try {
-        const { WireguardStatusPoller } = require('./services/network/wireguardStatusPoller');
-        const models = require('./models');
-        const wgPoller = new WireguardStatusPoller({
-          models,
-          intervalMs: Number(process.env.WG_POLLER_INTERVAL_MS) || 60_000
-        });
-        wgPoller.start();
-        // Expose for /health enrichment + graceful shutdown if needed
-        app.locals.wgPoller = wgPoller;
-        console.log('WireGuard status poller started (60s interval)');
-      } catch (err) {
-        console.error('WireGuard status poller failed to start:', err.message);
-        // Don't crash — feature isn't critical for boot
-      }
-
-      // CDR poller: check asterisk_cdr for new inbound records every 30s
-      // Backup for AMI CDR events which may not fire reliably
-      let lastCdrId = 0;
-      async function initCdrPoller() {
-        try {
-          const r = await sequelize.query("SELECT MAX(id) as maxid FROM asterisk_cdr", { plain: true, raw: true });
-          lastCdrId = (r && r.maxid) || 0;
-          console.log('CDR poller started, last ID: ' + lastCdrId);
-        } catch (e) { console.error('CDR poller init failed:', e.message); }
-      }
-      // Local classifier — replaces the events.example.com round-trip
-      // for MariaDB ticket writes. Lazy-required to avoid a circular
-      // import during boot. Defined here so pollCdr's closure can see it.
-      const { classifyAndUpsertTicket } = require('./services/ticketClassifier');
-      async function pollCdr() {
-        try {
-          // Only classify CDR rows whose call has been SETTLED for at
-          // least 30 seconds.
-          //
-          // A queue call can produce multiple parent CDR rows when
-          // app_queue retries members internally (one row per attempt).
-          // If pollCdr classifies the first row immediately, it sees a
-          // NO_ANSWER shape and creates a "Queue Timeout" ticket — even
-          // if the second attempt 5s later got answered and would have
-          // produced an ANSWERED row that should win the dedup. By
-          // waiting 30s past the row's notional end (`calldate + duration`),
-          // every retry CDR for the same linkedid is guaranteed to be
-          // in the DB, so the dedup below picks the right representative
-          // on the first pass and no bogus ticket is ever created.
-          //
-          // Tradeoff: tickets land ~30s after the call ends instead of
-          // ~immediately. Acceptable — operator workflows handle that.
-          // The cross-batch auto-close in the classifier stays as a
-          // belt-and-suspenders safety net for edge cases (clock skew,
-          // batches spanning >30s of activity, etc.).
-          const allRows = await sequelize.query(
-            "SELECT id, calldate, src, dst, dcontext, channel, dstchannel, lastapp, lastdata, " +
-            "duration, billsec, disposition, uniqueid, linkedid, recordingfile, accountcode, peeraccount " +
-            "FROM asterisk_cdr WHERE id > ? AND channel NOT LIKE 'Local/%' " +
-            "AND DATE_ADD(calldate, INTERVAL duration SECOND) < (NOW() - INTERVAL 30 SECOND) " +
-            "ORDER BY id ASC LIMIT 50",
-            { replacements: [lastCdrId], type: sequelize.QueryTypes.SELECT }
-          );
-          if (!allRows || allRows.length === 0) return;
-          // Update lastCdrId to max of all fetched
-          for (const r of allRows) lastCdrId = Math.max(lastCdrId, r.id);
-          // Dedup: keep one record per linkedid. Prefer rows where a
-          // member actually answered with talk time (ANSWERED +
-          // billsec > 0); fall back to longest duration as tiebreak.
-          //
-          // The previous "longest duration wins" rule was a bug for
-          // queue calls that retried: a 75s NO_ANSWER first round on
-          // Landline would beat the 45s ANSWERED round on Raman, and
-          // the classifier would create a "Queue Timeout" ticket on
-          // a call the caller actually had a conversation on.
-          // Reproduced 2026-05-16 on Thangavelu Hospital queue 5002.
-          const byLinked = {};
-          for (const r of allRows) {
-            const lid = r.linkedid || r.uniqueid;
-            const existing = byLinked[lid];
-            if (!existing) { byLinked[lid] = r; continue; }
-            const score = (row) => (row.disposition === 'ANSWERED' && row.billsec > 0) ? 1 : 0;
-            const sNew = score(r);
-            const sOld = score(existing);
-            if (sNew > sOld) { byLinked[lid] = r; }
-            else if (sNew === sOld && r.duration > existing.duration) { byLinked[lid] = r; }
-          }
-          const rows = Object.values(byLinked);
-          // axios is already required at the top of this file (line 14) and
-          // captured in closure scope here. The previous code re-required it
-          // on every poll cycle (every 30s); during CI deploys the `npm ci`
-          // step briefly tears down + rebuilds node_modules, and if the CDR
-          // poll fired during that window, the inner require would fail with
-          // "Cannot find module '.../axios/dist/node/axios.cjs'". Removed.
-          const autoTicketUrl = process.env.AUTO_TICKET_URL || 'https://events.example.com';
-          for (const r of rows) {
-            // Determine org_id from accountcode, peeraccount, or channel prefix
-            let orgId = r.accountcode || r.peeraccount || '';
-            if (!orgId || orgId.length < 10) {
-              // Extract org from channel name (e.g. PJSIP/org_demo_trunk... -> org_demo_)
-              const ch = r.channel || '';
-              const prefixMatch = ch.match(/PJSIP\/(\w+?)trunk/);
-              if (prefixMatch && prefixMatch[1]) {
-                // Look up org_id from context_prefix cache
-                if (!pollCdr._orgCache) pollCdr._orgCache = {};
-                const prefix = prefixMatch[1];
-                if (!pollCdr._orgCache[prefix]) {
-                  const orgRows = await sequelize.query(
-                    "SELECT id FROM organizations WHERE context_prefix = ?",
-                    { replacements: [prefix], plain: true, raw: true }
-                  );
-                  pollCdr._orgCache[prefix] = orgRows ? orgRows.id : '';
-                }
-                orgId = pollCdr._orgCache[prefix] || '';
-              }
-              if (!orgId || orgId.length < 10) continue;
-            }
-            // Outbound trunk leg: when Asterisk writes the auto-CDR for an
-            // originate, it records the PJSIP channel with dst='s' (the trunk
-            // leg has no "dialed extension" from the dialplan's POV). This row
-            // looks like an inbound call (src=customer phone, dcontext=*_incoming)
-            // and used to create false-positive missed_call tickets.
-            //
-            // Backfill the paired ai-outbound row with the REAL disposition,
-            // duration and billsec (the manual row inserted at originate time
-            // hard-codes disposition='ANSWERED' duration=0 billsec=0 because it
-            // doesn't know the outcome yet), then skip forwarding this row to
-            // the auto-ticket pipeline.
-            //
-            // The UPDATE is scoped by (dcontext='ai-outbound', dst=<customer>,
-            // calldate within 60s of the auto row), so it only touches the
-            // matching manual row for this specific call. Safe for real inbound
-            // (they never have dst='s', so they don't enter this branch at all).
-            if (r.dst === 's' && (r.channel || '').includes('trunk')) {
-              try {
-                await sequelize.query(
-                  "UPDATE asterisk_cdr SET disposition = ?, duration = ?, billsec = ? " +
-                  "WHERE dcontext = 'ai-outbound' AND dst = ? " +
-                  "AND calldate BETWEEN DATE_SUB(?, INTERVAL 60 SECOND) AND DATE_ADD(?, INTERVAL 60 SECOND)",
-                  { replacements: [r.disposition || '', r.duration || 0, r.billsec || 0, r.src || '', r.calldate, r.calldate] }
-                );
-                console.log('CDR poll: backfilled ai-outbound for ' + (r.src || '?') + ' → ' + (r.disposition || '?') + ' ' + (r.duration || 0) + 's');
-              } catch (e) {
-                console.error('CDR poll: backfill failed for row ' + r.id + ':', e.message);
-              }
-              continue;
-            }
-            // Determine direction. The original classifier relied on the
-            // channel name containing "trunk", which matches per-org outbound
-            // trunk endpoints (e.g. PJSIP/org_mna9x47k_trunk-...) but NOT the
-            // shared tata_gateway endpoint that receives calls from the NUC
-            // WireGuard tunnel on the staging cloud. Treat any CDR whose
-            // dcontext ends with "_incoming" as inbound as a safety net so
-            // staging's Tata-dispatch pipeline is picked up by the poller.
-            let direction = 'internal';
-            const ch = r.channel || '';
-            const ctx = r.dcontext || '';
-            if (ch.includes('trunk') && (r.src || '').length >= 7) direction = 'inbound';
-            else if (ctx.includes('outbound') || (r.dst || '').length >= 7 && (r.src || '').length <= 5) direction = 'outbound';
-            else if (ch.includes('trunk') || ctx.endsWith('_incoming')) direction = 'inbound';
-            if (direction !== 'inbound') continue;
-            // Post to auto-ticket. Send X-Astradial-Env header when running in
-            // staging so LogsUpdate writes to the astrapbx_stage namespace
-            // instead of polluting prod tickets. Empty header on prod is a
-            // no-op — LogsUpdate defaults to the astrapbx collection.
-            //
-            // Flip ANSWERED → NO ANSWER for IVR/queue-abandoned inbound
-            // calls (no real member bridge). Predicate lives in
-            // services/cdrDispositionOverride.js so it stays in lockstep
-            // with ticketClassifier.js's realPjsipBridge/realQueueBridge
-            // shapes. Divergence here previously created bogus
-            // "Queue Timeout" tickets on answered queue calls
-            // (2026-05-16 V7 incident, org 00000001).
-            const { effectiveDisposition } = require('./services/cdrDispositionOverride');
-            const classifierDisposition = direction === 'inbound'
-              ? effectiveDisposition(r)
-              : (r.disposition || '');
-            axios.post(`${autoTicketUrl}/auto-ticket/${orgId}`, {
-              call_id: r.uniqueid || String(r.id),
-              from_number: r.src || '',
-              to_number: r.dst || '',
-              direction,
-              disposition: classifierDisposition,
-              duration: r.billsec || 0,
-              total_duration: r.duration || 0,
-              channel: r.channel || '',
-              destination_channel: r.dstchannel || '',
-              destination_context: r.dcontext || '',
-              recording_file: r.recordingfile || '',
-              timestamp: r.calldate ? new Date(r.calldate).toISOString() : new Date().toISOString(),
-            }, {
-              headers: { 'X-Astradial-Env': process.env.ASTRADIAL_ENV || '' },
-            }).catch(err => console.error('CDR poll auto-ticket failed:', err.message));
-
-            // Dual-write to MariaDB tickets (Firestore migration).
-            // Classifier runs in-process — no network hop. On a clean
-            // ANSWERED bridge to a human or a bot-handled call, we
-            // skip and produce no ticket. Otherwise dedup-upsert.
-            // Fire-and-forget so a tickets bug never blocks the
-            // Firestore POST during dual-write.
-            //
-            // Flag gate: orgs listed in
-            // `TICKETS_FROM_CALLLOGS_ENABLED_ORG_IDS` use the new
-            // call-logs-driven scheduler (jobs/ticketsFromCallLogsScheduler.js)
-            // instead of this per-row classifier. Skipping here for
-            // those orgs avoids double-write. Firestore POST above is
-            // unaffected and continues for all orgs. The wildcard
-            // '*' means "every org goes through the scheduler" — the
-            // legacy classifier is then effectively retired (it still
-            // exists for the case where the flag is later narrowed).
-            const _clq = require('./services/callLogsTicketQuery');
-            const _callLogsOrgs = _clq.parseEnabledOrgs(process.env.TICKETS_FROM_CALLLOGS_ENABLED_ORG_IDS);
-            if (!_clq.isOrgEnabled(orgId, _callLogsOrgs)) {
-              classifyAndUpsertTicket(r, orgId, classifierDisposition).catch(err =>
-                console.error('CDR poll MariaDB ticket upsert failed:', err.message)
-              );
-            }
-          }
-        } catch (e) { console.error('CDR poll error:', e.message); }
-      }
-      console.log("CDR poller: initializing..."); initCdrPoller().then(() => console.log("CDR poller: init done")).catch(e => console.error("CDR poller init CATCH:", e));
-      setInterval(pollCdr, 30000);
-
-      // Daily 18:00 IST WhatsApp missed-call alert scheduler. Safe to
-      // arm regardless of MSG91 env state — runOnce() refuses to send
-      // (and audit-logs why) if the auth key or admin config is missing.
-      try {
-        require('./jobs/ticketAlertScheduler').start();
-      } catch (e) {
-        console.error('❌ Failed to start ticket-alert scheduler:', e.message);
-      }
-
-      // Call-logs-driven ticket scheduler. Always arms — loops idle
-      // when `TICKETS_FROM_CALLLOGS_ENABLED_ORG_IDS` is empty so
-      // flipping the env later + restart picks it up without code
-      // changes. Per-org gating happens inside the SQL query.
-      try {
-        require('./jobs/ticketsFromCallLogsScheduler').start();
-      } catch (e) {
-        console.error('❌ Failed to start tickets-from-call-logs scheduler:', e.message);
-      }
-
-    });
-  } catch (error) {
-    console.error('❌ Failed to start server:', error);
-    process.exit(1);
-  }
-})();
-
-module.exports = app;
-
-// Graceful shutdown handler
-// Stop background services in order: pollers BEFORE sequelize.close() so the
-// poller doesn't attempt a TunnelMetric.create() against a closed connection.
-async function stopBackgroundServices() {
-  try {
-    if (app.locals.wgPoller) {
-      app.locals.wgPoller.stop();
-      console.log("🛑 WireGuard status poller stopped.");
-    }
-  } catch (e) {
-    console.error("Failed to stop wg poller:", e.message);
-  }
-  try {
-    require('./jobs/ticketAlertScheduler').stop();
-  } catch (e) {
-    console.error("Failed to stop ticket-alert scheduler:", e.message);
-  }
-  await eventListenerService.stop();
-}
-
-process.on("SIGINT", async () => {
-  console.log("\n\n👋 Received SIGINT, shutting down gracefully...");
-  await stopBackgroundServices();
-  await sequelize.close();
-  console.log("📊 Database connection closed.");
-  console.log("✅ Server shut down complete.\n");
-  process.exit(0);
-});
-
-process.on("SIGTERM", async () => {
-  console.log("\n\n👋 Received SIGTERM, shutting down gracefully...");
-  await stopBackgroundServices();
-  await sequelize.close();
-  console.log("📊 Database connection closed.");
-  console.log("✅ Server shut down complete.\n");
-  process.exit(0);
-});
 
 // ============================================================
 // Synced from astradial-platform (2026-05-24) — features that hadn't
@@ -8778,4 +8419,365 @@ app.get('/api/v1/calls/export', authenticateOrg, async (req, res) => {
     console.error('GET /api/v1/calls/export error:', error.message);
     res.status(500).json({ error: error.message });
   }
+});
+
+// 404 handler - MUST BE LAST
+// ========================================
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    message: `Endpoint ${req.originalUrl} not found`,
+    documentation: '/api'
+  });
+});
+
+// ========================================
+// START SERVER
+// ========================================
+
+// Initialize database and start server
+(async () => {
+  try {
+    // Test database connection
+    await sequelize.authenticate();
+    console.log('📊 Database connection established successfully.');
+
+    // NOTE: sequelize.sync() removed (audit finding P0 #1).
+    // We use sequelize-cli migrations as the source of truth for schema.
+    // sync() created tables from model definitions BEFORE migrations on
+    // fresh deploys, causing 1061 Duplicate-key collisions when migrations
+    // tried to addIndex on indexes sync had already created (real incidents:
+    // customer_tunnels in PR #126, tunnel_metrics in PR #132).
+    //
+    // Local dev / fresh databases should be initialized via:
+    //   npx sequelize-cli db:migrate
+    // (or src/scripts/setup-database.js which still uses sync({force}) for
+    // throwaway dev databases).
+
+    // Start Event Listener Service (AMI/ARI)
+    try {
+      await eventListenerService.start();
+    } catch (error) {
+      console.error('⚠️  Warning: Event Listener Service failed to start:', error.message);
+      console.error('   Webhooks and events may not work properly.');
+      console.error('   Check Asterisk AMI/ARI configuration and try again.');
+    }
+
+    // Start server
+    app.listen(PORT, HOST, () => {
+  console.log(`
+╔════════════════════════════════════════════════════════╗
+║         Multi-Tenant PBX API Server Started           ║
+╠════════════════════════════════════════════════════════╣
+║                                                        ║
+║  🚀 Server:     http://${HOST}:${PORT}                    ║
+║  📚 API Docs:   http://${HOST}:${PORT}/api               ║
+║  💚 Health:     http://${HOST}:${PORT}/health            ║
+║                                                        ║
+║  🔐 Get Started:                                       ║
+║     1. Create organization:                           ║
+║        POST /api/v1/organizations                     ║
+║     2. Use returned API key in X-API-Key header       ║
+║     3. Start configuring trunks, DIDs, users, etc.    ║
+║                                                        ║
+║  📊 Features:                                          ║
+║     ✅ Multi-tenant isolation                         ║
+║     ✅ SIP trunk management                           ║
+║     ✅ DID number routing                             ║
+║     ✅ User & queue management                        ║
+║     ✅ Call routing (queue, AI agent, extension)      ║
+║     ✅ Webhook notifications                          ║
+║     ✅ Call recording control                         ║
+║     ✅ Live call statistics                           ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+  `);
+
+      // WireGuard customer-tunnels status poller — captures `wg show wg1 dump`
+      // every 60s and writes per-tunnel snapshots to tunnel_metrics for the UI
+      // charts. Safe no-op when wg1 isn't bootstrapped (errors are logged but
+      // the poller keeps trying — auto-recovers when wg1 comes up).
+      try {
+        const { WireguardStatusPoller } = require('./services/network/wireguardStatusPoller');
+        const models = require('./models');
+        const wgPoller = new WireguardStatusPoller({
+          models,
+          intervalMs: Number(process.env.WG_POLLER_INTERVAL_MS) || 60_000
+        });
+        wgPoller.start();
+        // Expose for /health enrichment + graceful shutdown if needed
+        app.locals.wgPoller = wgPoller;
+        console.log('WireGuard status poller started (60s interval)');
+      } catch (err) {
+        console.error('WireGuard status poller failed to start:', err.message);
+        // Don't crash — feature isn't critical for boot
+      }
+
+      // CDR poller: check asterisk_cdr for new inbound records every 30s
+      // Backup for AMI CDR events which may not fire reliably
+      let lastCdrId = 0;
+      async function initCdrPoller() {
+        try {
+          const r = await sequelize.query("SELECT MAX(id) as maxid FROM asterisk_cdr", { plain: true, raw: true });
+          lastCdrId = (r && r.maxid) || 0;
+          console.log('CDR poller started, last ID: ' + lastCdrId);
+        } catch (e) { console.error('CDR poller init failed:', e.message); }
+      }
+      // Local classifier — replaces the events.example.com round-trip
+      // for MariaDB ticket writes. Lazy-required to avoid a circular
+      // import during boot. Defined here so pollCdr's closure can see it.
+      const { classifyAndUpsertTicket } = require('./services/ticketClassifier');
+      async function pollCdr() {
+        try {
+          // Only classify CDR rows whose call has been SETTLED for at
+          // least 30 seconds.
+          //
+          // A queue call can produce multiple parent CDR rows when
+          // app_queue retries members internally (one row per attempt).
+          // If pollCdr classifies the first row immediately, it sees a
+          // NO_ANSWER shape and creates a "Queue Timeout" ticket — even
+          // if the second attempt 5s later got answered and would have
+          // produced an ANSWERED row that should win the dedup. By
+          // waiting 30s past the row's notional end (`calldate + duration`),
+          // every retry CDR for the same linkedid is guaranteed to be
+          // in the DB, so the dedup below picks the right representative
+          // on the first pass and no bogus ticket is ever created.
+          //
+          // Tradeoff: tickets land ~30s after the call ends instead of
+          // ~immediately. Acceptable — operator workflows handle that.
+          // The cross-batch auto-close in the classifier stays as a
+          // belt-and-suspenders safety net for edge cases (clock skew,
+          // batches spanning >30s of activity, etc.).
+          const allRows = await sequelize.query(
+            "SELECT id, calldate, src, dst, dcontext, channel, dstchannel, lastapp, lastdata, " +
+            "duration, billsec, disposition, uniqueid, linkedid, recordingfile, accountcode, peeraccount " +
+            "FROM asterisk_cdr WHERE id > ? AND channel NOT LIKE 'Local/%' " +
+            "AND DATE_ADD(calldate, INTERVAL duration SECOND) < (NOW() - INTERVAL 30 SECOND) " +
+            "ORDER BY id ASC LIMIT 50",
+            { replacements: [lastCdrId], type: sequelize.QueryTypes.SELECT }
+          );
+          if (!allRows || allRows.length === 0) return;
+          // Update lastCdrId to max of all fetched
+          for (const r of allRows) lastCdrId = Math.max(lastCdrId, r.id);
+          // Dedup: keep one record per linkedid. Prefer rows where a
+          // member actually answered with talk time (ANSWERED +
+          // billsec > 0); fall back to longest duration as tiebreak.
+          //
+          // The previous "longest duration wins" rule was a bug for
+          // queue calls that retried: a 75s NO_ANSWER first round on
+          // Landline would beat the 45s ANSWERED round on Raman, and
+          // the classifier would create a "Queue Timeout" ticket on
+          // a call the caller actually had a conversation on.
+          // Reproduced 2026-05-16 on Thangavelu Hospital queue 5002.
+          const byLinked = {};
+          for (const r of allRows) {
+            const lid = r.linkedid || r.uniqueid;
+            const existing = byLinked[lid];
+            if (!existing) { byLinked[lid] = r; continue; }
+            const score = (row) => (row.disposition === 'ANSWERED' && row.billsec > 0) ? 1 : 0;
+            const sNew = score(r);
+            const sOld = score(existing);
+            if (sNew > sOld) { byLinked[lid] = r; }
+            else if (sNew === sOld && r.duration > existing.duration) { byLinked[lid] = r; }
+          }
+          const rows = Object.values(byLinked);
+          // axios is already required at the top of this file (line 14) and
+          // captured in closure scope here. The previous code re-required it
+          // on every poll cycle (every 30s); during CI deploys the `npm ci`
+          // step briefly tears down + rebuilds node_modules, and if the CDR
+          // poll fired during that window, the inner require would fail with
+          // "Cannot find module '.../axios/dist/node/axios.cjs'". Removed.
+          const autoTicketUrl = process.env.AUTO_TICKET_URL || 'https://events.example.com';
+          for (const r of rows) {
+            // Determine org_id from accountcode, peeraccount, or channel prefix
+            let orgId = r.accountcode || r.peeraccount || '';
+            if (!orgId || orgId.length < 10) {
+              // Extract org from channel name (e.g. PJSIP/org_demo_trunk... -> org_demo_)
+              const ch = r.channel || '';
+              const prefixMatch = ch.match(/PJSIP\/(\w+?)trunk/);
+              if (prefixMatch && prefixMatch[1]) {
+                // Look up org_id from context_prefix cache
+                if (!pollCdr._orgCache) pollCdr._orgCache = {};
+                const prefix = prefixMatch[1];
+                if (!pollCdr._orgCache[prefix]) {
+                  const orgRows = await sequelize.query(
+                    "SELECT id FROM organizations WHERE context_prefix = ?",
+                    { replacements: [prefix], plain: true, raw: true }
+                  );
+                  pollCdr._orgCache[prefix] = orgRows ? orgRows.id : '';
+                }
+                orgId = pollCdr._orgCache[prefix] || '';
+              }
+              if (!orgId || orgId.length < 10) continue;
+            }
+            // Outbound trunk leg: when Asterisk writes the auto-CDR for an
+            // originate, it records the PJSIP channel with dst='s' (the trunk
+            // leg has no "dialed extension" from the dialplan's POV). This row
+            // looks like an inbound call (src=customer phone, dcontext=*_incoming)
+            // and used to create false-positive missed_call tickets.
+            //
+            // Backfill the paired ai-outbound row with the REAL disposition,
+            // duration and billsec (the manual row inserted at originate time
+            // hard-codes disposition='ANSWERED' duration=0 billsec=0 because it
+            // doesn't know the outcome yet), then skip forwarding this row to
+            // the auto-ticket pipeline.
+            //
+            // The UPDATE is scoped by (dcontext='ai-outbound', dst=<customer>,
+            // calldate within 60s of the auto row), so it only touches the
+            // matching manual row for this specific call. Safe for real inbound
+            // (they never have dst='s', so they don't enter this branch at all).
+            if (r.dst === 's' && (r.channel || '').includes('trunk')) {
+              try {
+                await sequelize.query(
+                  "UPDATE asterisk_cdr SET disposition = ?, duration = ?, billsec = ? " +
+                  "WHERE dcontext = 'ai-outbound' AND dst = ? " +
+                  "AND calldate BETWEEN DATE_SUB(?, INTERVAL 60 SECOND) AND DATE_ADD(?, INTERVAL 60 SECOND)",
+                  { replacements: [r.disposition || '', r.duration || 0, r.billsec || 0, r.src || '', r.calldate, r.calldate] }
+                );
+                console.log('CDR poll: backfilled ai-outbound for ' + (r.src || '?') + ' → ' + (r.disposition || '?') + ' ' + (r.duration || 0) + 's');
+              } catch (e) {
+                console.error('CDR poll: backfill failed for row ' + r.id + ':', e.message);
+              }
+              continue;
+            }
+            // Determine direction. The original classifier relied on the
+            // channel name containing "trunk", which matches per-org outbound
+            // trunk endpoints (e.g. PJSIP/org_mna9x47k_trunk-...) but NOT the
+            // shared tata_gateway endpoint that receives calls from the NUC
+            // WireGuard tunnel on the staging cloud. Treat any CDR whose
+            // dcontext ends with "_incoming" as inbound as a safety net so
+            // staging's Tata-dispatch pipeline is picked up by the poller.
+            let direction = 'internal';
+            const ch = r.channel || '';
+            const ctx = r.dcontext || '';
+            if (ch.includes('trunk') && (r.src || '').length >= 7) direction = 'inbound';
+            else if (ctx.includes('outbound') || (r.dst || '').length >= 7 && (r.src || '').length <= 5) direction = 'outbound';
+            else if (ch.includes('trunk') || ctx.endsWith('_incoming')) direction = 'inbound';
+            if (direction !== 'inbound') continue;
+            // Post to auto-ticket. Send X-Astradial-Env header when running in
+            // staging so LogsUpdate writes to the astrapbx_stage namespace
+            // instead of polluting prod tickets. Empty header on prod is a
+            // no-op — LogsUpdate defaults to the astrapbx collection.
+            //
+            // Flip ANSWERED → NO ANSWER for IVR/queue-abandoned inbound
+            // calls (no real member bridge). Predicate lives in
+            // services/cdrDispositionOverride.js so it stays in lockstep
+            // with ticketClassifier.js's realPjsipBridge/realQueueBridge
+            // shapes. Divergence here previously created bogus
+            // "Queue Timeout" tickets on answered queue calls
+            // (2026-05-16 V7 incident, org 00000001).
+            const { effectiveDisposition } = require('./services/cdrDispositionOverride');
+            const classifierDisposition = direction === 'inbound'
+              ? effectiveDisposition(r)
+              : (r.disposition || '');
+            axios.post(`${autoTicketUrl}/auto-ticket/${orgId}`, {
+              call_id: r.uniqueid || String(r.id),
+              from_number: r.src || '',
+              to_number: r.dst || '',
+              direction,
+              disposition: classifierDisposition,
+              duration: r.billsec || 0,
+              total_duration: r.duration || 0,
+              channel: r.channel || '',
+              destination_channel: r.dstchannel || '',
+              destination_context: r.dcontext || '',
+              recording_file: r.recordingfile || '',
+              timestamp: r.calldate ? new Date(r.calldate).toISOString() : new Date().toISOString(),
+            }, {
+              headers: { 'X-Astradial-Env': process.env.ASTRADIAL_ENV || '' },
+            }).catch(err => console.error('CDR poll auto-ticket failed:', err.message));
+
+            // Dual-write to MariaDB tickets (Firestore migration).
+            // Classifier runs in-process — no network hop. On a clean
+            // ANSWERED bridge to a human or a bot-handled call, we
+            // skip and produce no ticket. Otherwise dedup-upsert.
+            // Fire-and-forget so a tickets bug never blocks the
+            // Firestore POST during dual-write.
+            //
+            // Flag gate: orgs listed in
+            // `TICKETS_FROM_CALLLOGS_ENABLED_ORG_IDS` use the new
+            // call-logs-driven scheduler (jobs/ticketsFromCallLogsScheduler.js)
+            // instead of this per-row classifier. Skipping here for
+            // those orgs avoids double-write. Firestore POST above is
+            // unaffected and continues for all orgs. The wildcard
+            // '*' means "every org goes through the scheduler" — the
+            // legacy classifier is then effectively retired (it still
+            // exists for the case where the flag is later narrowed).
+            const _clq = require('./services/callLogsTicketQuery');
+            const _callLogsOrgs = _clq.parseEnabledOrgs(process.env.TICKETS_FROM_CALLLOGS_ENABLED_ORG_IDS);
+            if (!_clq.isOrgEnabled(orgId, _callLogsOrgs)) {
+              classifyAndUpsertTicket(r, orgId, classifierDisposition).catch(err =>
+                console.error('CDR poll MariaDB ticket upsert failed:', err.message)
+              );
+            }
+          }
+        } catch (e) { console.error('CDR poll error:', e.message); }
+      }
+      console.log("CDR poller: initializing..."); initCdrPoller().then(() => console.log("CDR poller: init done")).catch(e => console.error("CDR poller init CATCH:", e));
+      setInterval(pollCdr, 30000);
+
+      // Daily 18:00 IST WhatsApp missed-call alert scheduler. Safe to
+      // arm regardless of MSG91 env state — runOnce() refuses to send
+      // (and audit-logs why) if the auth key or admin config is missing.
+      try {
+        require('./jobs/ticketAlertScheduler').start();
+      } catch (e) {
+        console.error('❌ Failed to start ticket-alert scheduler:', e.message);
+      }
+
+      // Call-logs-driven ticket scheduler. Always arms — loops idle
+      // when `TICKETS_FROM_CALLLOGS_ENABLED_ORG_IDS` is empty so
+      // flipping the env later + restart picks it up without code
+      // changes. Per-org gating happens inside the SQL query.
+      try {
+        require('./jobs/ticketsFromCallLogsScheduler').start();
+      } catch (e) {
+        console.error('❌ Failed to start tickets-from-call-logs scheduler:', e.message);
+      }
+
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+})();
+
+module.exports = app;
+
+// Graceful shutdown handler
+// Stop background services in order: pollers BEFORE sequelize.close() so the
+// poller doesn't attempt a TunnelMetric.create() against a closed connection.
+async function stopBackgroundServices() {
+  try {
+    if (app.locals.wgPoller) {
+      app.locals.wgPoller.stop();
+      console.log("🛑 WireGuard status poller stopped.");
+    }
+  } catch (e) {
+    console.error("Failed to stop wg poller:", e.message);
+  }
+  try {
+    require('./jobs/ticketAlertScheduler').stop();
+  } catch (e) {
+    console.error("Failed to stop ticket-alert scheduler:", e.message);
+  }
+  await eventListenerService.stop();
+}
+
+process.on("SIGINT", async () => {
+  console.log("\n\n👋 Received SIGINT, shutting down gracefully...");
+  await stopBackgroundServices();
+  await sequelize.close();
+  console.log("📊 Database connection closed.");
+  console.log("✅ Server shut down complete.\n");
+  process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+  console.log("\n\n👋 Received SIGTERM, shutting down gracefully...");
+  await stopBackgroundServices();
+  await sequelize.close();
+  console.log("📊 Database connection closed.");
+  console.log("✅ Server shut down complete.\n");
+  process.exit(0);
 });
