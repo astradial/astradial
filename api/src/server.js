@@ -7985,6 +7985,21 @@ app.get('/api/v1/roles', authenticateOrg, async (req, res) => {
 // reached OSS yet. See PR for details.
 // ============================================================
 
+// Normalize spam-protection settings — strips garbage from
+// untrusted JSON (PUT body or legacy DB rows) so downstream code can
+// trust the shape. Mirrors astradial-platform's helper.
+function normalizeSpamProtection(raw) {
+  const v = raw && typeof raw === 'object' ? raw : {};
+  const blocked = Array.isArray(v.blocked_circles)
+    ? v.blocked_circles.filter((c) => typeof c === 'string' && /^[A-Z]{2,3}$/.test(c))
+    : [];
+  return {
+    enabled: typeof v.enabled === 'boolean' ? v.enabled : false,
+    blocked_circles: [...new Set(blocked)].sort(),
+    greeting_id: typeof v.greeting_id === 'string' && v.greeting_id ? v.greeting_id : null,
+  };
+}
+
 app.post("/api/v1/greetings/upload", authenticateOrg, async (req, res) => {
   try {
     const multer = require('multer');

@@ -135,7 +135,7 @@ export default function LiveCallsPage() {
   // Load phonebook from Firestore (shared across all agents)
   useEffect(() => {
     const unsub = onSnapshot(
-      doc(firestoreDb, ASTRAPBX_ROOT, orgId, "settings", "phonebook"),
+      doc(firestoreDb!, ASTRAPBX_ROOT, orgId, "settings", "phonebook"),
       (snap) => {
         if (snap.exists()) {
           setPhonebook(snap.data().contacts || []);
@@ -148,7 +148,7 @@ export default function LiveCallsPage() {
   async function savePhonebook(entries: { name: string; number: string }[]) {
     setPhonebook(entries);
     try {
-      await setDoc(doc(firestoreDb, ASTRAPBX_ROOT, orgId, "settings", "phonebook"), { contacts: entries });
+      await setDoc(doc(firestoreDb!, ASTRAPBX_ROOT, orgId, "settings", "phonebook"), { contacts: entries });
     } catch (e) {
       console.error("Failed to save phonebook:", e);
       showToast("Failed to save phonebook", "error");
