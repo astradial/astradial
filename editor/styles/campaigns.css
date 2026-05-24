@@ -1115,7 +1115,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   position: absolute; top: 11px; left: 12px;
   color: var(--muted-foreground); width: 14px; height: 14px;
 }
-.cmp-search-input { padding-left: 34px; }
+.cmp-input.cmp-search-input { padding-left: 34px; }
 
 /* Input (generic — match design's .input) */
 .cmp-input {
