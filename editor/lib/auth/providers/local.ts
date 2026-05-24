@@ -48,10 +48,13 @@ function persistUser(user: AuthUser | null, token?: string) {
   }
 }
 
-function apiBaseUrl(): string {
-  // NEXT_PUBLIC_PBX_URL is the canonical env var; fall back to
-  // same-origin relative path for the simplest dev experience.
-  return process.env.NEXT_PUBLIC_PBX_URL || "";
+function loginUrl(): string {
+  // Always go through the editor's same-origin /api/pbx proxy
+  // (rewritten server-side in next.config.ts). Reaching
+  // NEXT_PUBLIC_PBX_URL directly from the browser breaks in docker
+  // because the env points at http://api:3000 — an internal hostname
+  // the browser can't resolve.
+  return "/api/pbx/auth/login";
 }
 
 export const localProvider: AuthProvider = {
@@ -64,8 +67,7 @@ export const localProvider: AuthProvider = {
       );
     }
 
-    const url = `${apiBaseUrl()}/api/v1/auth/login`;
-    const r = await fetch(url, {
+    const r = await fetch(loginUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret }),
