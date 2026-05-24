@@ -1965,11 +1965,31 @@ app.post('/api/v1/trunks', authenticateOrg, async (req, res) => {
       });
     }
 
+    // Normalize host:port — users often paste "sip.provider.com:5060"
+    // into the Host field. Without this, host gets stored verbatim and
+    // the deploy renders "host:5060:5060" because port is appended
+    // again from the separate port column. The port encoded in host
+    // wins; if absent we keep the explicit port value.
+    let normalizedHost = host || null;
+    let normalizedPort = port;
+    if (normalizedHost && typeof normalizedHost === 'string') {
+      const colonIdx = normalizedHost.lastIndexOf(':');
+      if (colonIdx > 0) {
+        const hostPart = normalizedHost.slice(0, colonIdx);
+        const portPart = normalizedHost.slice(colonIdx + 1);
+        const parsedPort = parseInt(portPart, 10);
+        if (Number.isFinite(parsedPort) && parsedPort > 0 && parsedPort <= 65535) {
+          normalizedHost = hostPart;
+          normalizedPort = parsedPort;
+        }
+      }
+    }
+
     const trunk = await SipTrunk.create({
       org_id: req.orgId,
       name,
-      host: trunk_type === 'inbound' ? null : host, // No host for inbound - dynamic registration
-      port: trunk_type === 'inbound' ? null : port,
+      host: trunk_type === 'inbound' ? null : normalizedHost,
+      port: trunk_type === 'inbound' ? null : normalizedPort,
       username,
       password,
       transport,
@@ -1980,6 +2000,18 @@ app.post('/api/v1/trunks', authenticateOrg, async (req, res) => {
       asterisk_peer_name: `${req.organization.context_prefix}trunk${Date.now()}`,
       status: 'active'
     });
+
+    // Auto-deploy: a brand-new trunk does nothing until asterisk knows
+    // about it. Without this the dashboard shows the row with
+    // status=active but pjsip has no endpoint for it. Errors here are
+    // non-fatal — the trunk row is already saved; the operator can
+    // re-deploy via /api/v1/config/deploy if reload fails.
+    try {
+      await configDeploymentService.deployOrganizationConfiguration(req.orgId, req.organization.name);
+      await configDeploymentService.reloadAsteriskConfiguration();
+    } catch (deployErr) {
+      console.warn('⚠️  Trunk created but auto-deploy failed:', deployErr.message);
+    }
 
     res.status(201).json(trunk);
   } catch (error) {
@@ -8305,4 +8337,445 @@ process.on("SIGTERM", async () => {
   console.log("📊 Database connection closed.");
   console.log("✅ Server shut down complete.\n");
   process.exit(0);
+});
+
+// ============================================================
+// Synced from astradial-platform (2026-05-24) — features that hadn't
+// reached OSS yet. See PR for details.
+// ============================================================
+
+app.post("/api/v1/greetings/upload", authenticateOrg, async (req, res) => {
+  try {
+    const multer = require('multer');
+    const fs = require('fs');
+    const p = require('path');
+    const { execFile } = require('child_process');
+    const { promisify } = require('util');
+    const { v4: uuidv4 } = require('uuid');
+    const { Greeting } = require('./models');
+    const execFileAsync = promisify(execFile);
+
+    const ALLOWED_EXT = new Set(['.mp3', '.wav', '.m4a', '.aac']);
+    const tmpUpload = multer({ dest: '/tmp/', limits: { fileSize: 50 * 1024 * 1024 } });
+
+    tmpUpload.single('audio')(req, res, async (err) => {
+      if (err) return res.status(400).json({ error: err.message });
+      if (!req.file) return res.status(400).json({ error: 'No audio file provided' });
+
+      const ext = p.extname(req.file.originalname || '').toLowerCase();
+      if (!ALLOWED_EXT.has(ext)) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: `Unsupported format ${ext || '(none)'} — allowed: ${[...ALLOWED_EXT].join(', ')}` });
+      }
+
+      const name = String(req.body.name || '').trim() || `Uploaded ${new Date().toISOString().slice(0, 10)}`;
+      const id = uuidv4();
+      // Match the TTS service's filename scheme so the dialplan
+      // Playback() works the same way regardless of source. Asterisk
+      // looks for greeting_<id>.{ext} and picks the codec-matching
+      // file. The audio_file column stores the bare basename
+      // (no extension) — same convention as TTS.
+      const baseName = `greeting_${id}`;
+      const greetingsDir = '/var/lib/asterisk/sounds/greetings';
+      fs.mkdirSync(greetingsDir, { recursive: true });
+      const destWav = p.join(greetingsDir, `${baseName}.wav`);
+      const destUlaw = p.join(greetingsDir, `${baseName}.ulaw`);
+      const destAlaw = p.join(greetingsDir, `${baseName}.alaw`);
+
+      try {
+        // Single ffmpeg invocation with three outputs — flags BEFORE
+        // each filename. mono / 8kHz across all three. Raw mulaw/alaw
+        // for codec-native playback (no container parse on file open).
+        await execFileAsync('ffmpeg', [
+          '-y', '-loglevel', 'error',
+          '-i', req.file.path,
+          '-ac', '1', '-ar', '8000', '-acodec', 'pcm_s16le', destWav,
+          '-ac', '1', '-ar', '8000', '-f', 'mulaw', destUlaw,
+          '-ac', '1', '-ar', '8000', '-f', 'alaw', destAlaw,
+        ]);
+      } catch (ffErr) {
+        // Cleanup any partial outputs + the tmp upload so a failed
+        // encode doesn't leave stale files behind.
+        try { fs.unlinkSync(req.file.path); } catch {}
+        for (const f of [destWav, destUlaw, destAlaw]) {
+          try { fs.unlinkSync(f); } catch {}
+        }
+        const detail = (ffErr.stderr || ffErr.message || '').toString().trim().slice(-500);
+        return res.status(400).json({ error: `Audio conversion failed: ${detail}` });
+      }
+      try { fs.unlinkSync(req.file.path); } catch {}
+
+      const greeting = await Greeting.create({
+        id, org_id: req.orgId, name,
+        text: null,
+        source: 'upload',
+        audio_file: baseName,
+        status: 'active',
+      });
+      console.log('Greeting uploaded:', destWav);
+      res.json(greeting);
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/v1/ivrs/:id/upload-greeting', authenticateOrg, async (req, res) => {
+  try {
+    const multer = require('multer');
+    const fs = require('fs');
+    const p = require('path');
+    const { execFile } = require('child_process');
+    const { promisify } = require('util');
+    const { Ivr } = require('./models');
+    const execFileAsync = promisify(execFile);
+
+    const ivr = await Ivr.findOne({ where: { id: req.params.id, org_id: req.orgId } });
+    if (!ivr) return res.status(404).json({ error: 'IVR not found' });
+
+    const ALLOWED_EXT = new Set(['.mp3', '.wav', '.m4a', '.aac']);
+    const tmpUpload = multer({ dest: '/tmp/', limits: { fileSize: 50 * 1024 * 1024 } });
+
+    tmpUpload.single('audio')(req, res, async (err) => {
+      if (err) return res.status(400).json({ error: err.message });
+      if (!req.file) return res.status(400).json({ error: 'No audio file provided' });
+
+      const ext = p.extname(req.file.originalname || '').toLowerCase();
+      if (!ALLOWED_EXT.has(ext)) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: `Unsupported format ${ext || '(none)'} — allowed: ${[...ALLOWED_EXT].join(', ')}` });
+      }
+
+      const baseName = `greeting_ivr_${ivr.id}`;
+      const greetingsDir = '/var/lib/asterisk/sounds/greetings';
+      fs.mkdirSync(greetingsDir, { recursive: true });
+      const destWav = p.join(greetingsDir, `${baseName}.wav`);
+      const destUlaw = p.join(greetingsDir, `${baseName}.ulaw`);
+      const destAlaw = p.join(greetingsDir, `${baseName}.alaw`);
+
+      try {
+        await execFileAsync('ffmpeg', [
+          '-y', '-loglevel', 'error',
+          '-i', req.file.path,
+          '-ac', '1', '-ar', '8000', '-acodec', 'pcm_s16le', destWav,
+          '-ac', '1', '-ar', '8000', '-f', 'mulaw', destUlaw,
+          '-ac', '1', '-ar', '8000', '-f', 'alaw', destAlaw,
+        ]);
+      } catch (ffErr) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        for (const f of [destWav, destUlaw, destAlaw]) {
+          try { fs.unlinkSync(f); } catch {}
+        }
+        const detail = (ffErr.stderr || ffErr.message || '').toString().trim().slice(-500);
+        return res.status(400).json({ error: `Audio conversion failed: ${detail}` });
+      }
+      try { fs.unlinkSync(req.file.path); } catch {}
+
+      await ivr.update({
+        greeting_prompt: baseName,
+        greeting_text: null,
+      });
+
+      // Reload dialplan — even though the file name matches the TTS
+      // pattern (so the existing `Background(greetings/...)` line keeps
+      // working for in-place file swaps), the first upload on an IVR
+      // that had no prior greeting still needs a regen to flip the
+      // Background() target from `welcome` to the new prompt.
+      try {
+        await configDeploymentService.deployOrganizationConfiguration(req.orgId, req.organization.name);
+        await configDeploymentService.reloadAsteriskConfiguration();
+      } catch (deployErr) {
+        console.warn('⚠️ Auto-deploy after IVR upload-greeting:', deployErr.message);
+      }
+
+      console.log('IVR greeting uploaded:', destWav);
+      res.json({
+        success: true,
+        greeting_prompt: ivr.greeting_prompt,
+        source: 'upload',
+      });
+    });
+  } catch (error) {
+    console.error('POST /ivrs/:id/upload-greeting error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/v1/settings/spam-protection", authenticateOrg, async (req, res) => {
+  try {
+    const o = await Organization.findByPk(req.orgId);
+    res.json(normalizeSpamProtection(o?.settings?.spam_protection));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put("/api/v1/settings/spam-protection", authenticateOrg, async (req, res) => {
+  try {
+    const o = await Organization.findByPk(req.orgId);
+    if (!o) return res.status(404).json({ error: 'organization not found' });
+    const next = normalizeSpamProtection(req.body);
+    // Validate every code in blocked_circles is a real circle. Cheap
+    // catch — keeps typos out of the persisted state.
+    if (next.blocked_circles.length > 0) {
+      const valid = await sequelize.query(
+        "SELECT DISTINCT circle_code FROM mobile_prefixes WHERE circle_code IN (" + next.blocked_circles.map(() => '?').join(',') + ")",
+        { replacements: next.blocked_circles, type: sequelize.QueryTypes.SELECT }
+      );
+      const validSet = new Set(valid.map((r) => r.circle_code));
+      const unknown = next.blocked_circles.filter((c) => !validSet.has(c));
+      if (unknown.length > 0) {
+        return res.status(400).json({ error: 'unknown circle code(s)', unknown });
+      }
+    }
+    // Detect whether the dialplan needs to be regenerated. The
+    // enforcement branches in dialplanGenerator emit ONLY when
+    // enabled && blocked_circles.length > 0, so we only redeploy
+    // when crossing that threshold OR the active set changes.
+    const prev = normalizeSpamProtection(o?.settings?.spam_protection);
+    const wasActive = prev.enabled && prev.blocked_circles.length > 0;
+    const isActive = next.enabled && next.blocked_circles.length > 0;
+    const circlesChanged = prev.blocked_circles.join(',') !== next.blocked_circles.join(',');
+    const greetingChanged = prev.greeting_id !== next.greeting_id;
+    const needsRedeploy = (wasActive !== isActive) || (isActive && (circlesChanged || greetingChanged));
+
+    const s = JSON.parse(JSON.stringify(o.settings || {}));
+    s.spam_protection = next;
+    await o.update({ settings: s });
+
+    // Auto-deploy the dialplan so the new spam_check / spam_blocked
+    // contexts (or their removal) take effect immediately. Same pattern
+    // as DID/queue/user updates — see server.js:1698 for precedent.
+    // Fire-and-warn — a deploy failure doesn't unsave the DB change;
+    // the operator can re-save to retry the deploy.
+    if (needsRedeploy) {
+      try {
+        await configDeploymentService.deployOrganizationConfiguration(req.orgId, req.organization.name);
+        await configDeploymentService.reloadAsteriskConfiguration();
+      } catch (deployErr) {
+        console.warn('[spam-protection] auto-deploy after settings change failed:', deployErr.message);
+      }
+    }
+
+    res.json(next);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/v1/circles", authenticateOrg, async (req, res) => {
+  try {
+    const rows = await sequelize.query(
+      "SELECT circle_code, MIN(circle_name) AS circle_name, MIN(category) AS category, COUNT(*) AS prefix_count " +
+      "FROM mobile_prefixes " +
+      "GROUP BY circle_code " +
+      "ORDER BY circle_code",
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    const circles = rows.map((r) => ({
+      code: r.circle_code,
+      name: r.circle_name,
+      category: r.category,
+      prefix_count: Number(r.prefix_count) || 0,
+    }));
+    res.json({ circles });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/v1/calls/export', authenticateOrg, async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const org = req.organization;
+    const prefix = org?.context_prefix || '';
+    const { direction, disposition, from, to, search } = req.query;
+
+    // Date range: cap at 31 days (1 calendar month — covers the longest
+    // month so operators can grab "Jan" or "Mar" in one go). Kept tight to
+    // keep export payloads small for busy hospital orgs; if a customer
+    // ever needs a wider window, raise this cap deliberately rather than
+    // hand them a slow endpoint.
+    const MAX_DAYS = 31;
+    const today = new Date(); today.setHours(23, 59, 59, 999);
+    const defaultFrom = new Date(today); defaultFrom.setDate(defaultFrom.getDate() - 30);
+    const parseDateOrNull = (s) => {
+      if (!s) return null;
+      const d = new Date(s);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+    let dateFrom = parseDateOrNull(req.query.date_from) || defaultFrom;
+    let dateTo = parseDateOrNull(req.query.date_to) || today;
+    if (dateFrom > dateTo) {
+      return res.status(400).json({ error: 'date_from must be before date_to' });
+    }
+    const spanDays = Math.ceil((dateTo - dateFrom) / 86400000);
+    if (spanDays > MAX_DAYS) {
+      return res.status(400).json({
+        error: 'Export range is capped at 1 month. Narrow the date filter and try again.',
+        max_days: MAX_DAYS,
+        requested_days: spanDays,
+      });
+    }
+    const dateFromSql = dateFrom.toISOString().slice(0, 19).replace('T', ' ');
+    const dateToSql = dateTo.toISOString().slice(0, 19).replace('T', ' ');
+
+    // Same base predicates as /api/v1/calls so the export shows exactly
+    // what the operator sees in the UI for the same filter combination.
+    const conditions = [
+      "(t.accountcode = ? OR t.peeraccount = ? OR t.channel LIKE ?)",
+      "(t.channel NOT LIKE 'Local/%' OR t.dstchannel LIKE 'PJSIP/%')",
+      "NOT (t.disposition = 'ANSWERED' AND t.billsec = 0 AND t.dcontext != 'ai-outbound')",
+      "t.dst != 's'",
+      "t.calldate >= ?",
+      "t.calldate <= ?",
+    ];
+    const params = [orgId, orgId, '%' + prefix + '%', dateFromSql, dateToSql];
+
+    if (direction && direction !== 'all') {
+      if (direction === 'inbound') conditions.push("t.dcontext LIKE '%incoming%'");
+      else if (direction === 'outbound') conditions.push("(t.dcontext LIKE '%outbound%' OR t.dcontext = 'ai-outbound' OR (t.dcontext LIKE '%internal' AND t.lastapp = 'Dial' AND t.lastdata LIKE '%@%trunk%'))");
+      else if (direction === 'internal') conditions.push("t.dcontext LIKE '%internal%' AND NOT (t.lastapp = 'Dial' AND t.lastdata LIKE '%@%trunk%')");
+    }
+    if (disposition) {
+      conditions.push("t.disposition = ?");
+      params.push(String(disposition).toUpperCase());
+    }
+    if (from) {
+      conditions.push("t.src LIKE ?");
+      params.push('%' + String(from).replace(/\D/g, '') + '%');
+    }
+    if (to) {
+      conditions.push("(t.dst LIKE ? OR t.dstchannel LIKE ?)");
+      const digits = '%' + String(to).replace(/\D/g, '') + '%';
+      params.push(digits, digits);
+    }
+    if (search) {
+      conditions.push("(t.src LIKE ? OR t.dst LIKE ? OR t.clid LIKE ?)");
+      const s = '%' + String(search) + '%';
+      params.push(s, s, s);
+    }
+
+    const where = "WHERE " + conditions.join(" AND ");
+
+    // 50k cap is well above any plausible 3-month hospital volume but
+    // bounds memory if a misconfigured org somehow has millions of rows.
+    const HARD_CAP = 50000;
+    const rows = await sequelize.query(
+      `SELECT
+        t.calldate,
+        t.src AS from_number,
+        CASE
+          WHEN t.lastapp = 'Queue' AND t.disposition = 'ANSWERED' AND t.dstchannel LIKE 'Local/%' AND u.extension IS NOT NULL
+            THEN CONCAT('Queue ', SUBSTRING_INDEX(SUBSTRING_INDEX(t.lastdata, ',', 1), '_', -1), ' [', u.extension, ']')
+          WHEN t.lastapp = 'Queue'
+            THEN CONCAT('Queue ', SUBSTRING_INDEX(SUBSTRING_INDEX(t.lastdata, ',', 1), '_', -1))
+          WHEN t.dst LIKE 'qm%' AND CHAR_LENGTH(t.dst) = 34 AND u.extension IS NOT NULL
+            THEN u.extension
+          WHEN t.dst LIKE 'qm%' AND CHAR_LENGTH(t.dst) = 34
+            THEN 'queue member'
+          ELSE t.dst
+        END AS to_number,
+        CASE
+          WHEN t.dcontext = 'ai-outbound' THEN 'outbound'
+          WHEN t.dcontext LIKE '%incoming%' THEN 'inbound'
+          WHEN t.dcontext LIKE '%outbound%' THEN 'outbound'
+          WHEN t.dcontext LIKE '%internal' AND t.lastapp = 'Dial' AND t.lastdata LIKE '%@%trunk%' THEN 'outbound'
+          ELSE 'internal'
+        END AS direction,
+        t.duration,
+        t.billsec AS talk_time,
+        (t.duration - t.billsec) AS wait_time,
+        t.disposition,
+        CASE t.userfield
+          WHEN 'org_cap_rejected'   THEN 'org_cap'
+          WHEN 'trunk_cap_rejected' THEN 'trunk_cap'
+          ELSE NULL
+        END AS cap_rejected,
+        CASE WHEN t.recordingfile != '' AND t.billsec > 0
+          THEN CONCAT('/api/v1/calls/', t.id, '/recording')
+          ELSE NULL
+        END AS recording_url
+      FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY linkedid ORDER BY
+          CASE WHEN disposition = 'ANSWERED' AND billsec > 0 THEN 0 ELSE 1 END,
+          duration DESC, id DESC) AS rn,
+          CASE
+            WHEN dstchannel LIKE 'Local/qm%@%'
+              THEN SUBSTRING_INDEX(SUBSTRING_INDEX(dstchannel, '/', -1), '@', 1)
+            WHEN dst LIKE 'qm%' AND CHAR_LENGTH(dst) = 34
+              THEN dst
+            ELSE NULL
+          END AS qm_token
+        FROM asterisk_cdr t ${where}
+      ) t
+      LEFT JOIN queue_members qm_tbl ON t.qm_token IS NOT NULL AND qm_tbl.id = LOWER(CONCAT_WS('-',
+        SUBSTRING(t.qm_token, 3, 8),
+        SUBSTRING(t.qm_token, 11, 4),
+        SUBSTRING(t.qm_token, 15, 4),
+        SUBSTRING(t.qm_token, 19, 4),
+        SUBSTRING(t.qm_token, 23, 12)
+      ))
+      LEFT JOIN users u ON qm_tbl.user_id = u.id
+      WHERE t.rn = 1
+      ORDER BY t.calldate DESC
+      LIMIT ${HARD_CAP}`,
+      { replacements: params, type: sequelize.QueryTypes.SELECT }
+    );
+
+    // CSV escape per RFC 4180: wrap in quotes only if needed; double internal
+    // quotes. NULL → empty cell. Numbers stringified plain.
+    const esc = (v) => {
+      if (v == null) return '';
+      const s = String(v);
+      if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    };
+    const headers = [
+      'Date Time',
+      'From',
+      'To',
+      'Direction',
+      'Duration (s)',
+      'Talk Time (s)',
+      'Wait Time (s)',
+      'Status',
+      'Cap Rejected',
+      'Recording URL',
+    ];
+    const lines = [headers.join(',')];
+    for (const r of rows) {
+      lines.push([
+        // ISO 8601 for sortable timestamps in Excel + locale-independent.
+        r.calldate ? new Date(r.calldate).toISOString() : '',
+        r.from_number,
+        r.to_number,
+        r.direction,
+        r.duration ?? 0,
+        r.talk_time ?? 0,
+        r.wait_time ?? 0,
+        r.disposition,
+        r.cap_rejected,
+        r.recording_url,
+      ].map(esc).join(','));
+    }
+    const csv = lines.join('\r\n') + '\r\n';
+
+    const dateTag = new Date().toISOString().slice(0, 10);
+    const orgSlug = (org?.context_prefix || 'org').replace(/[^a-zA-Z0-9_-]/g, '');
+    const filename = `calls-${orgSlug}-${dateTag}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('X-Export-Rows', String(rows.length));
+    res.setHeader('X-Export-Range-Days', String(spanDays));
+    // UTF-8 BOM so Excel opens the file with correct encoding (otherwise
+    // Indian phone numbers with non-ASCII city/state names in caller IDs
+    // render mojibake).
+    res.write('﻿');
+    res.end(csv);
+  } catch (error) {
+    console.error('GET /api/v1/calls/export error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
