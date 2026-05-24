@@ -116,9 +116,20 @@ async function runCall({ orgId, campaignId, lead, run, action, campaignRow }) {
   try {
     const url = `http://localhost:${PORT}/api/v1/calls/originate-to-ai`;
 
+    // Pass campaign context as Asterisk channel variables so the pipecat bot
+    // can POST the call transcript back to /webhooks/call-result when done.
+    const resultWebhookUrl = `${process.env.API_BASE_URL || `http://localhost:${PORT}`}/api/v1/webhooks/call-result`;
     const body = {
       to: lead.phone,
       bot_id: action.script,
+      variables: {
+        CAMPAIGN_LEAD_ID: lead.id,
+        CAMPAIGN_ID: campaignId,
+        ORG_ID: orgId,
+        RESULT_WEBHOOK_URL: resultWebhookUrl,
+        // JSON-encoded so pipecat can match keywords client-side as well.
+        INTEREST_KEYWORDS: JSON.stringify(action.interest_keywords || []),
+      },
     };
     if (action.callerId) body.caller_id = action.callerId;
 

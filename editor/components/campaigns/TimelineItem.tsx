@@ -13,6 +13,7 @@ import {
   Pause,
   Phone,
   PhoneCall,
+  PhoneIncoming,
   Play,
   XCircle,
 } from "lucide-react";
@@ -33,9 +34,11 @@ const KIND_ICON: Record<EventKind, IconDef> = {
   whatsapp_sent:      { Icon: MessageCircle, variant: "" },
   whatsapp_delivered: { Icon: MessageCircle, variant: "" },
   whatsapp_replied:   { Icon: MessageCircle, variant: "primary" },
-  call_started:       { Icon: PhoneCall,    variant: "info" },
-  call_completed:     { Icon: PhoneCall,    variant: "info" },
-  call_failed:        { Icon: XCircle,      variant: "warning" },
+  call_started:       { Icon: PhoneCall,     variant: "info" },
+  call_completed:     { Icon: PhoneCall,     variant: "info" },
+  call_failed:        { Icon: XCircle,       variant: "warning" },
+  call_interested:    { Icon: PhoneIncoming, variant: "success" },
+  call_engaged:       { Icon: PhoneIncoming, variant: "primary" },
   status_changed:     { Icon: Clock,        variant: "" },
   qualified:          { Icon: CheckCircle2, variant: "success" },
   disqualified:       { Icon: XCircle,      variant: "warning" },
@@ -53,6 +56,8 @@ function eventTitle(kind: EventKind): string {
     case "call_started": return "Call started";
     case "call_completed": return "Call completed";
     case "call_failed": return "Call failed";
+    case "call_interested": return "Interested (call)";
+    case "call_engaged": return "Engaged (call)";
     case "status_changed": return "Status changed";
     case "qualified": return "Qualified by rules";
     case "disqualified": return "Disqualified";
@@ -70,6 +75,10 @@ function eventDetail(ev: CampaignEvent): { detail?: string; quote?: boolean } {
   }
   if (ev.kind === "call_completed" && typeof p.duration_label === "string") {
     return { detail: `${p.duration_label} · ${p.direction || "outbound"}` };
+  }
+  if ((ev.kind === "call_interested" || ev.kind === "call_engaged") && typeof p.transcript === "string") {
+    const preview = p.transcript.length > 120 ? p.transcript.slice(0, 120) + "…" : p.transcript;
+    return { detail: `"${preview}"`, quote: true };
   }
   if (typeof p.detail === "string") return { detail: p.detail };
   return {};

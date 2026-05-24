@@ -25,8 +25,10 @@ const { Queue, Worker } = require('bullmq');
 const QUEUE_PREFIX = 'astradial:campaigns';
 
 const IMPORT_QUEUE = 'campaign-import';
-const DISPATCH_QUEUE = 'campaign-dispatch';
+const DISPATCH_QUEUE = 'campaign-dispatch'; // Phase B — kept for backward compat; superseded by Phase D channel queues
 const SCHEDULER_QUEUE = 'campaign-scheduler';
+const CALLS_QUEUE = 'campaign-calls';       // Phase D: one shared queue for all call actions
+const WHATSAPP_QUEUE = 'campaign-whatsapp'; // Phase D: one shared queue for all WhatsApp actions
 
 const DEFAULT_JOB_OPTIONS = {
   removeOnComplete: { age: 86400, count: 1000 },
@@ -192,6 +194,8 @@ module.exports = {
   IMPORT_QUEUE,
   DISPATCH_QUEUE,
   SCHEDULER_QUEUE,
+  CALLS_QUEUE,
+  WHATSAPP_QUEUE,
   QUEUE_PREFIX,
   getConnection,
   getQueue,

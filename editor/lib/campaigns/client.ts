@@ -388,6 +388,19 @@ export const imports = {
     }),
 };
 
+// ── Org-level campaign settings ──
+
+export interface CampaignOrgSettings {
+  campaign_max_concurrent_calls: number;
+  campaign_max_whatsapp_per_minute: number;
+}
+
+export const orgSettings = {
+  get: () => req<CampaignOrgSettings>("/org-settings"),
+  update: (data: Partial<CampaignOrgSettings>) =>
+    req<CampaignOrgSettings>("/org-settings", { method: "PATCH", body: JSON.stringify(data) }),
+};
+
 export type {
   Campaign,
   CampaignApproval,

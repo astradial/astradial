@@ -905,6 +905,38 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 .cmp-inspector-separator { border: none; border-top: 1px solid var(--border); margin: 4px 0 0; }
 .cmp-inspector-foot      { display: flex; justify-content: space-between; gap: 8px; }
 
+/* Interest keyword tag-input */
+.cmp-field-optional { font-weight: 400; color: var(--muted-foreground); }
+.cmp-keyword-tags {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  min-height: 36px; padding: 4px 8px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--background);
+  cursor: text;
+}
+.cmp-keyword-tags:focus-within { border-color: var(--primary); }
+.cmp-keyword-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px 2px 10px;
+  background: oklch(0.93 0.04 250); border-radius: 999px;
+  font-size: 12px; font-weight: 500; color: oklch(0.35 0.12 250);
+  white-space: nowrap;
+}
+.cmp-keyword-tag-remove {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: none; background: none; cursor: pointer;
+  font-size: 14px; line-height: 1; color: inherit; opacity: 0.6;
+  padding: 0;
+}
+.cmp-keyword-tag-remove:hover { opacity: 1; background: oklch(0.85 0.06 250); }
+.cmp-keyword-input {
+  flex: 1; min-width: 120px; border: none; outline: none;
+  background: transparent; font-size: 13px; color: var(--foreground);
+  padding: 2px 0;
+}
+.cmp-keyword-input::placeholder { color: var(--muted-foreground); }
+
 @keyframes cmp-slide-right {
   from { transform: translateX(8px); opacity: 0; }
   to   { transform: translateX(0);   opacity: 1; }

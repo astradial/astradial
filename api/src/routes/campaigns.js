@@ -20,6 +20,7 @@ const {
   CampaignEvent,
   CampaignApproval,
   CampaignImportJob,
+  Organization,
   sequelize,
 } = require('../models');
 const { requirePermission } = require('../middleware/rbac');
@@ -88,7 +89,22 @@ router.get('/templates', requirePermission('campaigns.read'), async (req, res) =
     const { count, rows } = await CampaignTemplate.findAndCountAll({
       where, limit, offset, order: [['updated_at', 'DESC']],
     });
-    res.json({ data: rows, total: count, page, pages: Math.ceil(count / limit) });
+    // Count how many campaigns reference each template (single grouped query).
+    const templateIds = rows.map((r) => r.id);
+    const usage = templateIds.length
+      ? await Campaign.findAll({
+          attributes: [
+            'template_id',
+            [sequelize.fn('COUNT', sequelize.col('id')), 'cnt'],
+          ],
+          where: { org_id: req.orgId, template_id: { [Op.in]: templateIds } },
+          group: ['template_id'],
+          raw: true,
+        })
+      : [];
+    const usageMap = Object.fromEntries(usage.map((u) => [u.template_id, Number(u.cnt)]));
+    const data = rows.map((r) => ({ ...r.toJSON(), campaign_count: usageMap[r.id] || 0 }));
+    res.json({ data, total: count, page, pages: Math.ceil(count / limit) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -496,6 +512,46 @@ router.delete('/lead-fields/:fieldId', requirePermission('campaigns.write'), asy
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// ── Org-level campaign concurrency settings ─────────────────────────
+// Must be before /:id so Express does not match 'org-settings' as a campaign id.
+
+router.get('/org-settings', requirePermission('campaigns.read'), async (req, res) => {
+  try {
+    const org = await Organization.findByPk(req.orgId, { attributes: ['settings'] });
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    res.json({
+      campaign_max_concurrent_calls: org.settings?.campaign_max_concurrent_calls ?? 30,
+      campaign_max_whatsapp_per_minute: org.settings?.campaign_max_whatsapp_per_minute ?? 60,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.patch('/org-settings', requirePermission('campaigns.write'), async (req, res) => {
+  try {
+    const { campaign_max_concurrent_calls: calls, campaign_max_whatsapp_per_minute: wpm } = req.body;
+    const update = {};
+    if (calls !== undefined) {
+      if (!Number.isInteger(calls) || calls < 1 || calls > 500) {
+        return res.status(400).json({ error: 'campaign_max_concurrent_calls must be an integer 1–500' });
+      }
+      update.campaign_max_concurrent_calls = calls;
+    }
+    if (wpm !== undefined) {
+      if (!Number.isInteger(wpm) || wpm < 1 || wpm > 10000) {
+        return res.status(400).json({ error: 'campaign_max_whatsapp_per_minute must be an integer 1–10 000' });
+      }
+      update.campaign_max_whatsapp_per_minute = wpm;
+    }
+    const org = await Organization.findByPk(req.orgId);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    await org.update({ settings: { ...org.settings, ...update } });
+    res.json({
+      campaign_max_concurrent_calls: org.settings.campaign_max_concurrent_calls,
+      campaign_max_whatsapp_per_minute: org.settings.campaign_max_whatsapp_per_minute,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Campaign by id ──────────────────────────────────────────────────
 
 router.get('/:id', requirePermission('campaigns.read'), async (req, res) => {
@@ -515,18 +571,8 @@ router.patch('/:id', requirePermission('campaigns.write'), throughputUpdate, asy
     });
     if (!row) return res.status(404).json({ error: 'Campaign not found' });
 
-    if (req.body.max_concurrent_calls !== undefined) {
-      const { getLiveCount } = require('../services/campaign-concurrency');
-      const live = await getLiveCount(req.orgId, row.id);
-      if (live > req.body.max_concurrent_calls) {
-        return res.status(409).json({
-          error: `Cannot set cap to ${req.body.max_concurrent_calls} — ${live} calls are live right now`,
-        });
-      }
-    }
-
     const updates = {};
-    for (const key of ['name', 'description', 'owner_user_id', 'start_at', 'max_concurrent_calls', 'max_sends_per_minute', 'avg_call_seconds']) {
+    for (const key of ['name', 'description', 'owner_user_id', 'start_at', 'avg_call_seconds']) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
     }
     await row.update(updates);
@@ -559,6 +605,13 @@ router.post('/:id/launch', requirePermission('campaigns.write'), async (req, res
     }
 
     await row.update({ status: 'running', started_at: new Date() });
+    // Arm the per-campaign 1-minute BullMQ repeatable tick (Phase D).
+    try {
+      const { armCampaignTick } = require('../jobs/campaignSchedulerJob');
+      await armCampaignTick(row.id);
+    } catch (tickErr) {
+      console.error(`[launch] armCampaignTick failed for ${row.id}:`, tickErr.message);
+    }
     res.json(row);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -573,8 +626,12 @@ router.post('/:id/pause', requirePermission('campaigns.write'), async (req, res)
       return res.status(409).json({ error: `Cannot pause a campaign in status "${row.status}"` });
     }
     await row.update({ status: 'paused', paused_at: new Date() });
-    // Scheduler-side row state transitions (campaign_lead_runs.status
-    // pending → waiting) happen in PR 5 once the scheduler exists.
+    try {
+      const { disarmCampaignTick } = require('../jobs/campaignSchedulerJob');
+      await disarmCampaignTick(row.id);
+    } catch (tickErr) {
+      console.error(`[pause] disarmCampaignTick failed for ${row.id}:`, tickErr.message);
+    }
     res.json(row);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -589,6 +646,12 @@ router.post('/:id/resume', requirePermission('campaigns.write'), async (req, res
       return res.status(409).json({ error: `Cannot resume a campaign in status "${row.status}"` });
     }
     await row.update({ status: 'running', paused_at: null });
+    try {
+      const { armCampaignTick } = require('../jobs/campaignSchedulerJob');
+      await armCampaignTick(row.id);
+    } catch (tickErr) {
+      console.error(`[resume] armCampaignTick failed for ${row.id}:`, tickErr.message);
+    }
     res.json(row);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });

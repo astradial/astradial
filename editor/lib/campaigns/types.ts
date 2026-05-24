@@ -24,6 +24,9 @@ export interface WorkflowAction {
   template?: string | null; // whatsapp template name (MSG91)
   script?: string | null; // pipecat bot id for calls
   callerId?: string | null;
+  // Words that classify an inbound WhatsApp reply as "interested" (run halts).
+  // If empty/absent, any reply → "engaged" (run continues).
+  interest_keywords?: string[];
   // Free-form per-channel options; render-only.
   options?: Record<string, unknown>;
 }
@@ -50,6 +53,8 @@ export interface CampaignTemplate {
   created_by: string | null;
   createdAt: string;
   updatedAt: string;
+  // Populated by GET /templates list endpoint; absent on single-fetch.
+  campaign_count?: number;
 }
 
 export interface Campaign {
@@ -65,8 +70,6 @@ export interface Campaign {
   started_at: string | null;
   paused_at: string | null;
   completed_at: string | null;
-  max_concurrent_calls: number | null;
-  max_sends_per_minute: number | null;
   avg_call_seconds: number;
   stats: {
     contacted?: number;
@@ -153,6 +156,7 @@ export type EventKind =
   | "enrolled"
   | "whatsapp_sent" | "whatsapp_delivered" | "whatsapp_replied"
   | "call_started" | "call_completed" | "call_failed"
+  | "call_interested" | "call_engaged"
   | "status_changed"
   | "qualified" | "disqualified" | "halted"
   | "approval_created" | "approval_decided";

@@ -51,6 +51,32 @@ function validateWorkflow(workflow) {
       if (a.type === 'whatsapp' && a.template != null && !isString(a.template, 200)) {
         errs.push(`${ap}.template must be a string ≤200 chars`);
       }
+      if (a.type === 'whatsapp' && a.interest_keywords != null) {
+        if (!Array.isArray(a.interest_keywords)) {
+          errs.push(`${ap}.interest_keywords must be an array`);
+        } else if (a.interest_keywords.length > 20) {
+          errs.push(`${ap}.interest_keywords must have ≤20 entries`);
+        } else {
+          a.interest_keywords.forEach((kw, ki) => {
+            if (typeof kw !== 'string' || kw.trim().length === 0 || kw.length > 50) {
+              errs.push(`${ap}.interest_keywords[${ki}] must be a non-empty string ≤50 chars`);
+            }
+          });
+        }
+      }
+      if (a.type === 'call' && a.interest_keywords != null) {
+        if (!Array.isArray(a.interest_keywords)) {
+          errs.push(`${ap}.interest_keywords must be an array`);
+        } else if (a.interest_keywords.length > 20) {
+          errs.push(`${ap}.interest_keywords must have ≤20 entries`);
+        } else {
+          a.interest_keywords.forEach((kw, ki) => {
+            if (typeof kw !== 'string' || kw.trim().length === 0 || kw.length > 50) {
+              errs.push(`${ap}.interest_keywords[${ki}] must be a non-empty string ≤50 chars`);
+            }
+          });
+        }
+      }
       if (a.type === 'call' && a.script != null && !isString(a.script, 200)) {
         errs.push(`${ap}.script must be a string ≤200 chars`);
       }
@@ -95,18 +121,8 @@ function templateUpdate(req, res, next) {
 }
 
 function throughputUpdate(req, res, next) {
-  const { max_concurrent_calls, max_sends_per_minute, avg_call_seconds } = req.body || {};
-
-  if (max_concurrent_calls !== undefined) {
-    if (!Number.isInteger(max_concurrent_calls) || max_concurrent_calls < 1 || max_concurrent_calls > 500) {
-      return bad(res, 'max_concurrent_calls must be an integer between 1 and 500');
-    }
-  }
-  if (max_sends_per_minute !== undefined) {
-    if (!Number.isInteger(max_sends_per_minute) || max_sends_per_minute < 1 || max_sends_per_minute > 10000) {
-      return bad(res, 'max_sends_per_minute must be an integer between 1 and 10000');
-    }
-  }
+  const { avg_call_seconds } = req.body || {};
+  // max_concurrent_calls / max_sends_per_minute removed in Phase D — now org-level.
   if (avg_call_seconds !== undefined) {
     if (!Number.isInteger(avg_call_seconds) || avg_call_seconds < 10 || avg_call_seconds > 7200) {
       return bad(res, 'avg_call_seconds must be an integer between 10 and 7200');

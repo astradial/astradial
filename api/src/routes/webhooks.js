@@ -3,7 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { makeHmacVerify } = require('../middleware/hmac-verify');
-const { Campaign, CampaignLead, CampaignLeadRun, CampaignEvent, sequelize } = require('../models');
+const { Campaign, CampaignLead, CampaignLeadRun, CampaignEvent } = require('../models');
 
 // POST /webhooks/msg91-inbound
 // Payload from MSG91: { from: '919812345678', message: '...', ... }
@@ -14,9 +14,12 @@ router.post('/msg91-inbound',
     res.json({ received: true });
 
     try {
+      // Match normPhone() in campaign-csv-importer: keep digits and leading '+'.
       const raw = String(req.body.from || '');
-      const phone = raw.replace(/^\+/, '').replace(/\D/g, '');
+      const phone = raw.replace(/[^\d+]/g, '');
       if (!phone) return;
+
+      const message = String(req.body.message || req.body.text || '');
 
       const leads = await CampaignLead.findAll({
         where: { phone },
@@ -31,7 +34,7 @@ router.post('/msg91-inbound',
 
       for (const { org_id } of leads) {
         try {
-          await markInterestedAndHalt(org_id, phone);
+          await markInterestedAndHalt(org_id, phone, message);
         } catch (err) {
           console.error(`[msg91-inbound] markInterestedAndHalt failed org=${org_id} phone=${phone}:`, err.message);
         }
@@ -43,111 +46,101 @@ router.post('/msg91-inbound',
 );
 
 // POST /webhooks/call-completed
+// Crash-recovery fallback only — the primary run-advancement path is the
+// 5-second Asterisk poll in campaignCallWorker.js.  This webhook fires when
+// the AI call platform signals completion; if the call worker already advanced
+// the run, advance() is a no-op (idempotency guard on run.status).
+//
 // Payload: { org_id, campaign_id, campaign_lead_id, call_id, duration_seconds, status }
 router.post('/call-completed',
   makeHmacVerify('CAMPAIGN_WEBHOOK_SECRET'),
   async (req, res) => {
-    // Respond immediately — caller retries on non-2xx.
     res.json({ received: true });
 
     const { org_id, campaign_id, campaign_lead_id, call_id, duration_seconds, status } = req.body;
 
     try {
-      const { releaseCallSlot } = require('../services/campaign-concurrency');
-      try {
-        await releaseCallSlot(org_id, campaign_id);
-      } catch (err) {
-        // Non-fatal: Redis may be unavailable.
-        console.warn('[call-completed] releaseCallSlot failed:', err.message);
-      }
-
       const campaign = await Campaign.findOne({ where: { id: campaign_id, org_id } });
       if (!campaign) {
         console.error(`[call-completed] campaign not found: ${campaign_id}`);
         return;
       }
 
+      // Rolling 10-sample average of call duration — used for ETA estimates.
       if (status === 'completed' && duration_seconds > 0) {
         const oldAvg = campaign.avg_call_seconds || 180;
         const newAvg = Math.round((oldAvg * 9 + duration_seconds) / 10);
         await campaign.update({ avg_call_seconds: newAvg });
       }
 
+      // Record the event for the audit log.
       const eventKind = status === 'completed' ? 'call_completed' : 'call_failed';
-      const idempotencyKey = `call-completed-${call_id}`;
-
       try {
         await CampaignEvent.create({
           org_id,
           campaign_id,
           campaign_lead_id,
           kind: eventKind,
-          idempotency_key: idempotencyKey,
+          idempotency_key: `call-completed-${call_id}`,
           payload: { call_id, duration_seconds, status },
         });
       } catch (err) {
-        // Unique constraint means this event was already recorded — idempotent, skip.
         if (err.name !== 'SequelizeUniqueConstraintError') {
           console.error('[call-completed] CampaignEvent.create failed:', err.message);
         }
       }
 
+      // Advance the run via the shared service.  If the 5-s poll already
+      // advanced it, advance() detects the non-waiting status and returns
+      // without doing anything (idempotent).
       const run = await CampaignLeadRun.findOne({
         where: { campaign_lead_id, status: 'waiting' },
       });
-
       if (!run) return;
 
-      const snapshot = campaign.template_snapshot;
-      const days = snapshot && Array.isArray(snapshot.days) ? snapshot.days : [];
+      const { advance } = require('../services/campaign-advance');
+      await advance(run, campaign);
+    } catch (err) {
+      console.error('[call-completed] error:', err.message, err.stack);
+    }
+  }
+);
 
-      const dayIndex = run.current_day_index;
-      const actionIndex = run.current_action_index;
-      const currentDay = days[dayIndex];
+// POST /webhooks/call-result
+// Sent by the pipecat AI bot at the end of every campaign call.
+// Payload: { org_id, campaign_id, campaign_lead_id, call_id, transcript, duration_seconds, status }
+//
+// Classification mirrors the MSG91 inbound-reply handler:
+//   • Call actions have interest_keywords → transcript match → interested + halt
+//   • Keywords configured, no match → engaged + continues
+//   • No keywords configured → interested + halt (default)
+router.post('/call-result',
+  makeHmacVerify('CAMPAIGN_WEBHOOK_SECRET'),
+  async (req, res) => {
+    res.json({ received: true });
 
-      if (!currentDay) {
-        await run.update({ status: 'completed' });
-      } else {
-        const actions = Array.isArray(currentDay.actions) ? currentDay.actions : [];
-        const isLastAction = actionIndex >= actions.length - 1;
-        const isLastDay = dayIndex >= days.length - 1;
+    const { org_id, campaign_id, campaign_lead_id, call_id, transcript, duration_seconds, status } = req.body;
 
-        if (!isLastAction) {
-          await run.update({
-            current_action_index: actionIndex + 1,
-            status: 'pending',
-            next_run_at: new Date(),
-          });
-        } else if (!isLastDay) {
-          const nextDay = days[dayIndex + 1];
-          const gapMs = ((nextDay && nextDay.gap) || 0) * 86400000;
-          await run.update({
-            current_day_index: dayIndex + 1,
-            current_action_index: 0,
-            status: 'pending',
-            next_run_at: new Date(Date.now() + gapMs),
-          });
-        } else {
-          await run.update({ status: 'completed' });
+    if (!org_id || !campaign_lead_id) {
+      console.error('[call-result] missing org_id or campaign_lead_id');
+      return;
+    }
+
+    try {
+      // Update rolling average call duration on the campaign row.
+      if (status === 'completed' && duration_seconds > 0) {
+        const campaign = await Campaign.findOne({ where: { id: campaign_id, org_id } });
+        if (campaign) {
+          const oldAvg = campaign.avg_call_seconds || 180;
+          const newAvg = Math.round((oldAvg * 9 + duration_seconds) / 10);
+          await campaign.update({ avg_call_seconds: newAvg });
         }
       }
 
-      // Mark lead as contacted once all runs are finished.
-      const pendingRuns = await CampaignLeadRun.count({
-        where: {
-          campaign_lead_id,
-          status: ['pending', 'waiting'],
-        },
-      });
-
-      if (pendingRuns === 0) {
-        await CampaignLead.update(
-          { status: 'contacted' },
-          { where: { id: campaign_lead_id, status: 'raw' } }
-        );
-      }
+      const { markCallResult } = require('../services/campaign-reply-handler');
+      await markCallResult(org_id, campaign_lead_id, transcript || '', campaign_id);
     } catch (err) {
-      console.error('[call-completed] error:', err.message, err.stack);
+      console.error('[call-result] error:', err.message, err.stack);
     }
   }
 );

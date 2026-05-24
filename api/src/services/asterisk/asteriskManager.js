@@ -177,6 +177,55 @@ class AsteriskManager extends EventEmitter {
     return this.sendAction('Command', { Command: command });
   }
 
+  // Returns an array of active channel name strings, optionally filtered to
+  // channels whose name contains `contextPrefix` (the org's context_prefix).
+  // Uses "core show channels concise" so the full output arrives in one
+  // AMI Command response rather than a stream of CoreShowChannel events.
+  //
+  // Concise format per line (! delimited):
+  //   Channel!Location!State!Application!AppData!Uniqueid!...
+  //
+  // Resolves with [] on timeout or AMI error so the caller can treat the
+  // situation conservatively (don't advance runs when we can't confirm).
+  async getActiveChannels(contextPrefix) {
+    if (!this.connected || !this.ami) return [];
+
+    return new Promise((resolve) => {
+      let buf = '';
+
+      const handler = (data) => {
+        buf += data.toString();
+        // AMI signals end of command output with "--END COMMAND--".
+        if (!buf.includes('--END COMMAND--')) return;
+
+        this.ami.removeListener('data', handler);
+        clearTimeout(timeoutId);
+
+        const channels = [];
+        for (const raw of buf.split(/\r?\n/)) {
+          const line = raw.trim();
+          if (!line.startsWith('Output: ')) continue;
+          const content = line.slice('Output: '.length).trim();
+          if (!content || content.startsWith('--')) continue;
+          // First ! field is the channel name.
+          const channelName = content.split('!')[0];
+          if (!channelName) continue;
+          if (contextPrefix && !channelName.includes(contextPrefix)) continue;
+          channels.push(channelName);
+        }
+        resolve(channels);
+      };
+
+      const timeoutId = setTimeout(() => {
+        this.ami.removeListener('data', handler);
+        resolve([]); // conservative: no channels known → don't advance runs
+      }, 3000);
+
+      this.ami.on('data', handler);
+      this.ami.write('Action: Command\r\nCommand: core show channels concise\r\n\r\n');
+    });
+  }
+
   async originate(options) {
     const {
       channel,

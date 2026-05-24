@@ -16,7 +16,6 @@ import { lazy, Suspense, useDeferredValue, useState, useTransition } from "react
 import { CampaignStatusPill } from "@/components/campaigns/CampaignStatusPill";
 import { FunnelView, FunnelLiveTag } from "@/components/campaigns/FunnelView";
 import { LeadsToolbar } from "@/components/campaigns/LeadsToolbar";
-import { ThrottleIndicator } from "@/components/campaigns/ThrottleIndicator";
 import { showToast } from "@/components/ui/Toast";
 import { campaigns, dashboard } from "@/lib/campaigns/client";
 import type { LeadStatus } from "@/lib/campaigns/types";
@@ -56,6 +55,15 @@ export default function CampaignDetailPage() {
     refetchIntervalInBackground: false,
   });
 
+  const launchMut = useMutation({
+    mutationFn: () => campaigns.launch(campaignId),
+    onSuccess: () => {
+      showToast("Campaign started", "success");
+      qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "dashboard"] });
+    },
+    onError: (e: Error) => showToast(e.message, "error"),
+  });
+
   const pauseMut = useMutation({
     mutationFn: () => campaigns.pause(campaignId),
     onSuccess: () => {
@@ -75,6 +83,8 @@ export default function CampaignDetailPage() {
   });
 
   const camp = dashQ.data?.campaign;
+  const isDraft = camp?.status === "draft";
+  const isScheduled = camp?.status === "scheduled";
   const isRunning = camp?.status === "running";
   const isPaused = camp?.status === "paused";
 
@@ -119,12 +129,6 @@ export default function CampaignDetailPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {(isRunning || isPaused) && camp && (
-            <ThrottleIndicator
-              maxConcurrent={camp.max_concurrent_calls}
-              avgCallSeconds={camp.avg_call_seconds}
-            />
-          )}
           <button
             type="button"
             className="cmp-btn cmp-btn-outline cmp-btn-sm"
@@ -132,6 +136,16 @@ export default function CampaignDetailPage() {
           >
             <Upload size={14} /> Imports
           </button>
+          {(isDraft || isScheduled) && (
+            <button
+              type="button"
+              className="cmp-btn cmp-btn-default cmp-btn-sm"
+              onClick={() => launchMut.mutate()}
+              disabled={launchMut.isPending}
+            >
+              <Play size={14} /> Start
+            </button>
+          )}
           {isRunning && (
             <button
               type="button"

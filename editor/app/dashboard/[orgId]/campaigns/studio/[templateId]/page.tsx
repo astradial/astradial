@@ -1178,6 +1178,59 @@ function Inspector({
               </div>
             </div>
           )}
+          <div className="cmp-field">
+            <label className="cmp-field-label">
+              Interest keywords <span className="cmp-field-optional">(optional)</span>
+            </label>
+            <div className="cmp-keyword-tags">
+              {(action.interest_keywords || []).map((kw, i) => (
+                <span key={i} className="cmp-keyword-tag">
+                  {kw}
+                  <button
+                    className="cmp-keyword-tag-remove"
+                    onClick={() => {
+                      const next = (action.interest_keywords || []).filter((_, j) => j !== i);
+                      updateAction(day.id, action.id, { interest_keywords: next });
+                    }}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <input
+                className="cmp-keyword-input"
+                placeholder={
+                  (action.interest_keywords || []).length > 0
+                    ? "Add more…"
+                    : "e.g. interested, yes, callback"
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    const val = e.currentTarget.value.trim().replace(/,+$/, "");
+                    if (val && !(action.interest_keywords || []).includes(val)) {
+                      updateAction(day.id, action.id, {
+                        interest_keywords: [...(action.interest_keywords || []), val],
+                      });
+                    }
+                    e.currentTarget.value = "";
+                  } else if (
+                    e.key === "Backspace" &&
+                    !e.currentTarget.value &&
+                    (action.interest_keywords || []).length > 0
+                  ) {
+                    const next = (action.interest_keywords || []).slice(0, -1);
+                    updateAction(day.id, action.id, { interest_keywords: next });
+                  }
+                }}
+              />
+            </div>
+            <div className="cmp-field-hint">
+              If a lead replies with any of these words, they are marked{" "}
+              <strong>interested</strong> and outreach stops. Without keywords, any reply
+              marks them <strong>engaged</strong> (outreach continues).
+            </div>
+          </div>
         </>
       ) : (
         <>
@@ -1201,6 +1254,59 @@ function Inspector({
               placeholder="+91 14155551142"
               onChange={(e) => updateAction(day.id, action.id, { callerId: e.target.value })}
             />
+          </div>
+          <div className="cmp-field">
+            <label className="cmp-field-label">
+              Interest keywords <span className="cmp-field-optional">(optional)</span>
+            </label>
+            <div className="cmp-keyword-tags">
+              {(action.interest_keywords || []).map((kw, i) => (
+                <span key={i} className="cmp-keyword-tag">
+                  {kw}
+                  <button
+                    className="cmp-keyword-tag-remove"
+                    onClick={() => {
+                      const next = (action.interest_keywords || []).filter((_, j) => j !== i);
+                      updateAction(day.id, action.id, { interest_keywords: next });
+                    }}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <input
+                className="cmp-keyword-input"
+                placeholder={
+                  (action.interest_keywords || []).length > 0
+                    ? "Add more…"
+                    : "e.g. interested, yes, callback"
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    const val = e.currentTarget.value.trim().replace(/,+$/, "");
+                    if (val && !(action.interest_keywords || []).includes(val)) {
+                      updateAction(day.id, action.id, {
+                        interest_keywords: [...(action.interest_keywords || []), val],
+                      });
+                    }
+                    e.currentTarget.value = "";
+                  } else if (
+                    e.key === "Backspace" &&
+                    !e.currentTarget.value &&
+                    (action.interest_keywords || []).length > 0
+                  ) {
+                    const next = (action.interest_keywords || []).slice(0, -1);
+                    updateAction(day.id, action.id, { interest_keywords: next });
+                  }
+                }}
+              />
+            </div>
+            <div className="cmp-field-hint">
+              If the AI detects any of these words in the conversation, the lead is marked{" "}
+              <strong>interested</strong> and outreach stops. Without keywords, any completed
+              call marks them <strong>interested</strong> (outreach stops).
+            </div>
           </div>
         </>
       )}

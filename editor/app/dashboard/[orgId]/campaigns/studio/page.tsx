@@ -158,7 +158,15 @@ export default function StudioListPage() {
                     <CampaignStatusPill status={t.status} />
                   </td>
                   <td className="font-mono text-xs">v{t.version}</td>
-                  <td className="text-[13px]">— campaigns</td>
+                  <td className="text-[13px]">
+                    {t.campaign_count && t.campaign_count > 0 ? (
+                      <span>
+                        {t.campaign_count} {t.campaign_count === 1 ? "campaign" : "campaigns"}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Not in use</span>
+                    )}
+                  </td>
                   <td className="text-[13px] text-muted-foreground">{relTime(t.updatedAt)}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>

@@ -25,10 +25,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { showToast } from "@/components/ui/Toast";
-import { leadFields as leadFieldsApi } from "@/lib/campaigns/client";
+import { leadFields as leadFieldsApi, orgSettings as orgSettingsApi } from "@/lib/campaigns/client";
 import type { CampaignLeadField, LeadFieldType } from "@/lib/campaigns/types";
 
 const FIELD_TYPES: { value: LeadFieldType; label: string }[] = [
@@ -56,6 +56,40 @@ export default function CampaignSettingsPage() {
 
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // ── Campaign concurrency settings ──────────────────────────────────
+  const settingsQ = useQuery({
+    queryKey: ["orgSettings", "campaign"],
+    queryFn: () => orgSettingsApi.get(),
+  });
+  const [calls, setCalls] = useState<string>("");
+  const [wpm, setWpm] = useState<string>("");
+
+  // Seed inputs once data arrives.
+  useEffect(() => {
+    if (settingsQ.data) {
+      setCalls(String(settingsQ.data.campaign_max_concurrent_calls));
+      setWpm(String(settingsQ.data.campaign_max_whatsapp_per_minute));
+    }
+  }, [settingsQ.data]);
+
+  const concurrencyMut = useMutation({
+    mutationFn: () => {
+      const c = parseInt(calls, 10);
+      const w = parseInt(wpm, 10);
+      if (!Number.isFinite(c) || c < 1 || c > 500) throw new Error("Concurrent calls must be 1–500");
+      if (!Number.isFinite(w) || w < 1 || w > 10000) throw new Error("WhatsApp/min must be 1–10 000");
+      return orgSettingsApi.update({
+        campaign_max_concurrent_calls: c,
+        campaign_max_whatsapp_per_minute: w,
+      });
+    },
+    onSuccess: () => {
+      showToast("Campaign limits saved", "success");
+      qc.invalidateQueries({ queryKey: ["orgSettings", "campaign"] });
+    },
+    onError: (e: Error) => showToast(e.message || "Save failed", "error"),
+  });
 
   const listQ = useQuery({
     queryKey: ["leadFields"],
@@ -132,6 +166,61 @@ export default function CampaignSettingsPage() {
           </p>
         </div>
       </div>
+
+      {/* Campaign concurrency card */}
+      <section
+        style={{
+          marginTop: 24,
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-md, 8px)",
+          padding: 20,
+        }}
+      >
+        <h2 className="cmp-h2" style={{ marginBottom: 4 }}>Campaign</h2>
+        <p className="cmp-page-subheading" style={{ marginBottom: 16 }}>
+          Org-wide concurrency limits for all campaigns.
+        </p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            concurrencyMut.mutate();
+          }}
+          style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}
+        >
+          <label style={fieldLabelStyle}>
+            <span>Max concurrent calls</span>
+            <input
+              type="number"
+              min={1}
+              max={500}
+              value={calls}
+              onChange={(e) => setCalls(e.target.value)}
+              disabled={settingsQ.isLoading}
+              style={{ ...inputStyle, width: 130 }}
+            />
+          </label>
+          <label style={fieldLabelStyle}>
+            <span>Max WhatsApp / min</span>
+            <input
+              type="number"
+              min={1}
+              max={10000}
+              value={wpm}
+              onChange={(e) => setWpm(e.target.value)}
+              disabled={settingsQ.isLoading}
+              style={{ ...inputStyle, width: 130 }}
+            />
+          </label>
+          <button
+            type="submit"
+            className="cmp-btn cmp-btn-default cmp-btn-sm"
+            disabled={concurrencyMut.isPending || settingsQ.isLoading}
+            style={{ alignSelf: "flex-end" }}
+          >
+            {concurrencyMut.isPending ? "Saving…" : "Save"}
+          </button>
+        </form>
+      </section>
 
       <section style={{ marginTop: 24 }}>
         <div

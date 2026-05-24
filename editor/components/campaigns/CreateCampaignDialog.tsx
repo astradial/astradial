@@ -119,8 +119,6 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
   const [templateId, setTemplateId] = useState("");
   const [schedule, setSchedule] = useState<"now" | "scheduled" | "manual">("now");
   const [scheduleDate, setScheduleDate] = useState("");
-  const [maxConcurrentCalls, setMaxConcurrentCalls] = useState<string>("10");
-  const [maxSendsPerMinute, setMaxSendsPerMinute] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   // Phase A async import: after step-4 submit we create the campaign,
   // enqueue the import job, then render <ImportProgress/> in-place
@@ -144,8 +142,6 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
     setTemplateId("");
     setSchedule("now");
     setScheduleDate("");
-    setMaxConcurrentCalls("10");
-    setMaxSendsPerMinute("");
     setImportingCampaignId(null);
     setImportingJobId(null);
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -199,15 +195,6 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
     [publishedTemplates, templateId]
   );
 
-  const hasCallActions = useMemo(() => {
-    if (!selectedTemplate) return false;
-    return selectedTemplate.workflow?.days.flatMap((d) => d.actions).some((a) => a.type === "call") ?? false;
-  }, [selectedTemplate]);
-
-  const hasWhatsappActions = useMemo(() => {
-    if (!selectedTemplate) return false;
-    return selectedTemplate.workflow?.days.flatMap((d) => d.actions).some((a) => a.type === "whatsapp") ?? false;
-  }, [selectedTemplate]);
 
   function canAdvance(): boolean {
     if (step === 1) return name.trim().length > 0;
@@ -231,21 +218,6 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
         owner_user_id: owner || undefined,
         start_at: startAt,
       });
-      const throughputPatch: {
-        max_concurrent_calls?: number;
-        max_sends_per_minute?: number;
-      } = {};
-      if (hasCallActions && maxConcurrentCalls !== "") {
-        const v = parseInt(maxConcurrentCalls, 10);
-        if (!isNaN(v)) throughputPatch.max_concurrent_calls = v;
-      }
-      if (hasWhatsappActions && maxSendsPerMinute !== "") {
-        const v = parseInt(maxSendsPerMinute, 10);
-        if (!isNaN(v)) throughputPatch.max_sends_per_minute = v;
-      }
-      if (Object.keys(throughputPatch).length > 0) {
-        await campaigns.update(res.campaign.id, throughputPatch);
-      }
       // Step 2: enqueue the CSV import. The dialog switches to the
       // <ImportProgress/> view; onComplete/onFailed wire navigation
       // and (optionally) auto-launch.
@@ -669,47 +641,6 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
                 </div>
               )}
 
-              {(hasCallActions || hasWhatsappActions) && (
-                <div>
-                  <label className="cmp-label">Throughput limits</label>
-                  <div className="flex flex-col gap-3">
-                    {hasCallActions && (
-                      <div>
-                        <label className="cmp-label" htmlFor="c-max-concurrent">
-                          Max concurrent calls
-                        </label>
-                        <input
-                          id="c-max-concurrent"
-                          type="number"
-                          className="cmp-input"
-                          min={1}
-                          max={500}
-                          value={maxConcurrentCalls}
-                          onChange={(e) => setMaxConcurrentCalls(e.target.value)}
-                          placeholder="10"
-                        />
-                      </div>
-                    )}
-                    {hasWhatsappActions && (
-                      <div>
-                        <label className="cmp-label" htmlFor="c-max-sends">
-                          WhatsApp sends / minute
-                        </label>
-                        <input
-                          id="c-max-sends"
-                          type="number"
-                          className="cmp-input"
-                          min={1}
-                          max={10000}
-                          value={maxSendsPerMinute}
-                          onChange={(e) => setMaxSendsPerMinute(e.target.value)}
-                          placeholder="e.g. 60"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
 
               <div className="cmp-summary">
                 <div className="font-medium text-[13px] mb-1">Summary</div>

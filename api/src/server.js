@@ -7766,7 +7766,7 @@ app.use((req, res) => {
         console.error('❌ Failed to start campaign import worker:', e.message);
       }
 
-      // Campaign scheduler + dispatch workers (Phase B — BullMQ repeatable tick).
+      // Campaign scheduler + channel workers (Phase D — per-campaign ticks + Asterisk poll).
       // Guarded by CAMPAIGN_SCHEDULER_ENABLED; no-ops cleanly when set to 0.
       if (process.env.CAMPAIGN_SCHEDULER_ENABLED !== '0') {
         require('./jobs/campaignSchedulerJob')
@@ -7774,10 +7774,16 @@ app.use((req, res) => {
           .then(() => console.log('✓ Campaign scheduler worker armed'))
           .catch(e => console.error('❌ Failed to start campaign scheduler:', e.message));
         try {
-          require('./jobs/campaignDispatchWorker').startDispatchWorker();
-          console.log('✓ Campaign dispatch worker armed');
+          require('./jobs/campaignCallWorker').startCallWorker();
+          console.log('✓ Campaign call worker armed (5 s Asterisk poll)');
         } catch (e) {
-          console.error('❌ Failed to start campaign dispatch worker:', e.message);
+          console.error('❌ Failed to start campaign call worker:', e.message);
+        }
+        try {
+          require('./jobs/campaignWhatsAppWorker').startWhatsAppWorker();
+          console.log('✓ Campaign WhatsApp worker armed');
+        } catch (e) {
+          console.error('❌ Failed to start campaign WhatsApp worker:', e.message);
         }
       }
 
@@ -7806,6 +7812,11 @@ async function stopBackgroundServices() {
     require('./jobs/ticketAlertScheduler').stop();
   } catch (e) {
     console.error("Failed to stop ticket-alert scheduler:", e.message);
+  }
+  try {
+    require('./jobs/campaignCallWorker').stopCallWorker();
+  } catch (e) {
+    console.error("Failed to stop campaign call worker:", e.message);
   }
   try {
     // Drains the BullMQ worker (lets the current chunk finish) and

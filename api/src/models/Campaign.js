@@ -17,8 +17,9 @@ module.exports = (sequelize) => {
     started_at: { type: DataTypes.DATE, allowNull: true },
     paused_at: { type: DataTypes.DATE, allowNull: true },
     completed_at: { type: DataTypes.DATE, allowNull: true },
-    max_concurrent_calls: { type: DataTypes.SMALLINT, allowNull: true, defaultValue: 10 },
-    max_sends_per_minute: { type: DataTypes.SMALLINT, allowNull: true },
+    // DEPRECATED (Phase D): concurrency limits moved to org.settings.campaign_max_concurrent_calls
+    // and org.settings.campaign_max_whatsapp_per_minute. Columns retained for backward compat;
+    // workers no longer read them. See migration 20260524180000-deprecate-campaign-throughput.js.
     avg_call_seconds: { type: DataTypes.SMALLINT, allowNull: false, defaultValue: 180 },
     stats: {
       type: DataTypes.JSON,

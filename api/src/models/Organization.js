@@ -57,7 +57,9 @@ module.exports = (sequelize) => {
           conference: true,
           ivr: true,
           ai_agent: false
-        }
+        },
+        campaign_max_concurrent_calls: 30,
+        campaign_max_whatsapp_per_minute: 60,
       }
     },
     limits: {
