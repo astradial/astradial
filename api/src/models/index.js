@@ -33,6 +33,16 @@ const CrmCustomFieldValue = require('./CrmCustomFieldValue')(sequelize);
 const CrmPipelineStage = require('./CrmPipelineStage')(sequelize);
 const OrgApiKey = require('./OrgApiKey')(sequelize);
 
+// Campaigns models
+const CampaignTemplate = require('./CampaignTemplate')(sequelize);
+const Campaign = require('./Campaign')(sequelize);
+const CampaignLead = require('./CampaignLead')(sequelize);
+const CampaignLeadRun = require('./CampaignLeadRun')(sequelize);
+const CampaignEvent = require('./CampaignEvent')(sequelize);
+const CampaignLeadField = require('./CampaignLeadField')(sequelize);
+const CampaignApproval = require('./CampaignApproval')(sequelize);
+const CampaignImportJob = require('./CampaignImportJob')(sequelize);
+
 // Define associations
 // Organization relationships
 Organization.hasMany(SipTrunk, { foreignKey: 'org_id', as: 'trunks' });
@@ -158,6 +168,41 @@ CrmPipelineStage.belongsTo(Organization, { foreignKey: 'org_id', as: 'organizati
 Organization.hasMany(OrgApiKey, { foreignKey: 'org_id', as: 'apiKeys' });
 OrgApiKey.belongsTo(Organization, { foreignKey: 'org_id', as: 'organization' });
 
+// Campaigns associations
+Organization.hasMany(CampaignTemplate, { foreignKey: 'org_id', as: 'campaignTemplates' });
+CampaignTemplate.belongsTo(Organization, { foreignKey: 'org_id', as: 'organization' });
+CampaignTemplate.hasMany(Campaign, { foreignKey: 'template_id', as: 'campaigns' });
+
+Organization.hasMany(Campaign, { foreignKey: 'org_id', as: 'campaigns' });
+Campaign.belongsTo(Organization, { foreignKey: 'org_id', as: 'organization' });
+Campaign.belongsTo(CampaignTemplate, { foreignKey: 'template_id', as: 'template' });
+Campaign.hasMany(CampaignLead, { foreignKey: 'campaign_id', as: 'leads' });
+Campaign.hasMany(CampaignLeadRun, { foreignKey: 'campaign_id', as: 'runs' });
+Campaign.hasMany(CampaignEvent, { foreignKey: 'campaign_id', as: 'events' });
+Campaign.hasMany(CampaignApproval, { foreignKey: 'campaign_id', as: 'approvals' });
+
+CampaignLead.belongsTo(Campaign, { foreignKey: 'campaign_id', as: 'campaign' });
+CampaignLead.belongsTo(CrmContact, { foreignKey: 'crm_contact_id', as: 'crmContact', constraints: false });
+CampaignLead.hasOne(CampaignLeadRun, { foreignKey: 'campaign_lead_id', as: 'run' });
+CampaignLead.hasMany(CampaignEvent, { foreignKey: 'campaign_lead_id', as: 'events' });
+
+CampaignLeadRun.belongsTo(Campaign, { foreignKey: 'campaign_id', as: 'campaign' });
+CampaignLeadRun.belongsTo(CampaignLead, { foreignKey: 'campaign_lead_id', as: 'lead' });
+
+CampaignEvent.belongsTo(Campaign, { foreignKey: 'campaign_id', as: 'campaign' });
+CampaignEvent.belongsTo(CampaignLead, { foreignKey: 'campaign_lead_id', as: 'lead' });
+
+Organization.hasMany(CampaignLeadField, { foreignKey: 'org_id', as: 'campaignLeadFields' });
+CampaignLeadField.belongsTo(Organization, { foreignKey: 'org_id', as: 'organization' });
+
+CampaignApproval.belongsTo(Campaign, { foreignKey: 'campaign_id', as: 'campaign' });
+CampaignApproval.belongsTo(CampaignLead, { foreignKey: 'campaign_lead_id', as: 'lead' });
+
+// Async-import job tracking — one row per /leads/import-async call.
+Campaign.hasMany(CampaignImportJob, { foreignKey: 'campaign_id', as: 'importJobs' });
+CampaignImportJob.belongsTo(Campaign, { foreignKey: 'campaign_id', as: 'campaign' });
+CampaignImportJob.belongsTo(Organization, { foreignKey: 'org_id', as: 'organization' });
+
 // Database connection test
 const testConnection = async () => {
   try {
@@ -208,6 +253,14 @@ module.exports = {
   Ticket,
   TicketCallEvent,
   AdminWhatsappConfig,
+  CampaignTemplate,
+  Campaign,
+  CampaignLead,
+  CampaignLeadRun,
+  CampaignEvent,
+  CampaignLeadField,
+  CampaignApproval,
+  CampaignImportJob,
   testConnection,
   syncDatabase
 };

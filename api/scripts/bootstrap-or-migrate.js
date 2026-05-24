@@ -92,9 +92,53 @@ function runMigrationsScript() {
   });
 }
 
+async function verifyMariaDBVersion(sequelize) {
+  // Campaigns scheduler relies on `SELECT ... FOR UPDATE SKIP LOCKED`
+  // (MariaDB 10.6+) for race-free row claim. Warn loudly on older
+  // versions — the scheduler falls back to application-level locking
+  // via locked_at/locked_by but throughput is lower and stricter.
+  try {
+    const [row] = await sequelize.query('SELECT VERSION() AS v', {
+      type: sequelize.QueryTypes.SELECT,
+    });
+    const raw = String(row?.v || '');
+    const m = raw.match(/(\d+)\.(\d+)/);
+    if (!m) return;
+    const major = Number(m[1]);
+    const minor = Number(m[2]);
+    const ok = (major > 10) || (major === 10 && minor >= 6);
+    if (!ok) {
+      console.warn(
+        `! MariaDB ${raw} detected. Campaigns scheduler prefers ≥10.6 ` +
+        '(for FOR UPDATE SKIP LOCKED). Falling back to slower app-level locking.'
+      );
+    } else {
+      console.log(`✓ MariaDB ${raw} supports SKIP LOCKED.`);
+    }
+  } catch (_) {
+    // Non-fatal; the scheduler tolerates old MariaDB via its fallback path.
+  }
+}
+
+async function seedCampaignSystemFields(models) {
+  try {
+    const { seedSystemLeadFieldsForAllOrgs } = require(
+      path.join(API_ROOT, 'src', 'services', 'campaign-lead-fields-seed')
+    );
+    const n = await seedSystemLeadFieldsForAllOrgs(models);
+    console.log(`✓ Campaign lead-fields seed checked across ${n} org(s).`);
+  } catch (e) {
+    // Don't block boot if seed fails — the feature is just unconfigured.
+    console.warn('! Campaign lead-fields seed skipped:', e.message);
+  }
+}
+
 async function main() {
   const sequelize = require(path.join(API_ROOT, 'src', 'config', 'database'));
-  const { syncDatabase } = require(path.join(API_ROOT, 'src', 'models'));
+  const models = require(path.join(API_ROOT, 'src', 'models'));
+  const { syncDatabase } = models;
+
+  await verifyMariaDBVersion(sequelize);
 
   const fresh = await isFreshInstall(sequelize);
 
@@ -103,14 +147,16 @@ async function main() {
     console.log('Creating schema from Sequelize models...');
     await syncDatabase(false);
     await markAllMigrationsApplied(sequelize);
+    await seedCampaignSystemFields(models);
     console.log('✓ Bootstrap complete.');
     await sequelize.close();
     return;
   }
 
   console.log('Existing install detected. Running pending migrations...');
-  await sequelize.close();
   await runMigrationsScript();
+  await seedCampaignSystemFields(models);
+  await sequelize.close();
 }
 
 main().catch((err) => {

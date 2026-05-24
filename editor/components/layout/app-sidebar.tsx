@@ -24,6 +24,8 @@ import {
   ArrowLeft,
 } from "lucide-react"
 
+import { CampaignsTree } from "@/components/layout/CampaignsTree"
+
 import { FaWhatsapp, FaRoute } from "react-icons/fa";
 
 import Link from "next/link"
@@ -228,6 +230,7 @@ export function AppSidebar({ orgId, orgName, ...props }: { orgId: string, orgNam
       <SidebarContent>
         <NavMain orgId={orgId} title="Analytics" items={navAnalyticsWithBadges} />
         <NavMain orgId={orgId} title="Configure" items={data.navConfigure} />
+        <CampaignsTree orgId={orgId} />
         <NavSecondary orgId={orgId} title="Plugins" items={data.navPlugins} />
         <NavSecondary orgId={orgId} title="Deploy" items={data.navDeploy} />
         <NavDocuments orgId={orgId} title="CRM" items={data.navCRM} />

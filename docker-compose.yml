@@ -80,7 +80,6 @@ services:
     ports:
       - "5060:5060/udp"
       - "5060:5060/tcp"
-      - "10000-10100:10000-10100/udp"
     volumes:
       - asterisk_config:/etc/asterisk
       - asterisk_recordings:/var/spool/asterisk/monitor
@@ -156,9 +155,12 @@ services:
     build:
       context: ./editor
       args:
-        PBX_URL: ${NEXT_PUBLIC_PBX_URL:-http://api:3000}
-        WORKFLOW_URL: ${NEXT_PUBLIC_WORKFLOW_URL:-http://workflow-engine:3002}
-        GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://pipecat-flow:7860}
+        # In-network service names — Next.js bakes rewrites() at BUILD time,
+        # so these must point to the docker network hostnames, not host-port
+        # mappings like http://localhost:8000 that may sit in root .env.
+        PBX_URL: http://api:3000
+        WORKFLOW_URL: http://workflow-engine:3002
+        GATEWAY_URL: http://pipecat-flow:7860
         ASTRADIAL_MODE: ${ASTRADIAL_MODE:-selfhosted}
         # NEXT_PUBLIC_USE_FIREBASE must be set at BUILD time — Next.js
         # bakes NEXT_PUBLIC_* into the static bundle. Default 'false' =
@@ -171,6 +173,11 @@ services:
       - NEXT_PUBLIC_ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
       - NEXT_PUBLIC_USE_FIREBASE=${NEXT_PUBLIC_USE_FIREBASE:-false}
       - NEXT_PUBLIC_GATEWAY_URL=http://pipecat-flow:7860
+      # rewrites() reads these at server boot — the editor proxies /api/pbx/*
+      # and /api/workflow/* to the in-network services. Host-env values like
+      # http://localhost:8000 don't resolve from inside the container.
+      - NEXT_PUBLIC_PBX_URL=http://api:3000
+      - NEXT_PUBLIC_WORKFLOW_URL=http://workflow-engine:3002
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}

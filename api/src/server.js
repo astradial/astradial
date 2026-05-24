@@ -29,11 +29,13 @@ const eventListenerService = require('./services/eventListenerService');
 // Import routes
 const organizationRoutes = require('./routes/organizations');
 const crmRoutes = require('./routes/crm');
+const campaignsRoutes = require('./routes/campaigns');
 const didPoolRoutes = require('./routes/didPool');
 const apiKeyRoutes = require('./routes/apiKeys');
 const customerTunnelRoutes = require('./routes/customer-tunnels');
 const ticketAlertRoutes = require('./routes/ticket-alerts');
 const adminWhatsappRoutes = require('./routes/admin-whatsapp');
+const campaignWebhookRoutes = require('./routes/webhooks');
 
 // Initialize Express app
 const app = express();
@@ -235,8 +237,11 @@ const configVerificationService = new ConfigVerificationService();
 // ========================================
 
 const authenticateOrg = async (req, res, next) => {
-  const apiKey = req.headers['x-api-key'];
-  const authHeader = req.headers['authorization'];
+  // EventSource (SSE) cannot set headers, so fall back to query params when
+  // headers are absent. Only token/apiKey — never internal-key or org_id.
+  const apiKey = req.headers['x-api-key'] || (req.query && req.query.apiKey) || undefined;
+  const authHeader = req.headers['authorization']
+    || (req.query && req.query.token ? `Bearer ${req.query.token}` : undefined);
 
   // Also accept internal key (for workflow engine + editor server-to-server calls).
   // org_id is optional — admin endpoints (e.g. did-pool/admin/*) operate across
@@ -1332,6 +1337,8 @@ app.post('/api/v1/admin/settings/deploy', async (req, res) => {
 // CRM ROUTES
 // ========================================
 app.use('/api/v1/crm', authenticateOrg, crmRoutes);
+app.use('/api/v1/campaigns', authenticateOrg, campaignsRoutes);
+app.use('/api/v1/webhooks/campaigns', campaignWebhookRoutes);
 app.use('/api/v1/did-pool', authenticateOrg, didPoolRoutes);
 app.use('/api/v1/api-keys', authenticateOrg, apiKeyRoutes);
 app.use('/api/v1/customer-tunnels', authenticateOrg, customerTunnelRoutes);
@@ -7749,6 +7756,31 @@ app.use((req, res) => {
         console.error('❌ Failed to start tickets-from-call-logs scheduler:', e.message);
       }
 
+      // Campaign async-import worker (BullMQ over Redis). Returns a
+      // no-op stub when CAMPAIGN_WORKERS_ENABLED=0, so importing here
+      // is safe even on API-only pods that don't consume jobs.
+      try {
+        require('./jobs/campaignImportWorker').startImportWorker();
+        console.log('✓ Campaign import worker armed');
+      } catch (e) {
+        console.error('❌ Failed to start campaign import worker:', e.message);
+      }
+
+      // Campaign scheduler + dispatch workers (Phase B — BullMQ repeatable tick).
+      // Guarded by CAMPAIGN_SCHEDULER_ENABLED; no-ops cleanly when set to 0.
+      if (process.env.CAMPAIGN_SCHEDULER_ENABLED !== '0') {
+        require('./jobs/campaignSchedulerJob')
+          .startSchedulerWorker()
+          .then(() => console.log('✓ Campaign scheduler worker armed'))
+          .catch(e => console.error('❌ Failed to start campaign scheduler:', e.message));
+        try {
+          require('./jobs/campaignDispatchWorker').startDispatchWorker();
+          console.log('✓ Campaign dispatch worker armed');
+        } catch (e) {
+          console.error('❌ Failed to start campaign dispatch worker:', e.message);
+        }
+      }
+
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);
@@ -7774,6 +7806,13 @@ async function stopBackgroundServices() {
     require('./jobs/ticketAlertScheduler').stop();
   } catch (e) {
     console.error("Failed to stop ticket-alert scheduler:", e.message);
+  }
+  try {
+    // Drains the BullMQ worker (lets the current chunk finish) and
+    // closes the shared Redis connection used by Campaign queues.
+    await require('./jobs/campaignQueues').shutdownAll();
+  } catch (e) {
+    console.error("Failed to shut down campaign queues:", e.message);
   }
   await eventListenerService.stop();
 }

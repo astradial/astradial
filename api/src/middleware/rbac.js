@@ -61,6 +61,12 @@ const PERMISSIONS = {
   'crm.delete':              ['owner', 'admin'],
   'crm.customize':           ['owner', 'admin'],
   'crm.assign':              ['owner', 'admin', 'manager'],
+
+  // Campaigns
+  'campaigns.read':          ['owner', 'admin', 'manager', 'agent'],
+  'campaigns.write':         ['owner', 'admin', 'manager'],
+  'campaigns.approve':       ['owner', 'admin', 'manager'],
+  'campaigns.delete':        ['owner', 'admin'],
 };
 
 /**

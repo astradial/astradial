@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./campaigns.css";
 
 @plugin "tailwindcss-animate";
 
