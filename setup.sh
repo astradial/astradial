@@ -119,8 +119,13 @@ API_FQDN=${API_FQDN}
 
 DB_NAME=astradial
 DB_USER=astradial
-DB_PASSWORD=changeme
-DB_ROOT_PASSWORD=changeme
+# Strong random passwords for fresh installs. Skylink's first deploy
+# used the hardcoded "changeme" default and was compromised by an
+# automated MariaDB-ransomware scanner in 2026-05. Even though
+# docker-compose now binds MariaDB to 127.0.0.1 only, the password
+# should never be a dictionary word.
+DB_PASSWORD=$(openssl rand -hex 24 2>/dev/null || echo "changeme-please-replace-$(date +%s)")
+DB_ROOT_PASSWORD=$(openssl rand -hex 24 2>/dev/null || echo "changeme-please-replace-$(date +%s)")
 
 # Postgres (used only by workflow-engine; separate from the astrapbx mariadb)
 PG_DATABASE=workflow_db
