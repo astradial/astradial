@@ -285,7 +285,7 @@ NEXT_PUBLIC_PBX_URL=${PBX_URL}
 SIP_HOST=${SIP_HOST}
 SIP_PORT=${SIP_PORT}
 ADMIN_EMAIL=admin@astradial.com
-ADMIN_PASSWORD=admin
+ADMIN_PASSWORD=not-used-in-cloud-mode  # allow-weak-password-example
 ADMIN_USERNAME=admin
 INTERNAL_API_KEY=not-needed-in-cloud-mode
 EOF

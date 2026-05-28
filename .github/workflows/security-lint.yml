@@ -1,0 +1,51 @@
+name: security-lint
+
+# Reject PRs that re-introduce known-bad defaults: dictionary passwords,
+# port-publish patterns that bypass UFW. See SECURITY.md for context.
+#
+# Triggered on every PR and every push to main.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  scan:
+    name: scan for dictionary passwords and public DB binds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: dictionary password literals
+        run: |
+          # Catches: DB_PASSWORD=changeme, password: admin, etc.
+          # Allowed: example/placeholder lines explicitly tagged with
+          # `# allow-weak-password-example`.
+          BAD_PATTERNS='(DB_PASSWORD|DB_ROOT_PASSWORD|ADMIN_PASSWORD|REDIS_PASSWORD|POSTGRES_PASSWORD|MARIADB_ROOT_PASSWORD|MARIADB_PASSWORD)\s*[:=]\s*[\x27\x22]?(changeme|password|admin|root|test|12345|123456|astradial|secret|qwerty|letmein)[\x27\x22]?'
+          if git grep -nE "$BAD_PATTERNS" -- ':!*.md' ':!SECURITY*' ':!*test*' ':!.github/workflows/security-lint.yml' | grep -v 'allow-weak-password-example'; then
+            echo ""
+            echo "::error::Found a dictionary password literal. Use \$(openssl rand -hex 24) or read from .env. See SECURITY.md."
+            exit 1
+          fi
+          echo "ok: no dictionary password literals"
+
+      - name: public docker port-publish without 127.0.0.1
+        run: |
+          # docker-compose 'ports' that don't bind to a specific IP get
+          # 0.0.0.0 by default, bypassing UFW. Catch any line like
+          # `- "<digits>:<digits>"` that ISN'T prefixed with an IP.
+          # Allowed values: 0.0.0.0 if explicit (forces author to think),
+          # or any non-DB port (we allow 80/443/22/SIP/RTP/etc on 0.0.0.0).
+          # This check is conservative: it flags any DB-shaped port binding
+          # (3306/3307/6379/5432/27017/3000-3099 etc.) that's not localhost.
+          if grep -rnE '^\s*-\s*"[0-9]+:[0-9]+"' docker-compose*.yml 2>/dev/null | grep -E '"(3306|3307|6379|5432|27017|9200|9300|11211):' ; then
+            echo ""
+            echo "::error::DB-like port mapped to 0.0.0.0 (default when no IP prefix). Bind to 127.0.0.1, e.g.: '127.0.0.1:3307:3306'. See SECURITY.md."
+            exit 1
+          fi
+          echo "ok: no public DB-port bindings"
+
+      - name: ensure SECURITY.md still exists
+        run: |
+          test -f SECURITY.md || (echo "::error::SECURITY.md was removed." && exit 1)

@@ -1,5 +1,12 @@
 # Astradial
 
+> ⚠️ **Security advisory (2026-05-28):** if you deployed before this
+> date, see [`SECURITY.md`](./SECURITY.md). Older `docker-compose.yml`
+> exposed MariaDB and Redis on `0.0.0.0` (Docker's iptables rules
+> bypass UFW), and `setup.sh` shipped `DB_PASSWORD=changeme` as a
+> default. Confirmed live exploitation of one deploy. Pull, redeploy,
+> rotate passwords. New defaults in `main` are safe.
+
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/astradial/astradial?style=social)](https://github.com/astradial/astradial/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/astradial/astradial)](https://github.com/astradial/astradial/issues)
