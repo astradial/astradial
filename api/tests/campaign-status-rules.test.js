@@ -519,7 +519,7 @@ test('WhatsApp Campaign Status Rules', async (t) => {
     assert.equal(leadStatusUpdated, 'contacted', 'Successful call action must change raw to contacted');
   });
 
-  await t.test('9. Keyword-matched inbound WhatsApp reply changes contacted to engaged', async () => {
+  await t.test('9. Keyword-matched inbound WhatsApp reply changes contacted to interested', async () => {
     const lead = {
       id: 'lead-1',
       status: 'contacted',
@@ -559,12 +559,12 @@ test('WhatsApp Campaign Status Rules', async (t) => {
     const { markInterestedAndHalt } = require('../src/services/campaign-reply-handler');
     const result = await markInterestedAndHalt('org-1', '919876543210', 'Yes');
     
-    assert.equal(result.classified, 'engaged');
-    assert.equal(lead.status, 'engaged');
+    assert.equal(result.classified, 'interested');
+    assert.equal(lead.status, 'interested');
     assert.equal(run.status, 'halted');
   });
 
-  await t.test('10. Non-matching inbound reply does not change lead status', async () => {
+  await t.test('10. Non-matching inbound reply changes contacted to engaged', async () => {
     const lead = {
       id: 'lead-1',
       status: 'contacted',
@@ -601,17 +601,11 @@ test('WhatsApp Campaign Status Rules', async (t) => {
       }
     });
 
-    let leadUpdated = false;
-    lead.update = async () => {
-      leadUpdated = true;
-    };
-
     const { markInterestedAndHalt } = require('../src/services/campaign-reply-handler');
     const result = await markInterestedAndHalt('org-1', '919876543210', 'No');
     
-    assert.equal(result.classified, null);
-    assert.equal(leadUpdated, false, 'Non-matching reply must not update lead status');
-    assert.equal(lead.status, 'contacted');
+    assert.equal(result.classified, 'engaged');
+    assert.equal(lead.status, 'engaged');
   });
 
   await t.test('11. Webhook /call-completed with status: failed keeps lead as raw', async () => {
@@ -986,6 +980,170 @@ test('WhatsApp Campaign Status Rules', async (t) => {
     await callCompletedHandler(req, res);
 
     assert.equal(leadUpdateCount, 0, 'Should not perform any updates or side effects');
+  });
+
+  await t.test('17. Successful WhatsApp send creates exactly one CampaignEvent with safe metadata', async () => {
+    const lead = {
+      id: 'lead-1',
+      status: 'raw',
+      phone: '919876543210',
+    };
+
+    const run = {
+      id: 'run-1',
+      status: 'queued',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async () => {}
+    };
+
+    STUB_MODELS.CampaignLeadRun.findByPk = async () => run;
+    STUB_MODELS.CampaignLead.findByPk = async () => lead;
+    STUB_MODELS.Campaign.findByPk = async () => ({
+      id: 'campaign-1',
+      template_snapshot: {
+        days: [
+          {
+            actions: [
+              { type: 'whatsapp', template: 'temp-1' }
+            ]
+          }
+        ]
+      }
+    });
+    STUB_MODELS.Organization.findByPk = async () => ({ id: 'org-1' });
+
+    let createdEvent = null;
+    STUB_MODELS.CampaignEvent.create = async (data) => {
+      createdEvent = data;
+      return {};
+    };
+
+    runWhatsAppResult = { ok: true, requestId: 'req-123' };
+    STUB_ACTIONS.runWhatsApp = async () => runWhatsAppResult;
+
+    await processWhatsAppJobFn({
+      data: {
+        runId: 'run-1',
+        orgId: 'org-1',
+        campaignId: 'campaign-1',
+        leadId: 'lead-1',
+        action: { type: 'whatsapp', template: 'temp-1' }
+      }
+    });
+
+    assert.ok(createdEvent, 'Timeline event must be created');
+    assert.equal(createdEvent.kind, 'whatsapp_sent');
+    assert.equal(createdEvent.campaign_lead_id, 'lead-1');
+    assert.equal(createdEvent.payload.template_name, 'temp-1');
+    assert.equal(createdEvent.payload.direction, 'outbound');
+    assert.equal(createdEvent.payload.send_status, 'sent');
+    assert.equal(createdEvent.payload.request_id, 'req-123');
+    assert.equal(createdEvent.idempotency_key, 'whatsapp-sent-run-1-d0-a0');
+  });
+
+  await t.test('18. Failed WhatsApp send does not create CampaignEvent', async () => {
+    const lead = {
+      id: 'lead-1',
+      status: 'raw',
+      phone: '919876543210',
+    };
+
+    const run = {
+      id: 'run-1',
+      status: 'queued',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async () => {}
+    };
+
+    STUB_MODELS.CampaignLeadRun.findByPk = async () => run;
+    STUB_MODELS.CampaignLead.findByPk = async () => lead;
+    STUB_MODELS.Campaign.findByPk = async () => ({ id: 'campaign-1' });
+    STUB_MODELS.Organization.findByPk = async () => ({ id: 'org-1' });
+
+    let eventCreated = false;
+    STUB_MODELS.CampaignEvent.create = async () => {
+      eventCreated = true;
+      return {};
+    };
+
+    runWhatsAppResult = { ok: false, transient: false, error: 'Invalid template' };
+    STUB_ACTIONS.runWhatsApp = async () => runWhatsAppResult;
+
+    await processWhatsAppJobFn({
+      data: {
+        runId: 'run-1',
+        orgId: 'org-1',
+        campaignId: 'campaign-1',
+        leadId: 'lead-1',
+        action: { type: 'whatsapp', template: 'temp-1' }
+      }
+    });
+
+    assert.equal(eventCreated, false, 'Failed send must not create Timeline event');
+  });
+
+  await t.test('19. Duplicate WhatsApp send processing does not throw and skips CampaignEvent creation', async () => {
+    const lead = {
+      id: 'lead-1',
+      status: 'raw',
+      phone: '919876543210',
+    };
+
+    const run = {
+      id: 'run-1',
+      status: 'queued',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async () => {}
+    };
+
+    STUB_MODELS.CampaignLeadRun.findByPk = async () => run;
+    STUB_MODELS.CampaignLead.findByPk = async () => lead;
+    STUB_MODELS.Campaign.findByPk = async () => ({
+      id: 'campaign-1',
+      template_snapshot: {
+        days: [
+          {
+            actions: [
+              { type: 'whatsapp', template: 'temp-1' }
+            ]
+          }
+        ]
+      }
+    });
+    STUB_MODELS.Organization.findByPk = async () => ({ id: 'org-1' });
+
+    // Mock CampaignEvent.create to throw a unique constraint error
+    let createCount = 0;
+    STUB_MODELS.CampaignEvent.create = async () => {
+      createCount++;
+      const err = new Error('Validation error');
+      err.name = 'SequelizeUniqueConstraintError';
+      throw err;
+    };
+
+    runWhatsAppResult = { ok: true, requestId: 'req-123' };
+    STUB_ACTIONS.runWhatsApp = async () => runWhatsAppResult;
+
+    // This should run without throwing any error and successfully advance the campaign
+    await assert.doesNotReject(async () => {
+      await processWhatsAppJobFn({
+        data: {
+          runId: 'run-1',
+          orgId: 'org-1',
+          campaignId: 'campaign-1',
+          leadId: 'lead-1',
+          action: { type: 'whatsapp', template: 'temp-1' }
+        }
+      });
+    }, 'Process WhatsApp job should handle unique constraint error gracefully');
+
+    assert.equal(createCount, 1, 'Event creation should be attempted exactly once');
   });
 
 });

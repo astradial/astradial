@@ -25,7 +25,7 @@ async function processWhatsAppJob(job) {
   const { runId, orgId, campaignId, leadId, action } = job.data;
   const log = createLogger({ service: 'campaignWhatsAppWorker', runId, campaignId, leadId });
 
-  const { Campaign, CampaignLead, CampaignLeadRun } = require('../models');
+  const { Campaign, CampaignLead, CampaignLeadRun, CampaignEvent } = require('../models');
   const { runWhatsApp } = require('../services/campaign-actions');
   const { tryConsume } = require('../services/campaign-rate-limiter');
   const { advance } = require('../services/campaign-advance');
@@ -70,6 +70,33 @@ async function processWhatsAppJob(job) {
 
   if (result.ok) {
     log.info('whatsapp sent', { requestId: result.requestId });
+
+    // Save Timeline event
+    try {
+      const idempotencyKey = `whatsapp-sent-${run.id}-d${run.current_day_index}-a${run.current_action_index}`;
+      await CampaignEvent.create({
+        org_id: orgId,
+        campaign_id: campaignId,
+        campaign_lead_id: leadId,
+        kind: 'whatsapp_sent',
+        idempotency_key: idempotencyKey,
+        payload: {
+          direction: 'outbound',
+          channel: 'whatsapp',
+          template_name: action.template,
+          send_status: 'sent',
+          request_id: result.requestId || null,
+          detail: `Sent WhatsApp template: ${action.template}`
+        }
+      });
+    } catch (eventErr) {
+      if (eventErr.name === 'SequelizeUniqueConstraintError') {
+        log.info('whatsapp campaign event already created (idempotency match), skipping create');
+      } else {
+        log.warn('Failed to log campaign event for whatsapp send', { error: eventErr.message });
+      }
+    }
+
     await advance(run, campaign, true);
     return;
   }

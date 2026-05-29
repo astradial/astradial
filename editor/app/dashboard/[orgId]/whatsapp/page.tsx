@@ -14,6 +14,8 @@ import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showToast } from "@/components/ui/Toast";
 import { msg91, type Msg91Config, type Msg91Number, type Msg91Template } from "@/lib/msg91/client";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
 
 export default function WhatsAppPage() {
   const { orgId } = useParams<{ orgId: string }>();
@@ -25,6 +27,7 @@ export default function WhatsAppPage() {
   const [templates, setTemplates] = useState<Msg91Template[]>([]);
   const [logs, setLogs] = useState<Record<string, unknown>[]>([]);
   const [selectedNumber, setSelectedNumber] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState<Msg91Template | null>(null);
 
   const [loadingNumbers, setLoadingNumbers] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
@@ -177,7 +180,7 @@ export default function WhatsAppPage() {
                 {loadingTemplates ? "Loading..." : "Fetch Templates"}
               </Button>
             </div>
-            <div className="border rounded-lg flex-1 min-h-0 overflow-y-auto">
+            <div className="border rounded-lg flex-1 min-h-0 overflow-y-auto mb-4">
               <Table>
                 <TableHeader className="sticky top-0 bg-background z-10 shadow-[0_1px_0_0] shadow-border">
                   <TableRow>
@@ -199,7 +202,7 @@ export default function WhatsAppPage() {
                     const fl = langs[0] || {};
                     const vars = (fl.variables as string[]) || [];
                     return (
-                      <TableRow key={i}>
+                      <TableRow key={i} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedTemplate(t)}>
                         <TableCell className="font-medium text-sm">{String(t.name || "—")}</TableCell>
                         <TableCell><Badge variant={String(fl.status) === "APPROVED" ? "default" : "secondary"} className="text-[10px]">{String(fl.status || "—")}</Badge></TableCell>
                         <TableCell className="text-xs">{String(fl.language || "—")}</TableCell>
@@ -210,6 +213,147 @@ export default function WhatsAppPage() {
                 </TableBody>
               </Table>
             </div>
+
+            <Sheet open={!!selectedTemplate} onOpenChange={(open) => !open && setSelectedTemplate(null)}>
+              <SheetContent className="overflow-y-auto w-[400px] sm:w-[540px] max-w-full">
+                <SheetHeader className="pb-4">
+                  <SheetTitle className="text-xl">Template Details</SheetTitle>
+                  <SheetDescription>
+                    WhatsApp template structure and properties.
+                  </SheetDescription>
+                </SheetHeader>
+                {selectedTemplate && (() => {
+                  const langs = (selectedTemplate as Record<string, any>).languages as Record<string, any>[] || [];
+                  const fl = langs[0] || {};
+                  const vars = (fl.variables as string[]) || [];
+                  const components = (fl.components as any[]) || [];
+
+                  const headerComp = components.find(c => c.type === "HEADER");
+                  const bodyComp = components.find(c => c.type === "BODY");
+                  const footerComp = components.find(c => c.type === "FOOTER");
+                  const buttonsComp = components.find(c => c.type === "BUTTONS");
+
+                  return (
+                    <div className="space-y-6">
+                      <div className="space-y-2 border-t pt-4">
+                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Properties</h4>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                          <div>
+                            <span className="text-muted-foreground text-xs block">Template Name</span>
+                            <span className="font-medium">{String(selectedTemplate.name || "—")}</span>
+                          </div>
+                          {!!selectedTemplate.id && (
+                            <div>
+                              <span className="text-muted-foreground text-xs block">Template ID</span>
+                              <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{String(selectedTemplate.id)}</span>
+                            </div>
+                          )}
+                          {!!selectedTemplate.category && (
+                            <div className="mt-1">
+                              <span className="text-muted-foreground text-xs block">Category</span>
+                              <Badge variant="outline" className="capitalize text-[10px]">{String(selectedTemplate.category)}</Badge>
+                            </div>
+                          )}
+                          <div>
+                            <span className="text-muted-foreground text-xs block">Language</span>
+                            <span className="capitalize">{String(fl.language || "—")}</span>
+                          </div>
+                          <div className="mt-1">
+                            <span className="text-muted-foreground text-xs block">Status</span>
+                            <Badge variant={String(fl.status) === "APPROVED" ? "default" : "secondary"} className="text-[10px]">
+                              {String(fl.status || "—")}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+
+                      <Separator />
+
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">WhatsApp Preview</h4>
+                        <div 
+                          className="rounded-xl border p-4 min-h-[220px] flex flex-col justify-end relative shadow-inner overflow-hidden"
+                          style={{
+                            backgroundColor: "#efeae2",
+                            backgroundImage: "url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')",
+                            backgroundSize: "cover",
+                            backgroundBlendMode: "overlay"
+                          }}
+                        >
+                          {/* Chat speech bubble */}
+                          <div className="bg-white dark:bg-zinc-800 text-black dark:text-white rounded-lg p-3 shadow-sm max-w-[85%] self-start relative text-sm space-y-1.5">
+                            {headerComp && (
+                              <div className="font-bold text-xs border-b border-zinc-100 dark:border-zinc-700 pb-1 text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
+                                {headerComp.format === "TEXT" ? (
+                                  <span>{headerComp.text}</span>
+                                ) : (
+                                  <span className="flex items-center gap-1 text-[10px] text-zinc-500">
+                                    <FileText className="h-3 w-3" /> {headerComp.format} Header
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {bodyComp && (
+                              <div className="whitespace-pre-wrap leading-relaxed break-words">
+                                {bodyComp.text}
+                              </div>
+                            )}
+
+                            {footerComp && (
+                              <div className="text-[10px] text-zinc-400 dark:text-zinc-500 pt-0.5">
+                                {footerComp.text}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Render Buttons below bubble if present */}
+                          {buttonsComp && Array.isArray(buttonsComp.buttons) && (
+                            <div className="mt-2 space-y-1 max-w-[85%] self-start w-full">
+                              {buttonsComp.buttons.map((btn: any, idx: number) => {
+                                let label = btn.text || "Button";
+                                if (btn.type === "PHONE_NUMBER") {
+                                  label = `📞 ${label} (${btn.phone_number || ""})`;
+                                } else if (btn.type === "URL") {
+                                  label = `🔗 ${label}`;
+                                }
+                                return (
+                                  <div 
+                                    key={idx} 
+                                    className="bg-white dark:bg-zinc-800 text-[#00a884] dark:text-emerald-400 text-xs font-semibold py-2 px-3 rounded-lg text-center shadow-sm border border-zinc-200/50 dark:border-zinc-700/50 hover:bg-zinc-50 dark:hover:bg-zinc-750 transition-colors cursor-pointer"
+                                  >
+                                    {label}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {vars.length > 0 && (
+                        <>
+                          <Separator />
+                          <div className="space-y-2">
+                            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Template Variables</h4>
+                            <div className="flex flex-wrap gap-1.5">
+                              {vars.map((v) => (
+                                <code key={v} className="bg-muted text-xs font-mono px-2 py-0.5 rounded text-muted-foreground">
+                                  {"{{"}{v}{"}}"}
+                                </code>
+                              ))}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-2">
+                              These variables are resolved using lead custom fields at send time.
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+              </SheetContent>
+            </Sheet>
           </TabsContent>
 
           {/* Message Logs */}
