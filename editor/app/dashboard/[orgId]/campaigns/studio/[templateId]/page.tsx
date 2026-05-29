@@ -9,6 +9,7 @@ import {
   Check,
   ChevronLeft,
   File as FileIcon,
+  FileText,
   MessageCircle,
   Phone,
   Play,
@@ -33,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { templates, whatsappTemplates, type WhatsAppTemplateMeta } from "@/lib/campaigns/client";
+import { msg91 } from "@/lib/msg91/client";
 import type {
   ActionType,
   CampaignTemplate,
@@ -97,6 +99,18 @@ function GripGlyph() {
 function actionSummary(a: WorkflowAction): string {
   if (a.type === "whatsapp") return a.template || "no template";
   return a.script || "no script";
+}
+
+function cleanOuterQuotes(str: string): string {
+  if (!str) return "";
+  const trimmed = str.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return str;
 }
 
 function makeAction(type: ActionType): WorkflowAction {
@@ -415,6 +429,7 @@ export default function StudioEditorPage() {
         />
 
         <Inspector
+          orgId={orgId}
           workflow={workflow}
           selection={selection}
           updateAction={updateAction}
@@ -1136,19 +1151,21 @@ function AddStepButton({ onPick }: { onPick: (t: ActionType) => void }) {
 // =================================================================
 
 function Inspector({
+  orgId,
   workflow,
   selection,
   updateAction,
   deleteAction,
   onClose,
 }: {
+  orgId: string;
   workflow: Workflow;
   selection: { dayId: string; actionId: string } | null;
   updateAction: (dayId: string, actionId: string, patch: Partial<WorkflowAction>) => void;
   deleteAction: (dayId: string, actionId: string) => void;
   onClose: () => void;
 }) {
-  const [waTemplates, setWaTemplates] = useState<WhatsAppTemplateMeta[]>([]);
+  const [waTemplates, setWaTemplates] = useState<any[]>([]);
   const [waLoading, setWaLoading] = useState(false);
   const [waConfigured, setWaConfigured] = useState(true);
 
@@ -1159,22 +1176,43 @@ function Inspector({
     if (a?.type !== "whatsapp") return;
     let cancelled = false;
     setWaLoading(true);
-    whatsappTemplates
-      .list()
-      .then((res) => {
+
+    (async () => {
+      try {
+        const nums = await msg91.getNumbers(orgId);
         if (cancelled) return;
-        setWaTemplates(res.templates || []);
-        setWaConfigured(res.configured);
-      })
-      .catch(() => {
+        const firstNum = String(nums[0]?.integrated_number || nums[0]?.number || "");
+        if (firstNum) {
+          const tpls = await msg91.getTemplates(orgId, firstNum);
+          if (cancelled) return;
+          setWaTemplates(tpls || []);
+          setWaConfigured(true);
+        } else {
+          const res = await whatsappTemplates.list();
+          if (cancelled) return;
+          setWaTemplates(res.templates || []);
+          setWaConfigured(res.configured);
+        }
+      } catch (err) {
         if (cancelled) return;
-        setWaConfigured(false);
-      })
-      .finally(() => {
+        whatsappTemplates
+          .list()
+          .then((res) => {
+            if (cancelled) return;
+            setWaTemplates(res.templates || []);
+            setWaConfigured(res.configured);
+          })
+          .catch(() => {
+            if (cancelled) return;
+            setWaConfigured(false);
+          });
+      } finally {
         if (!cancelled) setWaLoading(false);
-      });
+      }
+    })();
+
     return () => { cancelled = true; };
-  }, [selection, workflow.days]);
+  }, [selection, workflow.days, orgId]);
 
   if (!selection) return null;
   const day = workflow.days.find((d) => d.id === selection.dayId);
@@ -1214,11 +1252,14 @@ function Inspector({
                 <SelectContent>
                   <SelectGroup>
                     <SelectItem value="__none__">Select a template…</SelectItem>
-                    {waTemplates.map((t) => (
-                      <SelectItem key={t.name} value={t.name}>
-                        {t.name}{t.language ? ` (${t.language})` : ""}
-                      </SelectItem>
-                    ))}
+                    {waTemplates.map((t) => {
+                      const langCode = t.language || t.languages?.[0]?.language || "";
+                      return (
+                        <SelectItem key={t.name} value={t.name}>
+                          {t.name}{langCode ? ` (${langCode})` : ""}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectGroup>
                 </SelectContent>
               </Select>
@@ -1254,15 +1295,103 @@ function Inspector({
             />
             <div className="cmp-field-hint">MSG91 template namespace. Required for sending.</div>
           </div>
-          {action.template && (
-            <div className="cmp-field">
-              <label className="cmp-field-label">Preview</label>
-              <div className="cmp-msg-preview">
-                Live preview unavailable in the editor. Server-side renders the template body using
-                lead variables at send time.
+          {action.template && (() => {
+            const selectedTemplate = waTemplates.find(
+              (template) => template.name === action.template
+            );
+
+            const selectedLanguageValue =
+              (action as any).template_language || (action as any).language || selectedTemplate?.language;
+
+            const selectedLanguage =
+              selectedTemplate?.languages?.find(
+                (language: any) => language.language === selectedLanguageValue
+              ) ?? selectedTemplate?.languages?.[0];
+
+            const previewComponents =
+              selectedLanguage?.code ?? selectedLanguage?.components ?? [];
+
+            return (
+              <div className="cmp-field">
+                <label className="cmp-field-label">Message Preview</label>
+                {!selectedTemplate ? (
+                  <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground bg-muted/20">
+                    Preview unavailable for this template.
+                  </div>
+                ) : previewComponents.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground bg-muted/20">
+                    Preview unavailable for this template.
+                  </div>
+                ) : (() => {
+                  const headerComp = previewComponents.find((c: any) => c.type === "HEADER");
+                  const bodyComp = previewComponents.find((c: any) => c.type === "BODY");
+                  const footerComp = previewComponents.find((c: any) => c.type === "FOOTER");
+                  const buttonsComp = previewComponents.find((c: any) => c.type === "BUTTONS");
+
+                  return (
+                    <div 
+                      className="rounded-lg border p-3 flex flex-col justify-end relative shadow-inner overflow-hidden"
+                      style={{
+                        backgroundColor: "#efeae2",
+                        backgroundImage: "url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')",
+                        backgroundSize: "cover",
+                        backgroundBlendMode: "overlay"
+                      }}
+                    >
+                      {/* Chat speech bubble */}
+                      <div className="bg-white dark:bg-zinc-800 text-black dark:text-white rounded-lg p-2.5 shadow-sm max-w-[90%] self-start relative text-xs space-y-1 leading-relaxed">
+                        {headerComp && (
+                          <div className="font-bold text-[10px] border-b border-zinc-100 dark:border-zinc-700 pb-0.5 mb-1 text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
+                            {headerComp.format === "TEXT" ? (
+                              <span>{cleanOuterQuotes(headerComp.text || "")}</span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-[9px] text-zinc-500">
+                                <FileText className="h-3 w-3" /> {headerComp.format} Header
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {bodyComp && (
+                          <div className="whitespace-pre-wrap break-words">
+                            {cleanOuterQuotes(bodyComp.text || "")}
+                          </div>
+                        )}
+
+                        {footerComp && (
+                          <div className="text-[9px] text-zinc-400 dark:text-zinc-500 pt-0.5">
+                            {cleanOuterQuotes(footerComp.text || "")}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Render Buttons below speech bubble */}
+                      {buttonsComp && Array.isArray(buttonsComp.buttons) && (
+                        <div className="mt-1 space-y-1 max-w-[90%] self-start w-full">
+                          {buttonsComp.buttons.map((btn: any, idx: number) => {
+                            let label = btn.text || "Button";
+                            if (btn.type === "PHONE_NUMBER") {
+                              label = `📞 ${label}`;
+                            } else if (btn.type === "URL") {
+                              label = `🔗 ${label}`;
+                            }
+                            return (
+                              <div 
+                                key={idx} 
+                                className="bg-white dark:bg-zinc-800 text-[#00a884] dark:text-emerald-400 text-[10px] font-semibold py-1.5 px-2.5 rounded-lg text-center shadow-sm border border-zinc-200/50 dark:border-zinc-700/50 hover:bg-zinc-50 dark:hover:bg-zinc-750 transition-colors cursor-pointer"
+                              >
+                                {label}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
-            </div>
-          )}
+            );
+          })()}
           <div className="cmp-field">
             <label className="cmp-field-label">
               Interest keywords <span className="cmp-field-optional">(optional)</span>
