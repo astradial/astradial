@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>AstraPBX Phone</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg-primary:#0f1117;
+    --bg-secondary:#1a1d27;
+    --bg-card:#222638;
+    --bg-input:#2a2e42;
+    --bg-hover:#323750;
+    --accent:#6c5ce7;
+    --accent-glow:rgba(108,92,231,.35);
+    --accent-light:#a29bfe;
+    --green:#00cec9;
+    --green-glow:rgba(0,206,201,.3);
+    --red:#ff6b6b;
+    --red-glow:rgba(255,107,107,.3);
+    --orange:#fdcb6e;
+    --text-primary:#edf0f7;
+    --text-secondary:#8892b0;
+    --text-muted:#5a6380;
+    --radius:14px;
+    --radius-sm:10px;
+    --shadow:0 8px 32px rgba(0,0,0,.35);
+    --transition:all .25s cubic-bezier(.4,0,.2,1);
+  }
+  html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg-primary);color:var(--text-primary);overflow:hidden}
+  body{display:flex;align-items:center;justify-content:center}
+
+  /* Animated background */
+  body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse at 20% 50%,rgba(108,92,231,.08),transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(0,206,201,.06),transparent 50%);pointer-events:none;z-index:0}
+
+  /* Scrollbar */
+  ::-webkit-scrollbar{width:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--bg-hover);border-radius:3px}
+
+  /* ── App Shell ── */
+  #app{position:relative;z-index:1;width:100%;max-width:420px;height:100dvh;max-height:820px;display:flex;flex-direction:column;background:var(--bg-secondary);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+  @media(max-width:440px){#app{max-height:none;border-radius:0}}
+
+  /* ── Header ── */
+  .header{padding:18px 20px 14px;display:flex;align-items:center;justify-content:space-between;background:var(--bg-secondary);border-bottom:1px solid rgba(255,255,255,.04)}
+  .header h1{font-size:1.15rem;font-weight:700;letter-spacing:.5px}
+  .header h1 span{color:var(--accent-light);font-weight:400}
+  .status-pill{font-size:.7rem;padding:4px 12px;border-radius:20px;font-weight:600;letter-spacing:.3px;transition:var(--transition)}
+  .status-pill.registered{background:var(--green-glow);color:var(--green)}
+  .status-pill.unregistered{background:var(--red-glow);color:var(--red)}
+  .status-pill.connecting{background:rgba(253,203,110,.2);color:var(--orange)}
+
+  /* ── Screens ── */
+  .screen{display:none;flex:1;flex-direction:column;overflow:hidden;animation:fadeIn .35s ease}
+  .screen.active{display:flex}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+  /* ── Login ── */
+  .login-screen{justify-content:center;padding:32px 28px;gap:18px}
+  .login-logo{text-align:center;margin-bottom:12px}
+  .login-logo svg{width:56px;height:56px;margin-bottom:10px}
+  .login-logo h2{font-size:1.4rem;font-weight:700}
+  .login-logo p{font-size:.82rem;color:var(--text-secondary);margin-top:4px}
+  .form-group{display:flex;flex-direction:column;gap:6px}
+  .form-group label{font-size:.75rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.8px}
+  .form-group input{background:var(--bg-input);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius-sm);padding:13px 16px;color:var(--text-primary);font-size:.92rem;outline:none;transition:var(--transition)}
+  .form-group input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+  .remember-row{display:flex;align-items:center;gap:10px;padding:2px 0}
+  .remember-row input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px;cursor:pointer}
+  .remember-row label{font-size:.82rem;color:var(--text-secondary);cursor:pointer}
+  .btn{border:none;border-radius:var(--radius-sm);padding:14px;font-size:.95rem;font-weight:600;cursor:pointer;transition:var(--transition);text-align:center;letter-spacing:.3px}
+  .btn:active{transform:scale(.97)}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:#7c6cf0;box-shadow:0 4px 20px var(--accent-glow)}
+  .btn-primary:disabled{opacity:.5;cursor:not-allowed}
+  .login-error{font-size:.82rem;color:var(--red);text-align:center;min-height:1.2em}
+
+  /* ── Phone Screen ── */
+  .phone-screen{position:relative}
+  .phone-body{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+  /* Tabs */
+  .tab-bar{display:flex;background:var(--bg-secondary);border-bottom:1px solid rgba(255,255,255,.04);padding:0 16px}
+  .tab-btn{flex:1;padding:12px 0 10px;font-size:.78rem;font-weight:600;color:var(--text-muted);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:var(--transition);text-transform:uppercase;letter-spacing:.8px}
+  .tab-btn.active{color:var(--accent-light);border-bottom-color:var(--accent)}
+  .tab-content{flex:1;overflow:hidden}
+  .tab-pane{display:none;height:100%;flex-direction:column}
+  .tab-pane.active{display:flex}
+
+  /* ── Dial Tab ── */
+  .dial-display{padding:20px 24px 0;text-align:center}
+  .dial-input{background:transparent;border:none;color:var(--text-primary);font-size:2rem;font-weight:300;letter-spacing:3px;text-align:center;width:100%;outline:none;caret-color:var(--accent)}
+  .dial-input::placeholder{color:var(--text-muted)}
+  .dial-sub{font-size:.75rem;color:var(--text-secondary);margin-top:4px;min-height:1em}
+
+  /* Dial pad */
+  .dialpad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px 32px}
+  .key{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;aspect-ratio:1.35;border-radius:var(--radius);background:var(--bg-card);border:1px solid rgba(255,255,255,.04);cursor:pointer;transition:var(--transition);user-select:none;-webkit-tap-highlight-color:transparent}
+  .key:hover{background:var(--bg-hover)}
+  .key:active{transform:scale(.92);background:var(--accent);border-color:var(--accent)}
+  .key .digit{font-size:1.5rem;font-weight:500;line-height:1}
+  .key .sub{font-size:.55rem;color:var(--text-muted);letter-spacing:2.5px;margin-top:2px;font-weight:600}
+  .key:active .sub{color:rgba(255,255,255,.7)}
+
+  /* Call controls */
+  .call-actions{display:flex;gap:14px;padding:10px 32px 16px;justify-content:center}
+  .call-btn{width:64px;height:64px;border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:var(--transition)}
+  .call-btn:active{transform:scale(.9)}
+  .call-btn.green{background:var(--green);box-shadow:0 4px 20px var(--green-glow)}
+  .call-btn.green:hover{box-shadow:0 6px 28px var(--green-glow)}
+  .call-btn.red{background:var(--red);box-shadow:0 4px 20px var(--red-glow)}
+  .call-btn.red:hover{box-shadow:0 6px 28px var(--red-glow)}
+  .call-btn svg{width:28px;height:28px;fill:#fff}
+  .call-btn:disabled{opacity:.35;cursor:not-allowed}
+
+  /* ── Active Call Overlay ── */
+  .call-overlay{position:absolute;inset:0;background:var(--bg-secondary);display:none;flex-direction:column;z-index:10;animation:fadeIn .3s ease}
+  .call-overlay.active{display:flex}
+  .call-info{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+  .call-info .caller-avatar{width:80px;height:80px;border-radius:50%;background:var(--bg-card);display:flex;align-items:center;justify-content:center;margin-bottom:8px;font-size:2rem;border:2px solid var(--accent)}
+  .call-info .caller-name{font-size:1.6rem;font-weight:600;letter-spacing:1px}
+  .call-state{font-size:.85rem;font-weight:500;padding:4px 14px;border-radius:20px;transition:var(--transition)}
+  .call-state.ringing{color:var(--orange);background:rgba(253,203,110,.12)}
+  .call-state.connected{color:var(--green);background:var(--green-glow)}
+  .call-state.onhold{color:var(--orange);background:rgba(253,203,110,.12)}
+  .call-state.ended{color:var(--red);background:var(--red-glow)}
+  .call-timer{font-size:2.2rem;font-weight:200;letter-spacing:4px;margin-top:8px;font-variant-numeric:tabular-nums}
+
+  .call-mid-controls{display:flex;justify-content:center;gap:24px;padding:20px 0}
+  .mid-btn{width:56px;height:56px;border-radius:50%;background:var(--bg-card);border:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:var(--transition);gap:2px}
+  .mid-btn svg{width:22px;height:22px;fill:var(--text-secondary);transition:var(--transition)}
+  .mid-btn span{font-size:.55rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  .mid-btn:hover{background:var(--bg-hover)}
+  .mid-btn.active{background:var(--accent);border-color:var(--accent)}
+  .mid-btn.active svg{fill:#fff}
+  .mid-btn.active span{color:rgba(255,255,255,.8)}
+
+  .call-end-row{display:flex;justify-content:center;padding:0 0 40px}
+
+  /* ── Incoming Call Banner ── */
+  .incoming-banner{position:absolute;top:0;left:0;right:0;z-index:20;background:linear-gradient(135deg,#1e2235,#2a2450);border-bottom:1px solid var(--accent);padding:20px;display:none;flex-direction:column;align-items:center;gap:14px;animation:slideDown .35s ease}
+  .incoming-banner.active{display:flex}
+  @keyframes slideDown{from{transform:translateY(-100%)}to{transform:translateY(0)}}
+  .incoming-banner .inc-title{font-size:.75rem;color:var(--accent-light);font-weight:600;text-transform:uppercase;letter-spacing:1.5px}
+  .incoming-banner .inc-caller{font-size:1.3rem;font-weight:600}
+  .incoming-banner .inc-actions{display:flex;gap:24px}
+  .incoming-banner .inc-actions .call-btn{width:56px;height:56px}
+
+  /* ── Pulse animation on incoming ── */
+  @keyframes pulse-ring{0%{box-shadow:0 0 0 0 var(--green-glow)}70%{box-shadow:0 0 0 18px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  .incoming-banner .call-btn.green{animation:pulse-ring 1.5s infinite}
+
+  /* ── Recents Tab ── */
+  .recents-list{flex:1;overflow-y:auto;padding:8px 16px}
+  .recents-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);gap:8px}
+  .recents-empty svg{width:48px;height:48px;fill:var(--text-muted);opacity:.4}
+  .recent-item{display:flex;align-items:center;padding:12px 14px;border-radius:var(--radius-sm);transition:var(--transition);gap:14px;cursor:pointer}
+  .recent-item:hover{background:var(--bg-card)}
+  .recent-icon{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .recent-icon.outgoing{background:rgba(108,92,231,.15)}
+  .recent-icon.outgoing svg{fill:var(--accent-light)}
+  .recent-icon.incoming{background:var(--green-glow)}
+  .recent-icon.incoming svg{fill:var(--green)}
+  .recent-icon.missed{background:var(--red-glow)}
+  .recent-icon.missed svg{fill:var(--red)}
+  .recent-icon svg{width:18px;height:18px}
+  .recent-details{flex:1;min-width:0}
+  .recent-number{font-size:.92rem;font-weight:500}
+  .recent-meta{font-size:.72rem;color:var(--text-muted);margin-top:2px}
+  .recent-duration{font-size:.75rem;color:var(--text-secondary);flex-shrink:0}
+  .clear-recents{margin:8px 16px 16px;padding:10px;border-radius:var(--radius-sm);background:none;border:1px solid rgba(255,255,255,.06);color:var(--text-muted);font-size:.78rem;cursor:pointer;transition:var(--transition)}
+  .clear-recents:hover{background:var(--bg-card);color:var(--text-secondary)}
+
+  /* ── Settings Tab ── */
+  .settings-pane{padding:20px;gap:16px;overflow-y:auto}
+  .settings-group{background:var(--bg-card);border-radius:var(--radius-sm);padding:16px;display:flex;flex-direction:column;gap:12px}
+  .settings-group h3{font-size:.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:600}
+  .setting-row{display:flex;align-items:center;justify-content:space-between}
+  .setting-row span{font-size:.88rem;color:var(--text-secondary)}
+  .setting-row .val{font-size:.82rem;color:var(--text-primary);font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .btn-logout{margin-top:auto;padding:14px;border-radius:var(--radius-sm);background:var(--red-glow);border:1px solid rgba(255,107,107,.2);color:var(--red);font-size:.88rem;font-weight:600;cursor:pointer;transition:var(--transition)}
+  .btn-logout:hover{background:rgba(255,107,107,.2)}
+
+  /* ── Toast ── */
+  .toast{position:absolute;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg-card);border:1px solid rgba(255,255,255,.08);color:var(--text-primary);padding:10px 22px;border-radius:var(--radius-sm);font-size:.82rem;opacity:0;transition:all .3s ease;z-index:30;white-space:nowrap;pointer-events:none;box-shadow:var(--shadow)}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* ── Audio ── */
+  audio{display:none}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Login Screen -->
+  <div class="screen login-screen active" id="loginScreen">
+    <div class="login-logo">
+      <svg viewBox="0 0 56 56" fill="none"><circle cx="28" cy="28" r="26" stroke="var(--accent)" stroke-width="2"/><path d="M18 22a2 2 0 012-2h4a2 2 0 012 2v2a2 2 0 01-2 2h-4a2 2 0 01-2-2v-2zm12 0a2 2 0 012-2h4a2 2 0 012 2v2a2 2 0 01-2 2h-4a2 2 0 01-2-2v-2zM22 32c0 0 2 4 6 4s6-4 6-4" stroke="var(--accent-light)" stroke-width="2" stroke-linecap="round"/></svg>
+      <h2>AstraPBX</h2>
+      <p>Browser Phone</p>
+    </div>
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" id="loginUser" placeholder="alice or bob" autocomplete="username" spellcheck="false">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="loginPass" placeholder="Enter password" autocomplete="current-password">
+    </div>
+    <div class="remember-row">
+      <input type="checkbox" id="rememberMe">
+      <label for="rememberMe">Remember me</label>
+    </div>
+    <div class="login-error" id="loginError"></div>
+    <button class="btn btn-primary" id="btnLogin">Login</button>
+  </div>
+
+  <!-- Phone Screen -->
+  <div class="screen phone-screen" id="phoneScreen">
+    <div class="header">
+      <h1>Astra<span>PBX</span></h1>
+      <div class="status-pill unregistered" id="regStatus">Offline</div>
+    </div>
+
+    <div class="phone-body">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="dialTab">Dial</button>
+        <button class="tab-btn" data-tab="recentsTab">Recents</button>
+        <button class="tab-btn" data-tab="settingsTab">Settings</button>
+      </div>
+
+      <div class="tab-content">
+        <!-- Dial Pad -->
+        <div class="tab-pane active" id="dialTab">
+          <div class="dial-display">
+            <input class="dial-input" id="dialInput" type="tel" placeholder="Enter extension" maxlength="24">
+            <div class="dial-sub" id="dialSub"></div>
+          </div>
+          <div class="dialpad" id="dialpad">
+            <button class="key" data-digit="1"><span class="digit">1</span><span class="sub">&nbsp;</span></button>
+            <button class="key" data-digit="2"><span class="digit">2</span><span class="sub">ABC</span></button>
+            <button class="key" data-digit="3"><span class="digit">3</span><span class="sub">DEF</span></button>
+            <button class="key" data-digit="4"><span class="digit">4</span><span class="sub">GHI</span></button>
+            <button class="key" data-digit="5"><span class="digit">5</span><span class="sub">JKL</span></button>
+            <button class="key" data-digit="6"><span class="digit">6</span><span class="sub">MNO</span></button>
+            <button class="key" data-digit="7"><span class="digit">7</span><span class="sub">PQRS</span></button>
+            <button class="key" data-digit="8"><span class="digit">8</span><span class="sub">TUV</span></button>
+            <button class="key" data-digit="9"><span class="digit">9</span><span class="sub">WXYZ</span></button>
+            <button class="key" data-digit="*"><span class="digit">*</span><span class="sub">&nbsp;</span></button>
+            <button class="key" data-digit="0"><span class="digit">0</span><span class="sub">+</span></button>
+            <button class="key" data-digit="#"><span class="digit">#</span><span class="sub">&nbsp;</span></button>
+          </div>
+          <div class="call-actions">
+            <button class="call-btn green" id="btnCall" title="Call">
+              <svg viewBox="0 0 24 24"><path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.01-.24 11.36 11.36 0 003.58.57 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1 11.36 11.36 0 00.57 3.58 1 1 0 01-.24 1.01l-2.2 2.2z"/></svg>
+            </button>
+            <button class="call-btn red" id="btnBackspace" title="Backspace" style="width:48px;height:48px;align-self:center;background:var(--bg-card);box-shadow:none">
+              <svg viewBox="0 0 24 24" style="width:22px;height:22px;fill:var(--text-secondary)"><path d="M22 3H7c-.69 0-1.23.35-1.59.88L0 12l5.41 8.11c.36.53.9.89 1.59.89h15c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-3 12.59L17.59 17 14 13.41 10.41 17 9 15.59 12.59 12 9 8.41 10.41 7 14 10.59 17.59 7 19 8.41 15.41 12 19 15.59z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Recents -->
+        <div class="tab-pane" id="recentsTab">
+          <div class="recents-list" id="recentsList"></div>
+        </div>
+
+        <!-- Settings -->
+        <div class="tab-pane settings-pane" id="settingsTab">
+          <div class="settings-group">
+            <h3>Account</h3>
+            <div class="setting-row"><span>Username</span><span class="val" id="setUser">-</span></div>
+            <div class="setting-row"><span>Extension</span><span class="val" id="setExt">-</span></div>
+            <div class="setting-row"><span>Display Name</span><span class="val" id="setName">-</span></div>
+            <div class="setting-row"><span>Organization</span><span class="val" id="setOrg">-</span></div>
+          </div>
+          <div class="settings-group">
+            <h3>Connection</h3>
+            <div class="setting-row"><span>Status</span><span class="val" id="setStatus">-</span></div>
+            <div class="setting-row"><span>Server</span><span class="val" id="setServer">-</span></div>
+          </div>
+          <button class="btn-logout" id="btnLogout">Disconnect &amp; Logout</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Call Overlay -->
+    <div class="call-overlay" id="callOverlay">
+      <div class="call-info">
+        <div class="caller-avatar" id="callerAvatar">?</div>
+        <div class="caller-name" id="callerName">1001</div>
+        <div class="call-state ringing" id="callState">Ringing</div>
+        <div class="call-timer" id="callTimer">00:00</div>
+      </div>
+      <div class="call-mid-controls">
+        <button class="mid-btn" id="btnMute" title="Mute">
+          <svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 003-3V5a3 3 0 00-6 0v6a3 3 0 003 3zm-1-9a1 1 0 012 0v6a1 1 0 01-2 0V5zm6 6a5 5 0 01-10 0H5a7 7 0 0013.64 2.36L19 11h-2zm-5 10v-2h-2v2H7v2h10v-2h-3z"/></svg>
+          <span>Mute</span>
+        </button>
+      </div>
+      <div class="call-end-row">
+        <button class="call-btn red" id="btnHangup" title="Hang Up" style="width:72px;height:72px">
+          <svg viewBox="0 0 24 24" style="width:32px;height:32px;transform:rotate(135deg)"><path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.01-.24 11.36 11.36 0 003.58.57 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1 11.36 11.36 0 00.57 3.58 1 1 0 01-.24 1.01l-2.2 2.2z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Incoming Call Banner -->
+    <div class="incoming-banner" id="incomingBanner">
+      <div class="inc-title">Incoming Call</div>
+      <div class="inc-caller" id="incomingCaller">Unknown</div>
+      <div class="inc-actions">
+        <button class="call-btn red" id="btnReject" title="Reject">
+          <svg viewBox="0 0 24 24" style="transform:rotate(135deg)"><path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.01-.24 11.36 11.36 0 003.58.57 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1 11.36 11.36 0 00.57 3.58 1 1 0 01-.24 1.01l-2.2 2.2z"/></svg>
+        </button>
+        <button class="call-btn green" id="btnAccept" title="Accept">
+          <svg viewBox="0 0 24 24"><path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.01-.24 11.36 11.36 0 003.58.57 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1 11.36 11.36 0 00.57 3.58 1 1 0 01-.24 1.01l-2.2 2.2z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <!-- Hidden audio -->
+  <audio id="remoteAudio" autoplay></audio>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ──────── DOM refs ────────
+  const $ = id => document.getElementById(id);
+  const loginScreen   = $('loginScreen');
+  const phoneScreen   = $('phoneScreen');
+  const loginUserInput = $('loginUser');
+  const loginPassInput = $('loginPass');
+  const rememberMe    = $('rememberMe');
+  const btnLogin      = $('btnLogin');
+  const loginError    = $('loginError');
+  const regStatus     = $('regStatus');
+  const dialInput     = $('dialInput');
+  const dialSub       = $('dialSub');
+  const callOverlay   = $('callOverlay');
+  const callerName    = $('callerName');
+  const callerAvatar  = $('callerAvatar');
+  const callStateEl   = $('callState');
+  const callTimerEl   = $('callTimer');
+  const btnCall       = $('btnCall');
+  const btnBackspace  = $('btnBackspace');
+  const btnHangup     = $('btnHangup');
+  const btnMute       = $('btnMute');
+  const incomingBanner= $('incomingBanner');
+  const incomingCaller= $('incomingCaller');
+  const btnAccept     = $('btnAccept');
+  const btnReject     = $('btnReject');
+  const remoteAudio   = $('remoteAudio');
+  const recentsList   = $('recentsList');
+  const toastEl       = $('toast');
+
+  // ──────── State ────────
+  let ws = null;
+  let peerConnection = null;
+  let localStream = null;
+  let myExtension = '';
+  let myDisplayName = '';
+  let isMuted = false;
+  let callTimerInterval = null;
+  let callStartTime = null;
+  let currentCallTarget = null;
+  let isInCall = false;
+  let pendingOffer = null;
+  let pendingCandidates = [];
+
+  const rtcConfig = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ],
+    iceCandidatePoolSize: 5
+  };
+
+  // ──────── Restore saved creds ────────
+  const saved = localStorage.getItem('astra_creds');
+  if (saved) {
+    try {
+      const c = JSON.parse(saved);
+      loginUserInput.value = c.user || '';
+      loginPassInput.value = c.pass || '';
+      rememberMe.checked = true;
+    } catch(e) {}
+  }
+
+  // ──────── Tabs ────────
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      $(btn.dataset.tab).classList.add('active');
+      if (btn.dataset.tab === 'recentsTab') renderRecents();
+    });
+  });
+
+  // ──────── Dialpad ────────
+  $('dialpad').addEventListener('click', e => {
+    const key = e.target.closest('.key');
+    if (!key) return;
+    dialInput.value += key.dataset.digit;
+    dialInput.focus();
+  });
+
+  btnBackspace.addEventListener('click', () => {
+    dialInput.value = dialInput.value.slice(0, -1);
+  });
+  let bsTimer;
+  btnBackspace.addEventListener('mousedown', () => { bsTimer = setTimeout(() => { dialInput.value = ''; }, 600); });
+  btnBackspace.addEventListener('mouseup', () => clearTimeout(bsTimer));
+  btnBackspace.addEventListener('mouseleave', () => clearTimeout(bsTimer));
+
+  // ──────── Login via API ────────
+  btnLogin.addEventListener('click', doLogin);
+  loginPassInput.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+  async function doLogin() {
+    const user = loginUserInput.value.trim();
+    const pass = loginPassInput.value.trim();
+    if (!user || !pass) { loginError.textContent = 'All fields required'; return; }
+
+    loginError.textContent = '';
+    btnLogin.disabled = true;
+    btnLogin.textContent = 'Logging in...';
+
+    try {
+      // Authenticate via API
+      const baseUrl = window.location.origin;
+      const res = await fetch(`${baseUrl}/api/v1/webphone/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Login failed');
+
+      myExtension = data.extension;
+      myDisplayName = data.display_name || user;
+
+      // Save creds
+      if (rememberMe.checked) {
+        localStorage.setItem('astra_creds', JSON.stringify({ user, pass }));
+      } else {
+        localStorage.removeItem('astra_creds');
+      }
+
+      // Update settings display
+      $('setUser').textContent = user;
+      $('setExt').textContent = myExtension;
+      $('setName').textContent = myDisplayName;
+      $('setOrg').textContent = data.organization || '-';
+
+      // Switch screen
+      loginScreen.classList.remove('active');
+      phoneScreen.classList.add('active');
+
+      // Connect WebSocket signaling
+      connectSignaling();
+
+    } catch (err) {
+      loginError.textContent = err.message;
+    } finally {
+      btnLogin.disabled = false;
+      btnLogin.textContent = 'Login';
+    }
+  }
+
+  // ──────── WebSocket Signaling ────────
+  function connectSignaling() {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${proto}//${window.location.host}/ws`;
+    $('setServer').textContent = wsUrl;
+
+    updateRegStatus('connecting');
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'register', extension: myExtension }));
+    };
+
+    ws.onmessage = async (event) => {
+      const msg = JSON.parse(event.data);
+
+      switch (msg.type) {
+        case 'registered':
+          updateRegStatus('registered');
+          $('setStatus').textContent = 'Connected';
+          toast('Connected as ' + myExtension);
+          break;
+
+        case 'error':
+          toast(msg.message);
+          break;
+
+        case 'call':
+          // Incoming call request
+          if (isInCall) {
+            ws.send(JSON.stringify({ type: 'busy', target: msg.from }));
+            break;
+          }
+          handleIncomingCall(msg.from);
+          break;
+
+        case 'offer':
+          // Receive WebRTC offer
+          await handleOffer(msg);
+          break;
+
+        case 'answer':
+          // Receive WebRTC answer
+          if (peerConnection) {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: msg.sdp }));
+            await flushCandidates();
+            setCallState('connected');
+          }
+          break;
+
+        case 'ice-candidate':
+          if (msg.candidate) {
+            if (peerConnection && peerConnection.remoteDescription) {
+              await peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate)).catch(() => {});
+            } else {
+              pendingCandidates.push(msg.candidate);
+            }
+          }
+          break;
+
+        case 'hangup':
+          endCallCleanup();
+          toast('Call ended');
+          break;
+
+        case 'reject':
+          endCallCleanup();
+          toast('Call rejected');
+          break;
+
+        case 'busy':
+          endCallCleanup();
+          toast('User is busy');
+          break;
+      }
+    };
+
+    ws.onclose = () => {
+      updateRegStatus('unregistered');
+      $('setStatus').textContent = 'Disconnected';
+      // Reconnect after 3s
+      setTimeout(() => {
+        if (phoneScreen.classList.contains('active')) connectSignaling();
+      }, 3000);
+    };
+
+    ws.onerror = () => {
+      updateRegStatus('unregistered');
+    };
+  }
+
+  function updateRegStatus(state) {
+    regStatus.className = 'status-pill ' + state;
+    const labels = { registered: 'Online', unregistered: 'Offline', connecting: 'Connecting' };
+    regStatus.textContent = labels[state] || state;
+  }
+
+  // ──────── Get Mic ────────
+  async function getLocalStream() {
+    if (localStream) return localStream;
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    return localStream;
+  }
+
+  // ──────── Create Peer Connection ────────
+  function createPeerConnection(targetExt) {
+    const pc = new RTCPeerConnection(rtcConfig);
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        console.log('ICE candidate:', e.candidate.type, e.candidate.address);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'ice-candidate',
+            target: targetExt,
+            candidate: e.candidate
+          }));
+        }
+      } else {
+        console.log('ICE gathering complete');
+      }
+    };
+
+    pc.ontrack = (e) => {
+      remoteAudio.srcObject = e.streams[0];
+      remoteAudio.play().catch(() => {});
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE state:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        if (!callStartTime) {
+          setCallState('connected');
+          startCallTimer();
+        }
+      } else if (pc.iceConnectionState === 'disconnected') {
+        // Brief disconnection, wait before ending
+        setTimeout(() => {
+          if (peerConnection && peerConnection.iceConnectionState === 'disconnected') {
+            const dur = callStartTime ? Math.floor((Date.now() - callStartTime) / 1000) : 0;
+            addRecent(targetExt, 'outgoing', dur);
+            endCallCleanup();
+            toast('Call disconnected');
+          }
+        }, 3000);
+      } else if (pc.iceConnectionState === 'failed') {
+        const dur = callStartTime ? Math.floor((Date.now() - callStartTime) / 1000) : 0;
+        addRecent(targetExt, 'outgoing', dur);
+        endCallCleanup();
+        toast('Connection failed');
+      }
+    };
+
+    return pc;
+  }
+
+  async function flushCandidates() {
+    for (const c of pendingCandidates) {
+      await peerConnection.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+    }
+    pendingCandidates = [];
+  }
+
+  // ──────── Outgoing Call ────────
+  btnCall.addEventListener('click', makeCall);
+  dialInput.addEventListener('keydown', e => { if (e.key === 'Enter') makeCall(); });
+
+  async function makeCall() {
+    const target = dialInput.value.trim();
+    if (!target) { toast('Enter an extension'); return; }
+    if (isInCall) { toast('Already in a call'); return; }
+    if (target === myExtension) { toast('Cannot call yourself'); return; }
+
+    try {
+      isInCall = true;
+      currentCallTarget = target;
+      showCallOverlay(target, 'Calling...');
+      setCallState('ringing');
+
+      // Notify target
+      ws.send(JSON.stringify({ type: 'call', target }));
+
+      // Get mic and create offer
+      const stream = await getLocalStream();
+      peerConnection = createPeerConnection(target);
+      stream.getTracks().forEach(t => peerConnection.addTrack(t, stream));
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+
+      ws.send(JSON.stringify({
+        type: 'offer',
+        target,
+        sdp: offer.sdp
+      }));
+
+    } catch (err) {
+      console.error('Call error:', err);
+      toast('Call failed: ' + err.message);
+      endCallCleanup();
+    }
+  }
+
+  // ──────── Incoming Call ────────
+  function handleIncomingCall(from) {
+    currentCallTarget = from;
+    incomingCaller.textContent = from;
+    incomingBanner.classList.add('active');
+    playRingtone();
+
+    btnAccept.onclick = async () => {
+      incomingBanner.classList.remove('active');
+      stopRingtone();
+      isInCall = true;
+
+      showCallOverlay(from, 'Connecting...');
+      setCallState('ringing');
+
+      try {
+        const stream = await getLocalStream();
+        peerConnection = createPeerConnection(from);
+        stream.getTracks().forEach(t => peerConnection.addTrack(t, stream));
+
+        // If we already have a pending offer, handle it
+        if (pendingOffer) {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: pendingOffer.sdp }));
+          await flushCandidates();
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+
+          ws.send(JSON.stringify({
+            type: 'answer',
+            target: from,
+            sdp: answer.sdp
+          }));
+          pendingOffer = null;
+          setCallState('connected');
+        }
+      } catch (err) {
+        toast('Failed to accept: ' + err.message);
+        endCallCleanup();
+      }
+    };
+
+    btnReject.onclick = () => {
+      incomingBanner.classList.remove('active');
+      stopRingtone();
+      ws.send(JSON.stringify({ type: 'reject', target: from }));
+      addRecent(from, 'missed', 0);
+      currentCallTarget = null;
+      pendingOffer = null;
+    };
+  }
+
+  async function handleOffer(msg) {
+    // If not yet accepted, store the offer
+    if (!isInCall) {
+      pendingOffer = msg;
+      if (!incomingBanner.classList.contains('active')) {
+        handleIncomingCall(msg.from);
+      }
+      return;
+    }
+
+    // Already accepted - set remote description and send answer
+    if (peerConnection) {
+      await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: msg.sdp }));
+      await flushCandidates();
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+
+      ws.send(JSON.stringify({
+        type: 'answer',
+        target: msg.from,
+        sdp: answer.sdp
+      }));
+    }
+  }
+
+  // ──────── Call Controls ────────
+  btnHangup.addEventListener('click', () => {
+    if (currentCallTarget && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'hangup', target: currentCallTarget }));
+    }
+    const dur = callStartTime ? Math.floor((Date.now() - callStartTime) / 1000) : 0;
+    if (currentCallTarget) addRecent(currentCallTarget, 'outgoing', dur);
+    endCallCleanup();
+  });
+
+  btnMute.addEventListener('click', () => {
+    if (!localStream) return;
+    isMuted = !isMuted;
+    localStream.getAudioTracks().forEach(t => { t.enabled = !isMuted; });
+    btnMute.classList.toggle('active', isMuted);
+    btnMute.querySelector('span').textContent = isMuted ? 'Unmute' : 'Mute';
+    toast(isMuted ? 'Muted' : 'Unmuted');
+  });
+
+  // ──────── Call Overlay & Timer ────────
+  function showCallOverlay(name, stateText) {
+    callerName.textContent = name;
+    callerAvatar.textContent = name.charAt(0).toUpperCase() || '?';
+    callTimerEl.textContent = '00:00';
+    callOverlay.classList.add('active');
+    isMuted = false;
+    btnMute.classList.remove('active');
+    btnMute.querySelector('span').textContent = 'Mute';
+  }
+
+  function setCallState(state) {
+    callStateEl.className = 'call-state ' + state;
+    const labels = { ringing: 'Ringing...', connected: 'Connected', ended: 'Call Ended' };
+    callStateEl.textContent = labels[state] || state;
+  }
+
+  function startCallTimer() {
+    callStartTime = Date.now();
+    callTimerEl.textContent = '00:00';
+    callTimerInterval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - callStartTime) / 1000);
+      const min = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      const sec = String(elapsed % 60).padStart(2, '0');
+      callTimerEl.textContent = `${min}:${sec}`;
+    }, 1000);
+  }
+
+  function endCallCleanup() {
+    if (callTimerInterval) { clearInterval(callTimerInterval); callTimerInterval = null; }
+    callStartTime = null;
+    callOverlay.classList.remove('active');
+    incomingBanner.classList.remove('active');
+    stopRingtone();
+    isInCall = false;
+    currentCallTarget = null;
+    pendingOffer = null;
+    pendingCandidates = [];
+    isMuted = false;
+    remoteAudio.srcObject = null;
+
+    if (peerConnection) {
+      peerConnection.close();
+      peerConnection = null;
+    }
+    if (localStream) {
+      localStream.getTracks().forEach(t => t.stop());
+      localStream = null;
+    }
+  }
+
+  // ──────── Ringtone ────────
+  let ringCtx, ringOsc, ringGain;
+  function playRingtone() {
+    try {
+      ringCtx = new (window.AudioContext || window.webkitAudioContext)();
+      ringGain = ringCtx.createGain();
+      ringGain.gain.value = 0.15;
+      ringGain.connect(ringCtx.destination);
+
+      function ringCycle() {
+        if (!ringCtx) return;
+        ringOsc = ringCtx.createOscillator();
+        ringOsc.type = 'sine';
+        ringOsc.frequency.value = 440;
+        ringOsc.connect(ringGain);
+        ringOsc.start();
+        ringOsc.stop(ringCtx.currentTime + 0.4);
+        ringOsc.onended = () => {
+          if (!ringCtx) return;
+          setTimeout(() => {
+            if (!ringCtx) return;
+            const osc2 = ringCtx.createOscillator();
+            osc2.type = 'sine';
+            osc2.frequency.value = 480;
+            osc2.connect(ringGain);
+            osc2.start();
+            osc2.stop(ringCtx.currentTime + 0.4);
+            osc2.onended = () => {
+              if (ringCtx) setTimeout(ringCycle, 2000);
+            };
+          }, 100);
+        };
+      }
+      ringCycle();
+    } catch(e) {}
+  }
+
+  function stopRingtone() {
+    if (ringCtx) {
+      try { ringCtx.close(); } catch(e) {}
+      ringCtx = null; ringOsc = null; ringGain = null;
+    }
+  }
+
+  // ──────── Recents ────────
+  function getRecents() {
+    try { return JSON.parse(localStorage.getItem('astra_recents') || '[]'); } catch(e) { return []; }
+  }
+  function addRecent(number, type, duration) {
+    const recents = getRecents();
+    recents.unshift({ number, type, duration, time: Date.now() });
+    if (recents.length > 50) recents.length = 50;
+    localStorage.setItem('astra_recents', JSON.stringify(recents));
+  }
+
+  function renderRecents() {
+    const recents = getRecents();
+    if (recents.length === 0) {
+      recentsList.innerHTML = '<div class="recents-empty"><svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 00-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 117 7 6.97 6.97 0 01-4.95-2.05l-1.41 1.41A8.96 8.96 0 0013 21a9 9 0 000-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg><span>No recent calls</span></div>';
+      return;
+    }
+    const arrowOut = '<svg viewBox="0 0 24 24"><path d="M9 5v2h6.59L4 18.59 5.41 20 17 8.41V15h2V5z"/></svg>';
+    const arrowIn  = '<svg viewBox="0 0 24 24"><path d="M20 5.41L18.59 4 7 15.59V9H5v10h10v-2H8.41z"/></svg>';
+    const missed   = '<svg viewBox="0 0 24 24"><path d="M19.59 7L12 14.59 6.41 9H11V7H3v8h2v-4.59l7 7 9-9z"/></svg>';
+
+    let html = recents.map(r => {
+      const icon = r.type === 'outgoing' ? arrowOut : r.type === 'incoming' ? arrowIn : missed;
+      const dur = r.duration > 0 ? formatDuration(r.duration) : '';
+      const time = formatTime(r.time);
+      return `<div class="recent-item" data-number="${r.number}">
+        <div class="recent-icon ${r.type}">${icon}</div>
+        <div class="recent-details"><div class="recent-number">${r.number}</div><div class="recent-meta">${r.type.charAt(0).toUpperCase() + r.type.slice(1)} &middot; ${time}</div></div>
+        <div class="recent-duration">${dur}</div></div>`;
+    }).join('');
+    html += '<button class="clear-recents" id="clearRecents">Clear All</button>';
+    recentsList.innerHTML = html;
+
+    recentsList.querySelectorAll('.recent-item').forEach(item => {
+      item.addEventListener('click', () => {
+        dialInput.value = item.dataset.number;
+        document.querySelector('[data-tab="dialTab"]').click();
+      });
+    });
+    const cb = $('clearRecents');
+    if (cb) cb.addEventListener('click', () => { localStorage.removeItem('astra_recents'); renderRecents(); });
+  }
+
+  function formatDuration(sec) { return sec < 60 ? sec + 's' : Math.floor(sec/60) + 'm ' + (sec%60 > 0 ? sec%60 + 's' : ''); }
+  function formatTime(ts) {
+    const diff = Date.now() - ts;
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+    if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+    return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  // ──────── Logout ────────
+  $('btnLogout').addEventListener('click', () => {
+    endCallCleanup();
+    if (ws) { ws.close(); ws = null; }
+    phoneScreen.classList.remove('active');
+    loginScreen.classList.add('active');
+    updateRegStatus('unregistered');
+  });
+
+  // ──────── Toast ────────
+  let toastTimer;
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2500);
+  }
+
+  // ──────── Keyboard ────────
+  document.addEventListener('keydown', e => {
+    if (document.activeElement === loginUserInput || document.activeElement === loginPassInput) return;
+    if (document.activeElement === dialInput) return;
+
+    if (phoneScreen.classList.contains('active') && !callOverlay.classList.contains('active')) {
+      const validKeys = '0123456789*#';
+      if (validKeys.includes(e.key)) { dialInput.value += e.key; dialInput.focus(); }
+      if (e.key === 'Backspace') dialInput.value = dialInput.value.slice(0, -1);
+      if (e.key === 'Enter' && dialInput.value.trim()) makeCall();
+    }
+    if (e.key === 'Escape' && isInCall) btnHangup.click();
+  });
+
+})();
+</script>
+</body>
+</html>

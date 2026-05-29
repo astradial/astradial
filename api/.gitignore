@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+errors.log
+
+# Test artifacts
+api-test-results.json
+api-test-results-corrected.json
+test-report.json
+
+# Sensitive docs
+CREDENTIALS_REFERENCE.md
+credentials.txt
+
+# Backups
+backups/
+database/pbx_api_db_backup.sql
+*.backup
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output
+dist/
+build/
+
+# Additional staging hardening (do not commit secrets)
+credentials.txt
+google-credentials.json
+*.credentials
+service-account*.json

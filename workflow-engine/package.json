@@ -1,0 +1,20 @@
+{
+  "name": "astradial-workflow-engine",
+  "version": "1.0.0",
+  "description": "Workflow automation engine for Astradial PBX",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test src/tests/"
+  },
+  "dependencies": {
+    "bull": "^4.16.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "pg": "^8.13.0",
+    "uuid": "^11.1.0",
+    "node-fetch": "^3.3.0"
+  }
+}
