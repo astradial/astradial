@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
+import { FileText } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -55,9 +56,39 @@ interface Msg91Number {
   number?: string;
 }
 
+interface TemplateComponent {
+  type?: string;
+  format?: string;
+  text?: string;
+  buttons?: Array<{
+    type?: string;
+    text?: string;
+    url?: string;
+    phone_number?: string;
+  }>;
+}
+
 interface Msg91Template {
   name?: string;
-  languages?: { language?: string; status?: string; variables?: string[] }[];
+  languages?: { 
+    language?: string; 
+    status?: string; 
+    variables?: string[];
+    code?: TemplateComponent[];
+    components?: TemplateComponent[];
+  }[];
+}
+
+function cleanOuterQuotes(str: string): string {
+  if (!str) return "";
+  const trimmed = str.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return str;
 }
 
 interface Props {
@@ -272,10 +303,19 @@ export function NodeConfigFields({ nodeType, config, onChange, triggerFields = [
             { value: "freetext", label: "Free Text" },
           ]} />
           {config.whatsapp_mode === "template" ? (() => {
-            // Find selected template to get its variables and language
-            const selectedTemplate = msg91Templates.find((t) => t.name === config.template_name);
-            const templateLang = selectedTemplate?.languages?.[0];
-            const templateVars = templateLang?.variables || [];
+            const selectedTemplate = msg91Templates.find(
+              (template) => template.name === config.template_name
+            );
+
+            const selectedLanguage =
+              selectedTemplate?.languages?.find(
+                (language) => language.language === config.template_language
+              ) ?? selectedTemplate?.languages?.[0];
+
+            const previewComponents =
+              selectedLanguage?.code ?? selectedLanguage?.components ?? [];
+
+            const templateVars = selectedLanguage?.variables || [];
 
             return (
             <>
@@ -334,9 +374,89 @@ export function NodeConfigFields({ nodeType, config, onChange, triggerFields = [
               {config.template_name && (
                 <div className="space-y-1">
                   <Label className="text-xs">Language</Label>
-                  <Input value={config.template_language || templateLang?.language || ""} disabled className="h-8 text-xs bg-muted" />
+                  <Input value={config.template_language || selectedLanguage?.language || ""} disabled className="h-8 text-xs bg-muted" />
                 </div>
               )}
+
+              {/* Template Preview Section */}
+              <div className="space-y-1 mt-2">
+                <Label className="text-xs">Message Preview</Label>
+                {!config.template_name ? (
+                  <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground bg-muted/20">
+                    Select a template to preview the message.
+                  </div>
+                ) : !selectedTemplate || previewComponents.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground bg-muted/20">
+                    Preview unavailable for this template.
+                  </div>
+                ) : (() => {
+                  const headerComp = previewComponents.find((c) => c.type === "HEADER");
+                  const bodyComp = previewComponents.find((c) => c.type === "BODY");
+                  const footerComp = previewComponents.find((c) => c.type === "FOOTER");
+                  const buttonsComp = previewComponents.find((c) => c.type === "BUTTONS");
+
+                  return (
+                    <div 
+                      className="rounded-lg border p-3 flex flex-col justify-end relative shadow-inner overflow-hidden"
+                      style={{
+                        backgroundColor: "#efeae2",
+                        backgroundImage: "url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')",
+                        backgroundSize: "cover",
+                        backgroundBlendMode: "overlay"
+                      }}
+                    >
+                      {/* Chat speech bubble */}
+                      <div className="bg-white dark:bg-zinc-800 text-black dark:text-white rounded-lg p-2.5 shadow-sm max-w-[90%] self-start relative text-xs space-y-1 leading-relaxed">
+                        {headerComp && (
+                          <div className="font-bold text-[10px] border-b border-zinc-100 dark:border-zinc-700 pb-0.5 mb-1 text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
+                            {headerComp.format === "TEXT" ? (
+                              <span>{cleanOuterQuotes(headerComp.text || "")}</span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-[9px] text-zinc-500">
+                                <FileText className="h-3 w-3" /> {headerComp.format} Header
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {bodyComp && (
+                          <div className="whitespace-pre-wrap break-words">
+                            {cleanOuterQuotes(bodyComp.text || "")}
+                          </div>
+                        )}
+
+                        {footerComp && (
+                          <div className="text-[9px] text-zinc-400 dark:text-zinc-500 pt-0.5">
+                            {cleanOuterQuotes(footerComp.text || "")}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Render Buttons below bubble if present */}
+                      {buttonsComp && Array.isArray(buttonsComp.buttons) && (
+                        <div className="mt-1 space-y-1 max-w-[90%] self-start w-full">
+                          {buttonsComp.buttons.map((btn: any, idx: number) => {
+                            let label = btn.text || "Button";
+                            if (btn.type === "PHONE_NUMBER") {
+                              label = `📞 ${label}`;
+                            } else if (btn.type === "URL") {
+                              label = `🔗 ${label}`;
+                            }
+                            return (
+                              <div 
+                                key={idx} 
+                                className="bg-white dark:bg-zinc-800 text-[#00a884] dark:text-emerald-400 text-[10px] font-semibold py-1.5 px-2.5 rounded-lg text-center shadow-sm border border-zinc-200/50 dark:border-zinc-700/50 hover:bg-zinc-50 dark:hover:bg-zinc-750 transition-colors cursor-pointer"
+                              >
+                                {label}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
 
               {/* Template Variables — only show after template selected, pre-populated from template */}
               {config.template_name && templateVars.length > 0 && (
