@@ -70,6 +70,24 @@ function eventTitle(kind: EventKind): string {
 
 function eventDetail(ev: CampaignEvent): { detail?: string; quote?: boolean } {
   const p = (ev.payload || {}) as Record<string, unknown>;
+  if (ev.kind === "whatsapp_sent") {
+    const template = p.template_name ? String(p.template_name) : "—";
+    const direction = p.direction ? String(p.direction) : "outbound";
+    const status = p.send_status ? String(p.send_status) : "sent";
+    const detailText = typeof p.detail === "string" ? p.detail : "";
+
+    const dirDisplay = direction.charAt(0).toUpperCase() + direction.slice(1);
+    const statusDisplay = status.charAt(0).toUpperCase() + status.slice(1);
+
+    const parts = [];
+    parts.push(`Template: ${template}`);
+    parts.push(dirDisplay);
+    parts.push(`Status: ${statusDisplay}`);
+    if (detailText) {
+      parts.push(detailText);
+    }
+    return { detail: parts.join(" · ") };
+  }
   if (ev.kind === "whatsapp_replied" && typeof p.text === "string") {
     return { detail: `"${p.text}"`, quote: true };
   }
