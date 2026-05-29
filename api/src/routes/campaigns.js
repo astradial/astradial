@@ -570,6 +570,7 @@ router.get("/whatsapp-templates", requirePermission("campaigns.read"), async (re
       language: t.language,
       category: t.category,
       namespace: t.namespace,
+      languages: t.languages,
     })).filter((t) => t.name);
     res.json({ templates: slim, configured: true });
   } catch (err) {
