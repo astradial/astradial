@@ -110,9 +110,9 @@ export function CampaignCard({
 
 export function CampaignEmpty() {
   return (
-    <div className="rounded-xl border bg-card p-10 text-center text-muted-foreground col-span-full flex flex-col items-center gap-2">
-      <Target className="h-6 w-6" />
-      <div>No campaigns in this state.</div>
+    <div className="cmp-empty col-span-full">
+      <Target />
+      <div className="cmp-empty-title">No campaigns in this state.</div>
     </div>
   );
 }
