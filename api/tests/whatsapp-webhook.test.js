@@ -10,7 +10,8 @@ const STUB = {
     findOne: async () => null // We will override this per test
   },
   CampaignLead: {
-    update: async () => ({})
+    update: async () => ({}),
+    findAll: async () => []
   },
   Campaign: {
     findByPk: async () => null // We will override this per test
@@ -540,6 +541,271 @@ test('WhatsApp Webhook & Inbound Reply Handler Tests', async (t) => {
 
     assert.equal(res.halted, 0);
     assert.equal(res.classified, null);
+  });
+
+  await t.test('13. Webhook: Delivery callback with phone + status: delivered + no text is ignored', async () => {
+    let findAllCalled = false;
+    let eventCreated = false;
+    let leadUpdated = false;
+
+    STUB.CampaignLead.findAll = async () => {
+      findAllCalled = true;
+      return [{ org_id: 'org-1' }];
+    };
+    STUB.CampaignEvent.create = async () => {
+      eventCreated = true;
+      return {};
+    };
+    STUB.CampaignLead.update = async () => {
+      leadUpdated = true;
+      return {};
+    };
+
+    const req = {
+      body: {
+        customerNumber: '919876543210',
+        status: 'delivered',
+        messageId: 'delivery-test-1'
+      }
+    };
+
+    let resBody = null;
+    const res = makeMockRes((err, response) => {
+      resBody = response.body;
+    });
+
+    await msg91Handler(req, res);
+
+    assert.equal(findAllCalled, false);
+    assert.equal(eventCreated, false);
+    assert.equal(leadUpdated, false);
+    assert.deepEqual(resBody, { received: true, ignored: true, reason: 'not_customer_reply' });
+  });
+
+  await t.test('14. Webhook: Read callback is ignored and does not move status or log activity', async () => {
+    let findAllCalled = false;
+    let eventCreated = false;
+    let leadUpdated = false;
+
+    STUB.CampaignLead.findAll = async () => {
+      findAllCalled = true;
+      return [{ org_id: 'org-1' }];
+    };
+    STUB.CampaignEvent.create = async () => {
+      eventCreated = true;
+      return {};
+    };
+    STUB.CampaignLead.update = async () => {
+      leadUpdated = true;
+      return {};
+    };
+
+    const req = {
+      body: {
+        from: '919876543210',
+        eventName: 'read',
+        messageId: 'read-test-1'
+      }
+    };
+
+    let resBody = null;
+    const res = makeMockRes((err, response) => {
+      resBody = response.body;
+    });
+
+    await msg91Handler(req, res);
+
+    assert.equal(findAllCalled, false);
+    assert.equal(eventCreated, false);
+    assert.equal(leadUpdated, false);
+    assert.deepEqual(resBody, { received: true, ignored: true, reason: 'not_customer_reply' });
+  });
+
+  await t.test('15. Webhook: Failed/sent/submitted callbacks are ignored', async () => {
+    const statuses = ['failed', 'sent', 'submitted'];
+    for (const status of statuses) {
+      let findAllCalled = false;
+      let eventCreated = false;
+      let leadUpdated = false;
+
+      STUB.CampaignLead.findAll = async () => {
+        findAllCalled = true;
+        return [{ org_id: 'org-1' }];
+      };
+      STUB.CampaignEvent.create = async () => {
+        eventCreated = true;
+        return {};
+      };
+      STUB.CampaignLead.update = async () => {
+        leadUpdated = true;
+        return {};
+      };
+
+      const req = {
+        body: {
+          from: '919876543210',
+          status,
+          messageId: 'test-1'
+        }
+      };
+
+      let resBody = null;
+      const res = makeMockRes((err, response) => {
+        resBody = response.body;
+      });
+
+      await msg91Handler(req, res);
+
+      assert.equal(findAllCalled, false);
+      assert.equal(eventCreated, false);
+      assert.equal(leadUpdated, false);
+      assert.deepEqual(resBody, { received: true, ignored: true, reason: 'not_customer_reply' });
+    }
+  });
+
+  await t.test('16. Webhook: Empty text callback is ignored', async () => {
+    let findAllCalled = false;
+    let eventCreated = false;
+    let leadUpdated = false;
+
+    STUB.CampaignLead.findAll = async () => {
+      findAllCalled = true;
+      return [{ org_id: 'org-1' }];
+    };
+    STUB.CampaignEvent.create = async () => {
+      eventCreated = true;
+      return {};
+    };
+    STUB.CampaignLead.update = async () => {
+      leadUpdated = true;
+      return {};
+    };
+
+    const req = {
+      body: {
+        from: '919876543210',
+        text: '   ',
+        messageId: 'empty-test-1'
+      }
+    };
+
+    let resBody = null;
+    const res = makeMockRes((err, response) => {
+      resBody = response.body;
+    });
+
+    await msg91Handler(req, res);
+
+    assert.equal(findAllCalled, false);
+    assert.equal(eventCreated, false);
+    assert.equal(leadUpdated, false);
+    assert.deepEqual(resBody, { received: true, ignored: true, reason: 'not_customer_reply' });
+  });
+
+  await t.test('17. Webhook: Actual non-keyword reply moves contacted -> engaged', async () => {
+    let leadUpdatedStatus = null;
+    let eventCreated = null;
+
+    STUB.CampaignLead.findAll = async () => {
+      return [{ org_id: 'org-1' }];
+    };
+    STUB.CampaignLeadRun.findOne = async () => ({
+      id: 'run-123',
+      status: 'waiting',
+      lead: {
+        id: 'lead-123',
+        campaign_id: 'campaign-123',
+        status: 'contacted',
+        update: async (data) => {
+          leadUpdatedStatus = data.status;
+        }
+      },
+      update: async () => {}
+    });
+    STUB.Campaign.findByPk = async () => ({
+      id: 'campaign-123',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'whatsapp', interest_keywords: ['yes'] }] }]
+      }
+    });
+    STUB.CampaignEvent.create = async (data) => {
+      eventCreated = data;
+      return {};
+    };
+
+    const req = {
+      body: {
+        from: '919876543210',
+        text: 'hello customer reply',
+        messageId: 'reply-test-1'
+      }
+    };
+
+    let resBody = null;
+    const res = makeMockRes((err, response) => {
+      resBody = response.body;
+    });
+
+    await msg91Handler(req, res);
+
+    assert.deepEqual(resBody, { received: true });
+    assert.equal(leadUpdatedStatus, 'engaged');
+    assert.ok(eventCreated);
+    assert.equal(eventCreated.kind, 'whatsapp_replied');
+    assert.equal(eventCreated.payload.status_result, 'engaged');
+  });
+
+  await t.test('18. Webhook: Actual keyword reply moves contacted -> interested', async () => {
+    let leadUpdatedStatus = null;
+    let eventCreated = null;
+
+    STUB.CampaignLead.findAll = async () => {
+      return [{ org_id: 'org-1' }];
+    };
+    STUB.CampaignLeadRun.findOne = async () => ({
+      id: 'run-123',
+      status: 'waiting',
+      lead: {
+        id: 'lead-123',
+        campaign_id: 'campaign-123',
+        status: 'contacted',
+        update: async (data) => {
+          leadUpdatedStatus = data.status;
+        }
+      },
+      update: async () => {}
+    });
+    STUB.Campaign.findByPk = async () => ({
+      id: 'campaign-123',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'whatsapp', interest_keywords: ['yes'] }] }]
+      }
+    });
+    STUB.CampaignEvent.create = async (data) => {
+      eventCreated = data;
+      return {};
+    };
+
+    const req = {
+      body: {
+        from: '919876543210',
+        text: 'yes',
+        messageId: 'reply-test-2'
+      }
+    };
+
+    let resBody = null;
+    const res = makeMockRes((err, response) => {
+      resBody = response.body;
+    });
+
+    await msg91Handler(req, res);
+
+    assert.deepEqual(resBody, { received: true });
+    assert.equal(leadUpdatedStatus, 'interested');
+    assert.ok(eventCreated);
+    assert.equal(eventCreated.kind, 'whatsapp_replied');
+    assert.equal(eventCreated.payload.status_result, 'interested');
   });
 
 });

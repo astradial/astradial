@@ -18,26 +18,63 @@ function maskPhone(p) {
 router.post('/msg91-inbound',
   makeHmacVerify('MSG91_WEBHOOK_SECRET'),
   async (req, res) => {
-    // Respond immediately — MSG91 retries on non-2xx.
-    res.json({ received: true });
-
     try {
       // 1. Parse Phone Number
       const rawFrom = req.body.from || req.body.sender || req.body.customerNumber || req.body.mobile || '';
       const phone = String(rawFrom).replace(/[^\d+]/g, '');
       if (!phone) {
-        console.log('[msg91-inbound] Received webhook with no valid phone number. Keys:', Object.keys(req.body || {}));
-        return;
+        console.log('[msg91-inbound] Webhook ignored: no valid phone number. Keys:', Object.keys(req.body || {}));
+        return res.json({ received: true, ignored: true, reason: 'not_customer_reply' });
       }
 
-      // 2. Parse Message Text (including nested message body/text)
+      // 2. Detect obvious status/delivery callbacks using safe fields
+      const statusFields = ['eventName', 'status', 'event', 'event_name', 'type', 'eventType'];
+      const ignoredStatuses = [
+        'sent', 'submitted', 'delivered', 'read', 'failed',
+        'delivery', 'delivery_report', 'status', 'message_status'
+      ];
+
+      let isStatusCallback = false;
+      for (const field of statusFields) {
+        if (req.body[field] !== undefined) {
+          const val = String(req.body[field]).toLowerCase().trim();
+          if (ignoredStatuses.some(ignored => val.includes(ignored))) {
+            isStatusCallback = true;
+            break;
+          }
+        }
+      }
+
+      if (!isStatusCallback && typeof req.body.message === 'object' && req.body.message !== null) {
+        for (const field of statusFields) {
+          if (req.body.message[field] !== undefined) {
+            const val = String(req.body.message[field]).toLowerCase().trim();
+            if (ignoredStatuses.some(ignored => val.includes(ignored))) {
+              isStatusCallback = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (isStatusCallback) {
+        console.log(`[msg91-inbound] Webhook ignored: delivery/status callback detected for phone ${maskPhone(phone)}. Keys: ${JSON.stringify(Object.keys(req.body || {}))}`);
+        return res.json({ received: true, ignored: true, reason: 'not_customer_reply' });
+      }
+
+      // 3. Parse Message Text (including nested message body/text)
       let message = req.body.message || req.body.text || '';
       if (typeof message === 'object' && message !== null) {
         message = message.text || message.body || '';
       }
-      message = String(message);
+      message = String(message).trim();
 
-      // 3. Parse Message/Event ID
+      if (!message) {
+        console.log(`[msg91-inbound] Webhook ignored: empty message text for phone ${maskPhone(phone)}. Keys: ${JSON.stringify(Object.keys(req.body || {}))}`);
+        return res.json({ received: true, ignored: true, reason: 'not_customer_reply' });
+      }
+
+      // 4. Parse Message/Event ID
       let messageId = req.body.messageId || req.body.msgId || req.body.id || req.body.eventId || null;
       if (typeof req.body.message === 'object' && req.body.message !== null) {
         messageId = messageId || req.body.message.id || req.body.message.messageId || null;
@@ -56,10 +93,13 @@ router.post('/msg91-inbound',
 
       if (!leads.length) {
         console.log(`[msg91-inbound] No campaign lead found for phone ${maskPhone(phone)}`);
-        return;
+        return res.json({ received: true });
       }
 
       const { handleWhatsAppInboundReply } = require('../services/campaign-reply-handler');
+
+      // Respond immediately for valid inbound message to prevent timeout retries
+      res.json({ received: true });
 
       for (const { org_id } of leads) {
         try {
@@ -70,6 +110,9 @@ router.post('/msg91-inbound',
       }
     } catch (err) {
       console.error('[msg91-inbound] error:', err.message);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'internal_server_error' });
+      }
     }
   }
 );
