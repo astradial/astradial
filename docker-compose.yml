@@ -32,7 +32,7 @@ services:
       MARIADB_USER: ${DB_USER:-astradial}
       MARIADB_PASSWORD: ${DB_PASSWORD:-changeme}
     ports:
-      - "${DB_EXTERNAL_PORT:-3307}:3306"
+      - "127.0.0.1:${DB_EXTERNAL_PORT:-3307}:3306"
     volumes:
       - mariadb_data:/var/lib/mysql
     healthcheck:
@@ -47,7 +47,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"
     networks:
       - astradial
 
@@ -106,7 +106,7 @@ services:
     restart: unless-stopped
     ports:
       - "9000:3000"
-      - "8765:8765"
+      - "127.0.0.1:8765:8765"
     environment:
       - HOST=0.0.0.0
       - PORT=3000
@@ -148,8 +148,9 @@ services:
       - USE_FIREBASE=${USE_FIREBASE:-false}
       - MSG91_ADMIN_AUTH_KEY=${MSG91_ADMIN_AUTH_KEY}
       - MSG91_INTEGRATED_NUMBER=15558897024
-      - MSG91_WEBHOOK_SECRET=${MSG91_WEBHOOK_SECRET}
-      - CAMPAIGN_WEBHOOK_SECRET=${CAMPAIGN_WEBHOOK_SECRET}
+      - MSG91_WEBHOOK_SECRET=${MSG91_WEBHOOK_SECRET:-}
+      - CAMPAIGN_WEBHOOK_SECRET=${CAMPAIGN_WEBHOOK_SECRET:-}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       - BOT_WS_PORT=8765
       - CAMPAIGN_BOT_WS_BASE_URL=ws://localhost:8765/bot
@@ -187,9 +188,7 @@ services:
     environment:
       - NEXT_PUBLIC_ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
       - NEXT_PUBLIC_USE_FIREBASE=${NEXT_PUBLIC_USE_FIREBASE:-false}
-      - MSG91_ADMIN_AUTH_KEY=${MSG91_ADMIN_AUTH_KEY}
       - MSG91_INTEGRATED_NUMBER=15558897024
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       - BOT_WS_PORT=8765
       - NEXT_PUBLIC_GATEWAY_URL=http://pipecat-flow:7860
       # rewrites() reads these at server boot — the editor proxies /api/pbx/*
@@ -215,7 +214,7 @@ services:
     build: ./workflow-engine
     restart: unless-stopped
     ports:
-      - "3002:3002"
+      - "127.0.0.1:3002:3002"
     environment:
       - REDIS_URL=redis://redis:6379
       - API_URL=http://api:8000
@@ -241,7 +240,7 @@ services:
     build: ./pipecat-flow
     restart: unless-stopped
     ports:
-      - "7860:7860"
+      - "127.0.0.1:7860:7860"
     environment:
       - GATEWAY_HOST=0.0.0.0
       - GATEWAY_PORT=7860
