@@ -4,11 +4,19 @@
 // PATCH /campaigns/:id/leads/:leadId with optimistic rollback (§11.23.4).
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ChevronDown, Clock, Pause, X } from "lucide-react";
+import { AlertCircle, Clock, Pause, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { CampaignStatusPill } from "./CampaignStatusPill";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { TimelineItem } from "./TimelineItem";
 import { showToast } from "@/components/ui/Toast";
 import { leads as leadsApi } from "@/lib/campaigns/client";
@@ -134,25 +142,26 @@ export function LeadDrawer({ open, campaignId, leadId, onClose }: Props) {
           {/* Status changer */}
           {lead && (
             <div className="cmp-status-changer-row">
-              <div className="cmp-status-changer-col">
+              <div className="cmp-status-changer-col w-full">
                 <label className="cmp-status-changer-label">Status</label>
-                <div className="cmp-status-changer">
-                  <CampaignStatusPill status={lead.status} />
-                  <select
-                    className="cmp-status-select"
-                    aria-label="Change lead status"
-                    value={lead.status}
-                    onChange={(e) => statusMut.mutate(e.target.value as LeadStatus)}
-                    disabled={statusMut.isPending}
-                  >
-                    {STATUS_OPTIONS.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown size={14} className="cmp-status-select-chev" />
-                </div>
+                <Select
+                  value={lead.status}
+                  onValueChange={(val) => statusMut.mutate(val as LeadStatus)}
+                  disabled={statusMut.isPending}
+                >
+                  <SelectTrigger className="w-full bg-background border border-input h-10 px-3 py-2 flex items-center justify-between">
+                    <CampaignStatusPill status={lead.status} />
+                  </SelectTrigger>
+                  <SelectContent className="z-[70]">
+                    <SelectGroup>
+                      {STATUS_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.id} value={opt.id}>
+                          <CampaignStatusPill status={opt.id} />
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           )}
