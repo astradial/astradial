@@ -6,6 +6,16 @@ const { createLogger } = require('./campaign-logger');
 
 const logger = createLogger({ service: 'campaignReplyHandler' });
 
+const STATUS_PRECEDENCE = {
+  raw: 0,
+  contacted: 1,
+  engaged: 2,
+  interested: 3,
+  qualified: 4,
+  disqualified: 5,
+  dnc: 5
+};
+
 // Collect all interest_keywords from actions of the given type in the snapshot.
 // Scans ALL days/actions (not just the current one) so the full keyword vocabulary
 // is available regardless of where in the cadence the lead currently is.
@@ -177,7 +187,7 @@ async function handleWhatsAppInboundReply(orgId, phone, message = '', messageId 
 
     // 2. Update lead status if it is an upgrade
     if (shouldUpdateStatus) {
-      await lead.update({ status: targetStatus }, { transaction: tx });
+      await lead.update({ status: targetStatus, last_touch_at: new Date() }, { transaction: tx });
     }
 
     // 3. Halt run if final status is 'interested' and lead becomes interested
@@ -220,7 +230,7 @@ async function markInterestedAndHalt(orgId, phone, message = '') {
 //
 // campaignLeadId is known from the channel variable set at originate time,
 // so no phone-based lookup is needed.
-async function markCallResult(orgId, campaignLeadId, transcript = '', campaignId) {
+async function markCallResult(orgId, campaignLeadId, transcript = '', campaignId = null, status = null, detectedKeyword = null, answered = null, ringed = null) {
   const log = createLogger({ service: 'campaignReplyHandler', orgId, campaignLeadId });
 
   const lead = await CampaignLead.findOne({
@@ -263,66 +273,137 @@ async function markCallResult(orgId, campaignLeadId, transcript = '', campaignId
   const keywords = extractKeywords(snapshot, 'call');
   const hasKeywords = keywords.length > 0;
 
-  const isInterested = !hasKeywords || matchesKeywords(transcript, keywords);
+  // A. Determine isAnswered
+  let isAnswered = false;
+  const STATUS_PRECEDENCE = {
+    raw: 0,
+    contacted: 1,
+    engaged: 2,
+    interested: 3,
+    qualified: 4,
+    disqualified: 5,
+    dnc: 5
+  };
 
-  if (isInterested) {
-    const tx = await sequelize.transaction();
-    try {
-      await lead.update({ status: 'interested' }, { transaction: tx });
-      // Don't flip a run that advance() already marked completed — it finished cleanly.
-      if (!isAlreadyCompleted) {
-        await activeRun.update(
-          { status: 'halted', halted_at: new Date(), asterisk_channel_id: null },
-          { transaction: tx }
-        );
-      }
-      await CampaignEvent.create({
-        org_id: orgId,
-        campaign_id: lead.campaign_id,
-        campaign_lead_id: lead.id,
-        kind: 'call_interested',
-        idempotency_key: `call-interested-${activeRun.id}`,
-        payload: {
-          reason: 'call_keyword_match',
-          ...(isAlreadyCompleted && { note: 'classified_after_run_completed' }),
-          ...(transcript && { transcript: transcript.slice(0, 500) }),
-        },
-      }, { transaction: tx });
-      await tx.commit();
-    } catch (e) {
-      try { await tx.rollback(); } catch (_) { /* ignore */ }
-      log.error('failed to halt interested lead (call)', { leadId: lead.id, error: e.message });
-      return { halted: 0, classified: null };
+  if (answered === true || answered === 'true') {
+    isAnswered = true;
+  } else if (answered === false || answered === 'false') {
+    isAnswered = false;
+  } else {
+    // Infer from status
+    const answeredStatuses = new Set(['completed', 'timeout', 'hangup', 'answered']);
+    const unansweredStatuses = new Set(['no_answer', 'busy', 'failed', 'cancelled', 'unreachable', 'timeout_before_answer', 'not_answered']);
+    
+    if (status && answeredStatuses.has(String(status).toLowerCase().trim())) {
+      isAnswered = true;
+    } else if (status && unansweredStatuses.has(String(status).toLowerCase().trim())) {
+      isAnswered = false;
+    } else {
+      // Default fallback
+      isAnswered = false;
     }
-
-    log.info('call: lead marked interested, run halted', { leadId: lead.id, isAlreadyCompleted });
-    return { halted: isAlreadyCompleted ? 0 : 1, classified: 'interested' };
   }
 
-  // No keyword match → engaged: record event, bump status if early-stage.
-  const tx = await sequelize.transaction();
-  try {
-    const EARLY_STATUSES = new Set(['raw', 'contacted']);
-    if (EARLY_STATUSES.has(lead.status)) {
-      await lead.update({ status: 'engaged' }, { transaction: tx });
+  // B. Determine isRinged
+  let isRinged = false;
+  if (ringed === true || ringed === 'true') {
+    isRinged = true;
+  } else if (ringed === false || ringed === 'false') {
+    isRinged = false;
+  } else {
+    // Infer from isAnswered or status
+    if (isAnswered) {
+      isRinged = true;
+    } else if (status) {
+      const statusLower = String(status).toLowerCase().trim();
+      const ringedStatuses = new Set([
+        'ringing',
+        'ring_no_answer',
+        'no_answer_after_ring',
+        'timeout_after_ring',
+        'no_answer'
+      ]);
+      if (ringedStatuses.has(statusLower)) {
+        isRinged = true;
+      }
     }
-    await CampaignEvent.create({
-      org_id: orgId,
-      campaign_id: lead.campaign_id,
-      campaign_lead_id: lead.id,
-      kind: 'call_engaged',
-      idempotency_key: `call-engaged-${activeRun.id}-${Date.now()}`,
-      payload: { ...(transcript && { transcript: transcript.slice(0, 500) }) },
-    }, { transaction: tx });
-    await tx.commit();
-  } catch (e) {
-    try { await tx.rollback(); } catch (_) { /* ignore */ }
-    log.error('failed to record engaged call', { leadId: lead.id, error: e.message });
+  }
+
+  // C. Determine isInterested and targetStatus
+  let isInterested = false;
+  let matchedKeyword = null;
+
+  if (detectedKeyword && String(detectedKeyword).trim().length > 0) {
+    isAnswered = true; // If a keyword was detected, the call must have been answered
+    isRinged = true;
+    isInterested = true;
+    matchedKeyword = String(detectedKeyword).trim();
+  } else if (isAnswered) {
+    // Only mark interested if keywords are configured AND transcript matches one.
+    // No keywords configured, or no transcript match => engaged (not interested).
+    isInterested = hasKeywords && matchesKeywords(transcript, keywords);
+    if (isInterested) {
+      matchedKeyword = keywords.find(kw => matchesKeywords(transcript, [kw])) || null;
+    }
+  }
+
+  // Determine target status with explicit guards
+  let targetStatus = null;
+  // Keyword presence overrides all
+  if (isInterested) {
+    targetStatus = 'interested';
+  } else if (isAnswered) {
+    // Answered without keyword -> engaged
+    targetStatus = 'engaged';
+  } else if (isRinged) {
+    // Ringed but not answered -> contacted
+    targetStatus = 'contacted';
+  }
+
+  // Explicit guard: if payload indicates a generic failure and there was no ring, do not change status
+  const lowerStatus = status ? String(status).toLowerCase().trim() : '';
+  const genericFailureStatuses = new Set([
+    'failed', 'unreachable', 'busy', 'cancelled', 'timeout_before_answer', 'not_answered', 'no_answer'
+  ]);
+  if (!isRinged && !isAnswered && genericFailureStatuses.has(lowerStatus)) {
+    targetStatus = null; // remain raw
+  }
+
+  // Precedence check — early return if no upgrade is possible
+  const currentRank = STATUS_PRECEDENCE[lead.status] ?? 0;
+  const targetRank = targetStatus ? (STATUS_PRECEDENCE[targetStatus] ?? 0) : 0;
+
+  // Log as requested:
+  // [call-result] lead=<id> answered=<true/false> ringed=<true/false> keyword=<keyword/null> status=<payload.status> -> <new_status_or_unchanged>
+  if (!targetStatus || targetRank <= currentRank) {
+    console.log(`[call-result] lead=${campaignLeadId} no status change (current=${lead.status}, target=${targetStatus})`);
+    log.info(`[call-result] lead=${campaignLeadId} no status change (current=${lead.status}, target=${targetStatus})`);
     return { halted: 0, classified: null };
   }
 
-  log.info('call: lead marked engaged (no keyword match)', { leadId: lead.id });
-  return { halted: 0, classified: 'engaged' };
+  console.log(`[call-result] lead=${campaignLeadId} answered=${isAnswered} ringed=${isRinged} keyword=${matchedKeyword || 'null'} status=${status || 'null'} -> ${targetStatus}`);
+  log.info(`[call-result] lead=${campaignLeadId} answered=${isAnswered} ringed=${isRinged} keyword=${matchedKeyword || 'null'} status=${status || 'null'} -> ${targetStatus}`);
+
+  const tx = await sequelize.transaction();
+  try {
+    const now = new Date();
+    // Assign to lead object for test visibility before DB write
+    lead.last_touch_at = now;
+    await lead.update({ status: targetStatus, last_touch_at: now }, { transaction: tx });
+
+    let halted = 0;
+    if (targetStatus === 'interested' && !isAlreadyCompleted && activeRun.status !== 'halted') {
+      await activeRun.update({ status: 'halted', halted_at: new Date() }, { transaction: tx });
+      halted = 1;
+    }
+
+    await tx.commit();
+    return { halted, classified: targetStatus };
+  } catch (e) {
+    await tx.rollback();
+    log.error('failed to process call result', { leadId: lead.id, error: e.message });
+    return { halted: 0, classified: null };
+  }
 }
 
 module.exports = {

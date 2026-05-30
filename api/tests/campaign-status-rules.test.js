@@ -13,6 +13,7 @@ const STUB_MODELS = {
   },
   CampaignLead: {
     findByPk: async () => null,
+    findOne: async () => null,
     findAll: async () => [],
     update: async () => ({}),
   },
@@ -29,6 +30,8 @@ const STUB_MODELS = {
     findByPk: async () => null,
   },
   sequelize: {
+    fn: (name, val) => ({ name, val }),
+    col: (val) => val,
     constructor: {
       QueryTypes: {
         SELECT: 'SELECT',
@@ -614,6 +617,11 @@ test('WhatsApp Campaign Status Rules', async (t) => {
       id: 'lead-1',
       status: 'raw',
       phone: '919876543210',
+      update: async (data) => {
+        leadUpdated = true;
+        lead.status = data.status;
+        return {};
+      }
     };
     const run = {
       id: 'run-1',
@@ -626,6 +634,7 @@ test('WhatsApp Campaign Status Rules', async (t) => {
     STUB_MODELS.CampaignLeadRun.findOne = async () => run;
     STUB_MODELS.CampaignLeadRun.findByPk = async () => run;
     STUB_MODELS.CampaignLead.findByPk = async () => lead;
+    STUB_MODELS.CampaignLead.findOne = async () => lead;
     STUB_MODELS.Campaign.findOne = async () => ({
       id: 'campaign-1',
       org_id: 'org-1',
@@ -674,6 +683,11 @@ test('WhatsApp Campaign Status Rules', async (t) => {
       id: 'lead-1',
       status: 'raw',
       phone: '919876543210',
+      update: async (data) => {
+        leadUpdatedStatus = data.status;
+        lead.status = data.status;
+        return {};
+      }
     };
     const run = {
       id: 'run-1',
@@ -686,6 +700,7 @@ test('WhatsApp Campaign Status Rules', async (t) => {
     STUB_MODELS.CampaignLeadRun.findOne = async () => run;
     STUB_MODELS.CampaignLeadRun.findByPk = async () => run;
     STUB_MODELS.CampaignLead.findByPk = async () => lead;
+    STUB_MODELS.CampaignLead.findOne = async () => lead;
     STUB_MODELS.Campaign.findOne = async () => ({
       id: 'campaign-1',
       org_id: 'org-1',
@@ -725,8 +740,90 @@ test('WhatsApp Campaign Status Rules', async (t) => {
 
     await callCompletedHandler(req, res);
 
-    assert.equal(leadUpdatedStatus, 'contacted');
-    assert.equal(lead.status, 'contacted');
+    // With new logic: status='completed' infers answered=true, isRinged=true,
+    // no keywords configured => targetStatus='engaged' (answered, no keyword match)
+    assert.equal(leadUpdatedStatus, 'engaged');
+    assert.equal(lead.status, 'engaged');
+  });
+
+  // 12b — test that call-completed with answered=true and ringed=true also works
+  // (explicit flags, status='completed', no keyword => engaged)
+  await t.test('12b. Webhook /call-completed with answered=true and status:completed moves raw to engaged', async () => {
+    let leadUpdatedStatus = null;
+    const lead = {
+      id: 'lead-1',
+      status: 'raw',
+      phone: '919876543210',
+      update: async (data) => {
+        leadUpdatedStatus = data.status;
+        lead.status = data.status;
+        return {};
+      }
+    };
+    const run = {
+      id: 'run-1',
+      status: 'waiting',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async (data) => {
+        run.status = data.status;
+        return {};
+      }
+    };
+
+    STUB_MODELS.CampaignLeadRun.findOne = async () => run;
+    STUB_MODELS.CampaignLeadRun.findByPk = async () => run;
+    STUB_MODELS.CampaignLead.findByPk = async () => lead;
+    STUB_MODELS.CampaignLead.findOne = async () => lead;
+    STUB_MODELS.Campaign.findOne = async () => ({
+      id: 'campaign-1',
+      org_id: 'org-1',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'call', interest_keywords: ['yes'] }] }]
+      },
+      update: async () => {}
+    });
+    STUB_MODELS.Campaign.findByPk = async () => ({
+      id: 'campaign-1',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'call', interest_keywords: ['yes'] }] }]
+      }
+    });
+
+    STUB_MODELS.CampaignLeadRun.update = async (data) => {
+      run.status = data.status;
+      return [1];
+    };
+    STUB_MODELS.CampaignLead.update = async (data) => {
+      leadUpdatedStatus = data.status;
+      lead.status = data.status;
+      return {};
+    };
+
+    const webhooksRouter = require('../src/routes/webhooks');
+    const callCompletedRoute = webhooksRouter.stack.find(
+      (layer) => layer.route && layer.route.path === '/call-completed'
+    );
+    const callCompletedHandler = callCompletedRoute.route.stack[callCompletedRoute.route.stack.length - 1].handle;
+
+    const req = {
+      body: {
+        org_id: 'org-1',
+        campaign_id: 'campaign-1',
+        campaign_lead_id: 'lead-1',
+        call_id: 'call-1',
+        duration_seconds: 10,
+        status: 'completed',
+        answered: true,
+      }
+    };
+    const res = { json: () => {} };
+
+    await callCompletedHandler(req, res);
+
+    assert.equal(leadUpdatedStatus, 'engaged', 'answered call with no keyword should be engaged');
+    assert.equal(lead.status, 'engaged');
   });
 
   await t.test('13. Inactive call channel before timeout leaves lead raw and run waiting', async () => {
@@ -1144,6 +1241,543 @@ test('WhatsApp Campaign Status Rules', async (t) => {
     }, 'Process WhatsApp job should handle unique constraint error gracefully');
 
     assert.equal(createCount, 1, 'Event creation should be attempted exactly once');
+  });
+
+  await t.test('20. Webhook /call-result status completion and keyword match moves raw to interested', async () => {
+    let leadUpdatedStatus = null;
+    const lead = {
+      id: 'lead-1',
+      status: 'raw',
+      update: async (data) => {
+        leadUpdatedStatus = data.status;
+        lead.status = data.status;
+        return {};
+      }
+    };
+    const run = {
+      id: 'run-1',
+      status: 'waiting',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async () => {},
+    };
+
+    STUB_MODELS.CampaignLead.findOne = async () => lead;
+    STUB_MODELS.CampaignLeadRun.findOne = async () => run;
+    STUB_MODELS.Campaign.findByPk = async () => ({
+      id: 'campaign-1',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'call', interest_keywords: ['yes'] }] }]
+      }
+    });
+
+    const webhooksRouter = require('../src/routes/webhooks');
+    const callResultRoute = webhooksRouter.stack.find(
+      (layer) => layer.route && layer.route.path === '/call-result'
+    );
+    const callResultHandler = callResultRoute.route.stack[callResultRoute.route.stack.length - 1].handle;
+
+    const req = {
+      body: {
+        org_id: 'org-1',
+        campaign_id: 'campaign-1',
+        campaign_lead_id: 'lead-1',
+        call_id: 'call-1',
+        duration_seconds: 10,
+        status: 'completed',
+        detected_keyword: 'yes',
+      }
+    };
+    const res = { json: () => {} };
+
+    await callResultHandler(req, res);
+
+    assert.equal(leadUpdatedStatus, 'interested');
+    assert.equal(lead.status, 'interested');
+  });
+
+  await t.test('21. Webhook /call-result status timeout, no keyword, answered=true moves raw to engaged', async () => {
+    let leadUpdatedStatus = null;
+    const lead = {
+      id: 'lead-1',
+      status: 'raw',
+      update: async (data) => {
+        leadUpdatedStatus = data.status;
+        lead.status = data.status;
+        return {};
+      }
+    };
+    const run = {
+      id: 'run-1',
+      status: 'waiting',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async () => {},
+    };
+
+    STUB_MODELS.CampaignLead.findOne = async () => lead;
+    STUB_MODELS.CampaignLeadRun.findOne = async () => run;
+    STUB_MODELS.Campaign.findByPk = async () => ({
+      id: 'campaign-1',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'call', interest_keywords: ['yes'] }] }]
+      }
+    });
+
+    const webhooksRouter = require('../src/routes/webhooks');
+    const callResultRoute = webhooksRouter.stack.find(
+      (layer) => layer.route && layer.route.path === '/call-result'
+    );
+    const callResultHandler = callResultRoute.route.stack[callResultRoute.route.stack.length - 1].handle;
+
+    const req = {
+      body: {
+        org_id: 'org-1',
+        campaign_id: 'campaign-1',
+        campaign_lead_id: 'lead-1',
+        call_id: 'call-1',
+        duration_seconds: 10,
+        status: 'timeout',
+        answered: true,
+      }
+    };
+    const res = { json: () => {} };
+
+    await callResultHandler(req, res);
+
+    assert.equal(leadUpdatedStatus, 'engaged');
+    assert.equal(lead.status, 'engaged');
+    assert.ok(lead.last_touch_at, 'last_touch_at should be set');
+  });
+
+  await t.test('22. Webhook /call-result status hangup, transcript exists, no keyword moves raw to engaged', async () => {
+    let leadUpdatedStatus = null;
+    const lead = {
+      id: 'lead-1',
+      status: 'raw',
+      update: async (data) => {
+        leadUpdatedStatus = data.status;
+        lead.status = data.status;
+        return {};
+      }
+    };
+    const run = {
+      id: 'run-1',
+      status: 'waiting',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async () => {},
+    };
+
+    STUB_MODELS.CampaignLead.findOne = async () => lead;
+    STUB_MODELS.CampaignLeadRun.findOne = async () => run;
+    STUB_MODELS.Campaign.findByPk = async () => ({
+      id: 'campaign-1',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'call', interest_keywords: ['yes'] }] }]
+      }
+    });
+
+    const webhooksRouter = require('../src/routes/webhooks');
+    const callResultRoute = webhooksRouter.stack.find(
+      (layer) => layer.route && layer.route.path === '/call-result'
+    );
+    const callResultHandler = callResultRoute.route.stack[callResultRoute.route.stack.length - 1].handle;
+
+    const req = {
+      body: {
+        org_id: 'org-1',
+        campaign_id: 'campaign-1',
+        campaign_lead_id: 'lead-1',
+        call_id: 'call-1',
+        duration_seconds: 10,
+        status: 'hangup',
+        transcript: 'hello',
+      }
+    };
+    const res = { json: () => {} };
+
+    await callResultHandler(req, res);
+
+    assert.equal(leadUpdatedStatus, 'engaged');
+    assert.equal(lead.status, 'engaged');
+  });
+
+  await t.test('23. Webhook /call-result status failed, answered=false, no ring remains raw', async () => {
+    let leadUpdatedStatus = null;
+    const lead = {
+      id: 'lead-1',
+      status: 'raw',
+      update: async (data) => {
+        leadUpdatedStatus = data.status;
+        lead.status = data.status;
+        return {};
+      }
+    };
+    const run = {
+      id: 'run-1',
+      status: 'waiting',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async () => {},
+    };
+
+    STUB_MODELS.CampaignLead.findOne = async () => lead;
+    STUB_MODELS.CampaignLeadRun.findOne = async () => run;
+    STUB_MODELS.Campaign.findByPk = async () => ({
+      id: 'campaign-1',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'call', interest_keywords: ['yes'] }] }]
+      }
+    });
+
+    const webhooksRouter = require('../src/routes/webhooks');
+    const callResultRoute = webhooksRouter.stack.find(
+      (layer) => layer.route && layer.route.path === '/call-result'
+    );
+    const callResultHandler = callResultRoute.route.stack[callResultRoute.route.stack.length - 1].handle;
+
+    const req = {
+      body: {
+        org_id: 'org-1',
+        campaign_id: 'campaign-1',
+        campaign_lead_id: 'lead-1',
+        call_id: 'call-1',
+        duration_seconds: 0,
+        status: 'failed',
+        answered: false,
+        ringed: false,
+      }
+    };
+    const res = { json: () => {} };
+
+    await callResultHandler(req, res);
+
+    assert.equal(leadUpdatedStatus, null);
+    assert.equal(lead.status, 'raw');
+  });
+
+  await t.test('23b. Webhook /call-result status failed, answered=false, ringed=true moves raw to contacted', async () => {
+    let leadUpdatedStatus = null;
+    const lead = {
+      id: 'lead-1',
+      status: 'raw',
+      update: async (data) => {
+        leadUpdatedStatus = data.status;
+        lead.status = data.status;
+        return {};
+      }
+    };
+    const run = {
+      id: 'run-1',
+      status: 'waiting',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async () => {},
+    };
+
+    STUB_MODELS.CampaignLead.findOne = async () => lead;
+    STUB_MODELS.CampaignLeadRun.findOne = async () => run;
+    STUB_MODELS.Campaign.findByPk = async () => ({
+      id: 'campaign-1',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'call', interest_keywords: ['yes'] }] }]
+      }
+    });
+
+    const webhooksRouter = require('../src/routes/webhooks');
+    const callResultRoute = webhooksRouter.stack.find(
+      (layer) => layer.route && layer.route.path === '/call-result'
+    );
+    const callResultHandler = callResultRoute.route.stack[callResultRoute.route.stack.length - 1].handle;
+
+    const req = {
+      body: {
+        org_id: 'org-1',
+        campaign_id: 'campaign-1',
+        campaign_lead_id: 'lead-1',
+        call_id: 'call-1',
+        duration_seconds: 0,
+        status: 'failed',
+        answered: false,
+        ringed: true,
+      }
+    };
+    const res = { json: () => {} };
+
+    await callResultHandler(req, res);
+
+    assert.equal(leadUpdatedStatus, 'contacted');
+    assert.equal(lead.status, 'contacted');
+    assert.ok(lead.last_touch_at, 'last_touch_at should be set');
+  });
+
+  await t.test('23c. Webhook /call-result status no_answer, answered=false (inferred ring) moves raw to contacted', async () => {
+    let leadUpdatedStatus = null;
+    const lead = {
+      id: 'lead-1',
+      status: 'raw',
+      update: async (data) => {
+        leadUpdatedStatus = data.status;
+        lead.status = data.status;
+        return {};
+      }
+    };
+    const run = {
+      id: 'run-1',
+      status: 'waiting',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async () => {},
+    };
+
+    STUB_MODELS.CampaignLead.findOne = async () => lead;
+    STUB_MODELS.CampaignLeadRun.findOne = async () => run;
+    STUB_MODELS.Campaign.findByPk = async () => ({
+      id: 'campaign-1',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'call', interest_keywords: ['yes'] }] }]
+      }
+    });
+
+    const webhooksRouter = require('../src/routes/webhooks');
+    const callResultRoute = webhooksRouter.stack.find(
+      (layer) => layer.route && layer.route.path === '/call-result'
+    );
+    const callResultHandler = callResultRoute.route.stack[callResultRoute.route.stack.length - 1].handle;
+
+    const req = {
+      body: {
+        org_id: 'org-1',
+        campaign_id: 'campaign-1',
+        campaign_lead_id: 'lead-1',
+        call_id: 'call-1',
+        duration_seconds: 0,
+        status: 'no_answer',
+        answered: false,
+      }
+    };
+    const res = { json: () => {} };
+
+    await callResultHandler(req, res);
+
+    assert.equal(leadUpdatedStatus, 'contacted');
+    assert.equal(lead.status, 'contacted');
+  });
+
+  await t.test('24. Webhook /call-result does not downgrade interested lead back to engaged', async () => {
+    let leadUpdatedStatus = null;
+    const lead = {
+      id: 'lead-1',
+      status: 'interested',
+      update: async (data) => {
+        leadUpdatedStatus = data.status;
+        lead.status = data.status;
+        return {};
+      }
+    };
+    const run = {
+      id: 'run-1',
+      status: 'waiting',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async () => {},
+    };
+
+    STUB_MODELS.CampaignLead.findOne = async () => lead;
+    STUB_MODELS.CampaignLeadRun.findOne = async () => run;
+    STUB_MODELS.Campaign.findByPk = async () => ({
+      id: 'campaign-1',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'call', interest_keywords: ['yes'] }] }]
+      }
+    });
+
+    const webhooksRouter = require('../src/routes/webhooks');
+    const callResultRoute = webhooksRouter.stack.find(
+      (layer) => layer.route && layer.route.path === '/call-result'
+    );
+    const callResultHandler = callResultRoute.route.stack[callResultRoute.route.stack.length - 1].handle;
+
+    const req = {
+      body: {
+        org_id: 'org-1',
+        campaign_id: 'campaign-1',
+        campaign_lead_id: 'lead-1',
+        call_id: 'call-1',
+        duration_seconds: 10,
+        status: 'timeout',
+        answered: true,
+      }
+    };
+    const res = { json: () => {} };
+
+    await callResultHandler(req, res);
+
+    assert.equal(leadUpdatedStatus, null);
+    assert.equal(lead.status, 'interested');
+  });
+
+  await t.test('25. Webhook /call-result does not downgrade engaged lead back to contacted', async () => {
+    let leadUpdatedStatus = null;
+    const lead = {
+      id: 'lead-1',
+      status: 'engaged',
+      update: async (data) => {
+        leadUpdatedStatus = data.status;
+        lead.status = data.status;
+        return {};
+      }
+    };
+    const run = {
+      id: 'run-1',
+      status: 'waiting',
+      campaign_lead_id: 'lead-1',
+      current_day_index: 0,
+      current_action_index: 0,
+      update: async () => {},
+    };
+
+    STUB_MODELS.CampaignLead.findOne = async () => lead;
+    STUB_MODELS.CampaignLeadRun.findOne = async () => run;
+    STUB_MODELS.Campaign.findByPk = async () => ({
+      id: 'campaign-1',
+      template_snapshot: {
+        days: [{ actions: [{ type: 'call', interest_keywords: ['yes'] }] }]
+      }
+    });
+
+    const webhooksRouter = require('../src/routes/webhooks');
+    const callResultRoute = webhooksRouter.stack.find(
+      (layer) => layer.route && layer.route.path === '/call-result'
+    );
+    const callResultHandler = callResultRoute.route.stack[callResultRoute.route.stack.length - 1].handle;
+
+    const req = {
+      body: {
+        org_id: 'org-1',
+        campaign_id: 'campaign-1',
+        campaign_lead_id: 'lead-1',
+        call_id: 'call-1',
+        duration_seconds: 0,
+        status: 'no_answer',
+        answered: false,
+      }
+    };
+    const res = { json: () => {} };
+
+    await callResultHandler(req, res);
+
+    assert.equal(leadUpdatedStatus, null);
+    assert.equal(lead.status, 'engaged');
+  });
+
+  await t.test('26. Campaigns list endpoint returns exact status counts', async () => {
+    const campaignsRouter = require('../src/routes/campaigns');
+    const listRoute = campaignsRouter.stack.find(
+      (layer) => layer.route && layer.route.path === '/' && layer.route.methods.get
+    );
+    const listHandler = listRoute.route.stack[listRoute.route.stack.length - 1].handle;
+
+    STUB_MODELS.Campaign.findAndCountAll = async () => ({
+      count: 1,
+      rows: [
+        {
+          id: 'camp-123',
+          name: 'Test Campaign',
+          status: 'running',
+          stats: { contacted: 0, engaged: 0, interested: 0, qualified: 0, total: 0 },
+          toJSON: function() { return this; }
+        }
+      ]
+    });
+
+    STUB_MODELS.CampaignLead.findAll = async () => [
+      { campaign_id: 'camp-123', status: 'contacted', n: 2 },
+      { campaign_id: 'camp-123', status: 'engaged', n: 1 },
+      { campaign_id: 'camp-123', status: 'interested', n: 1 },
+      { campaign_id: 'camp-123', status: 'qualified', n: 1 },
+      { campaign_id: 'camp-123', status: 'raw', n: 5 },
+    ];
+
+    const req = {
+      orgId: 'org-1',
+      query: {},
+    };
+    let jsonResult = null;
+    const res = {
+      status: function(code) { this.statusCode = code; return this; },
+      json: (data) => {
+        jsonResult = data;
+      }
+    };
+
+    await listHandler(req, res);
+
+    assert.ok(jsonResult);
+    assert.equal(jsonResult.data.length, 1);
+    const c = jsonResult.data[0];
+    assert.deepEqual(c.stats, {
+      contacted: 2,
+      engaged: 1,
+      interested: 1,
+      qualified: 1,
+      total: 10
+    });
+  });
+
+  await t.test('27. Campaign detail endpoint returns exact status counts', async () => {
+    const campaignsRouter = require('../src/routes/campaigns');
+    const detailRoute = campaignsRouter.stack.find(
+      (layer) => layer.route && layer.route.path === '/:id' && layer.route.methods.get
+    );
+    const detailHandler = detailRoute.route.stack[detailRoute.route.stack.length - 1].handle;
+
+    STUB_MODELS.Campaign.findOne = async () => ({
+      id: 'camp-123',
+      name: 'Test Campaign',
+      status: 'running',
+      stats: { contacted: 0, engaged: 0, interested: 0, qualified: 0, total: 0 },
+      toJSON: function() { return this; }
+    });
+
+    STUB_MODELS.CampaignLead.findAll = async () => [
+      { campaign_id: 'camp-123', status: 'contacted', n: 2 },
+      { campaign_id: 'camp-123', status: 'engaged', n: 1 },
+      { campaign_id: 'camp-123', status: 'interested', n: 1 },
+      { campaign_id: 'camp-123', status: 'qualified', n: 1 },
+      { campaign_id: 'camp-123', status: 'raw', n: 5 },
+    ];
+
+    const req = {
+      orgId: 'org-1',
+      params: { id: 'camp-123' },
+    };
+    let jsonResult = null;
+    const res = {
+      status: function(code) { this.statusCode = code; return this; },
+      json: (data) => {
+        jsonResult = data;
+      }
+    };
+
+    await detailHandler(req, res);
+
+    assert.ok(jsonResult);
+    assert.deepEqual(jsonResult.stats, {
+      contacted: 2,
+      engaged: 1,
+      interested: 1,
+      qualified: 1,
+      total: 10
+    });
   });
 
 });

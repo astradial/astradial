@@ -266,7 +266,7 @@ class AsteriskARIClient extends EventEmitter {
               sampleRate: 8000,
               channels: 1
             },
-            customParameters: {
+            customParameters: { "ASTERISK_CHANNEL_ID": channel.name,
               provider: 'astrapbx',
               org_id: orgId || '',
               channel_id: channel.id,
@@ -310,7 +310,14 @@ class AsteriskARIClient extends EventEmitter {
       }
 
       // Relay: Asterisk UDP (RTP) -> pipecat WSS (binary PCM for AstraPBXSerializer)
+      let rtpPacketCount = 0;
+      let wsAudioFrameCount = 0;
       udpRelay.on('message', (msg, rinfo) => {
+        rtpPacketCount++;
+
+        if (rtpPacketCount <= 10 || rtpPacketCount % 50 === 0) {
+          console.log(`🎧 UDP RTP received #${rtpPacketCount}: ${msg.length} bytes from ${rinfo.address}:${rinfo.port}`);
+        }
         // Remember Asterisk's address for sending back
         if (!asteriskPort) {
           asteriskPort = rinfo.port;
@@ -324,6 +331,11 @@ class AsteriskARIClient extends EventEmitter {
             // Convert µ-law to 16-bit linear PCM and send as binary
             const pcmData = ulawToPcm16(ulawPayload);
             ws.send(pcmData);
+            wsAudioFrameCount++;
+
+            if (wsAudioFrameCount <= 10 || wsAudioFrameCount % 50 === 0) {
+              console.log(`🎧 Sent PCM audio frame to Pipecat #${wsAudioFrameCount}: ${pcmData.length} bytes`);
+            }
           }
         }
       });

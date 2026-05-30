@@ -204,6 +204,55 @@ router.delete('/templates/:id', requirePermission('campaigns.delete'), async (re
 
 // ── Campaigns ────────────────────────────────────────────────────────
 
+async function getDynamicCampaignStats(orgId, campaignIds) {
+  if (!campaignIds || campaignIds.length === 0) return {};
+
+  const statusGroups = await CampaignLead.findAll({
+    where: { org_id: orgId, campaign_id: { [Op.in]: campaignIds } },
+    attributes: ['campaign_id', 'status', [sequelize.fn('COUNT', '*'), 'n']],
+    group: ['campaign_id', 'status'],
+    raw: true,
+  });
+
+  const statsMap = {};
+  for (const cid of campaignIds) {
+    statsMap[cid] = {
+      raw: 0,
+      contacted: 0,
+      engaged: 0,
+      interested: 0,
+      qualified: 0,
+      disqualified: 0,
+      dnc: 0,
+      total: 0,
+    };
+  }
+
+  for (const g of statusGroups) {
+    const cid = g.campaign_id;
+    if (statsMap[cid]) {
+      const count = Number(g.n) || 0;
+      statsMap[cid].total += count;
+      if (g.status in statsMap[cid]) {
+        statsMap[cid][g.status] = count;
+      }
+    }
+  }
+
+  const compiledStats = {};
+  for (const cid of campaignIds) {
+    const sc = statsMap[cid];
+    compiledStats[cid] = {
+      contacted: sc.contacted || 0,
+      engaged: sc.engaged || 0,
+      interested: sc.interested || 0,
+      qualified: sc.qualified || 0,
+      total: sc.total || 0,
+    };
+  }
+  return compiledStats;
+}
+
 router.get('/', requirePermission('campaigns.read'), async (req, res) => {
   try {
     const { limit, offset, page } = paginate(req.query);
@@ -213,7 +262,17 @@ router.get('/', requirePermission('campaigns.read'), async (req, res) => {
     const { count, rows } = await Campaign.findAndCountAll({
       where, limit, offset, order: [['created_at', 'DESC']],
     });
-    res.json({ data: rows, total: count, page, pages: Math.ceil(count / limit) });
+    
+    const campaignIds = rows.map((r) => r.id);
+    const dynamicStats = await getDynamicCampaignStats(req.orgId, campaignIds);
+
+    const rowsWithStats = rows.map((row) => {
+      const plain = row.toJSON ? row.toJSON() : row;
+      plain.stats = dynamicStats[plain.id] || { contacted: 0, engaged: 0, interested: 0, qualified: 0, total: 0 };
+      return plain;
+    });
+
+    res.json({ data: rowsWithStats, total: count, page, pages: Math.ceil(count / limit) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -589,7 +648,12 @@ router.get('/:id', requirePermission('campaigns.read'), async (req, res) => {
       where: { id: req.params.id, org_id: req.orgId },
     });
     if (!row) return res.status(404).json({ error: 'Campaign not found' });
-    res.json(row);
+
+    const dynamicStats = await getDynamicCampaignStats(req.orgId, [row.id]);
+    const plain = row.toJSON ? row.toJSON() : row;
+    plain.stats = dynamicStats[row.id] || { contacted: 0, engaged: 0, interested: 0, qualified: 0, total: 0 };
+
+    res.json(plain);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -817,6 +881,7 @@ router.patch('/:id/leads/:leadId', requirePermission('campaigns.write'), async (
     for (const k of ['name', 'country', 'business', 'status', 'intent_score', 'custom_fields']) {
       if (req.body[k] !== undefined) updates[k] = req.body[k];
     }
+    if (updates.status !== undefined) updates.last_touch_at = new Date();
     await row.update(updates);
     res.json(row);
   } catch (e) { res.status(400).json({ error: e.message }); }

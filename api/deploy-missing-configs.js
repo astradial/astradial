@@ -6,9 +6,8 @@ async function deployMissingConfigurations() {
   try {
     console.log('🔍 Checking for missing organization configurations...\n');
 
-    // 1. Get admin token
     const adminAuthResponse = await axios.post('http://localhost:3000/api/v1/admin/auth', {
-      admin_username: 'pbx_admin',
+      admin_username: process.env.ADMIN_USERNAME || 'admin',
       admin_password: process.env.ADMIN_PASSWORD
     });
 

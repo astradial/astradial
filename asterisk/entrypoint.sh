@@ -23,6 +23,8 @@ bind=0.0.0.0:5060
 external_media_address=${HOST_IP}
 external_signaling_address=${HOST_IP}
 local_net=172.16.0.0/12
+local_net=10.0.0.0/8
+local_net=192.168.0.0/16
 
 [transport-tcp]
 type=transport
@@ -31,7 +33,32 @@ bind=0.0.0.0:5060
 external_media_address=${HOST_IP}
 external_signaling_address=${HOST_IP}
 local_net=172.16.0.0/12
+local_net=10.0.0.0/8
+local_net=192.168.0.0/16
 PJSIP
+
+# Idempotently include organization configurations
+for f in /etc/asterisk/pjsip_*.conf; do
+  [ -e "$f" ] || continue
+  basename_f=$(basename "$f")
+  if [ "$basename_f" = "pjsip_dids.conf" ] || [ "$basename_f" = "pjsip_notify.conf" ] || [ "$basename_f" = "pjsip_wizard.conf" ] || [ "$basename_f" = "pjsip_astradial_cloud.conf" ]; then
+    continue
+  fi
+  include_line="#include $f"
+  grep -qxF "$include_line" /etc/asterisk/pjsip.conf || echo "$include_line" >> /etc/asterisk/pjsip.conf
+done
+
+
+# Configure RTP port range
+cat > /etc/asterisk/rtp.conf <<RTP
+[general]
+rtpstart=10000
+rtpend=10100
+rtpchecksums=yes
+strictrtp=no
+probation=1
+icesupport=yes
+RTP
 
 # Developer mode: auto-configure trunk to Astradial Cloud
 if [ "$ASTRADIAL_MODE" = "developer" ] && [ -n "$ASTRADIAL_TRUNK_HOST" ]; then

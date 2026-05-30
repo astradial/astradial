@@ -110,18 +110,65 @@ async function runWhatsApp({ orgId, campaignId, lead, run, action, campaignRow }
   }
 }
 
+// Helper to resolve script name/alias to actual campaign bot UUID
+async function resolveCampaignBotId(orgId, script) {
+  if (!script) return null;
+
+  try {
+    const { CampaignBot } = require('../models');
+
+    // 1. If the template/script value is already a valid campaign bot UUID and exists for the org, use it.
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(script)) {
+      const bot = await CampaignBot.findOne({ where: { id: script, org_id: orgId } }).catch(() => null);
+      if (bot) {
+        return bot.id;
+      }
+    }
+
+    // 2. Else match by exact campaign bot name.
+    const botByName = await CampaignBot.findOne({ where: { name: script, org_id: orgId } }).catch(() => null);
+    if (botByName) {
+      return botByName.id;
+    }
+
+    // 3. Else match by normalized campaign bot name.
+    // 4. Else fallback to the first available campaign bot for that org.
+    const allBots = await CampaignBot.findAll({ where: { org_id: orgId } }).catch(() => []);
+    if (allBots && allBots.length > 0) {
+      const normalizedScript = script.toLowerCase().replace(/[^a-z0-9]/g, '');
+      for (const bot of allBots) {
+        const normalizedBotName = bot.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (normalizedBotName === normalizedScript) {
+          return bot.id;
+        }
+      }
+      return allBots[0].id;
+    }
+  } catch (err) {
+    console.warn(`[campaign-actions] Error resolving campaign bot, using script fallback: ${script}`, err.message);
+  }
+
+  // 5. If no bot exists, log clearly and pass through the original value.
+  console.log(`[campaign-actions] No campaign bots found for org: ${orgId}, passing through original script: ${script}`);
+  return script;
+}
+
 // Originate a voice call via AstraPBX originate-to-ai endpoint.
 // Returns { ok, transient?, callId?, error? }
 async function runCall({ orgId, campaignId, lead, run, action, campaignRow }) {
   try {
     const url = `http://localhost:${PORT}/api/v1/calls/originate-to-ai`;
 
+    // Resolve script name/alias to actual bot UUID
+    const resolvedBotId = await resolveCampaignBotId(orgId, action.script);
+
     // Pass campaign context as Asterisk channel variables so the pipecat bot
     // can POST the call transcript back to /webhooks/call-result when done.
-    const resultWebhookUrl = `${process.env.API_BASE_URL || `http://localhost:${PORT}`}/api/v1/webhooks/call-result`;
+    const resultWebhookUrl = `${process.env.API_BASE_URL || `http://localhost:${PORT}`}/api/v1/webhooks/campaigns/call-result`;
     const body = {
       to: lead.phone,
-      bot_id: action.script,
+      bot_id: resolvedBotId,
       org_id: orgId,
       variables: {
         CAMPAIGN_LEAD_ID: lead.id,
@@ -134,7 +181,7 @@ async function runCall({ orgId, campaignId, lead, run, action, campaignRow }) {
     };
     if (action.callerId) body.caller_id = action.callerId;
     const wsBaseUrl = process.env.CAMPAIGN_BOT_WS_BASE_URL || `ws://localhost:${process.env.BOT_WS_PORT || 8765}/bot`;
-    body.wss_url = `${wsBaseUrl}/${action.script}`;
+    body.wss_url = `${wsBaseUrl}/${resolvedBotId}`;
 
     const res = await fetch(url, {
       method: 'POST',

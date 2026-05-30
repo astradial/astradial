@@ -101,7 +101,7 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
               i === 0
                 ? {
                     ...p,
-                    data: [{ ...lead, status }, ...p.data],
+                    data: [{ ...lead, status, last_touch_at: new Date().toISOString() }, ...p.data],
                     filtered: (p.filtered ?? p.total) + 1,
                     total: p.total + 1,
                   }
@@ -119,7 +119,9 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
       }
       showToast("Move failed", "error");
     },
-    onSettled: () => {
+    onSuccess: (_data, { fromStatus, status }) => {
+      qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "kanban", fromStatus] });
+      qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "kanban", status] });
       qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "dashboard"] });
     },
   });

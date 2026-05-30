@@ -139,6 +139,7 @@ class WebhookService {
 
   // Event-specific webhook methods
   async onCallInitiated(callData) {
+    if (!callData || !callData.callRecord) return;
     const payload = {
       call_id: callData.callRecord.call_id,
       channel_id: callData.channel.id,
@@ -154,6 +155,7 @@ class WebhookService {
   }
 
   async onCallRinging(callData) {
+    if (!callData || !callData.callRecord) return;
     const payload = {
       call_id: callData.callRecord.call_id,
       channel_id: callData.channel.id,
@@ -166,6 +168,7 @@ class WebhookService {
   }
 
   async onCallAnswered(callData) {
+    if (!callData || !callData.callRecord) return;
     const payload = {
       call_id: callData.callRecord.call_id,
       channel_id: callData.channel.id,
@@ -179,6 +182,7 @@ class WebhookService {
   }
 
   async onCallEnded(callData) {
+    if (!callData || !callData.callRecord) return;
     const payload = {
       call_id: callData.callRecord.call_id,
       channel_id: callData.channel.id,
@@ -197,6 +201,7 @@ class WebhookService {
   }
 
   async onCallFailed(callData) {
+    if (!callData || !callData.callRecord) return;
     const payload = {
       call_id: callData.callRecord.call_id,
       channel_id: callData.channel.id,

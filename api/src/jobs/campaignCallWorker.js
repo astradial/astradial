@@ -82,7 +82,8 @@ async function runPoll() {
       if (!campaign) continue;
       
       const TIMEOUT_MS = 15 * 60 * 1000;
-      if (Date.now() - run.updated_at.getTime() > TIMEOUT_MS) {
+      const updatedAtDate = run.updatedAt || run.updated_at;
+      if (updatedAtDate && (Date.now() - updatedAtDate.getTime() > TIMEOUT_MS)) {
         try {
           logger.warn('call worker timeout: no completion webhook received, advancing as failed', { runId: run.id });
           await advance(run, campaign, false);

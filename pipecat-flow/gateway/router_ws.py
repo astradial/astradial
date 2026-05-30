@@ -122,14 +122,15 @@ async def campaign_bot_endpoint(websocket: WebSocket, bot_id: str):
         custom_params = start_data.get("customParameters", {})
 
         # Extract values
-        org_id = custom_params.get("org_id") or bot["org_id"]
-        campaign_id = custom_params.get("CAMPAIGN_ID") or ""
-        campaign_lead_id = custom_params.get("CAMPAIGN_LEAD_ID") or ""
+        org_id = custom_params.get("org_id") or websocket.query_params.get("org_id") or websocket.query_params.get("ORG_ID") or bot["org_id"]
+        campaign_id = custom_params.get("CAMPAIGN_ID") or websocket.query_params.get("CAMPAIGN_ID") or ""
+        campaign_lead_id = custom_params.get("CAMPAIGN_LEAD_ID") or websocket.query_params.get("CAMPAIGN_LEAD_ID") or ""
         call_id = start_data.get("callSid") or ""
-        webhook_url = custom_params.get("RESULT_WEBHOOK_URL") or bot.get("webhook_url") or ""
+        asterisk_channel_id = custom_params.get("ASTERISK_CHANNEL_ID") or ""
+        webhook_url = custom_params.get("RESULT_WEBHOOK_URL") or websocket.query_params.get("RESULT_WEBHOOK_URL") or bot.get("webhook_url") or ""
         
         # Load keywords
-        interest_keywords_str = custom_params.get("INTEREST_KEYWORDS")
+        interest_keywords_str = custom_params.get("INTEREST_KEYWORDS") or websocket.query_params.get("INTEREST_KEYWORDS")
         if interest_keywords_str:
             try:
                 keywords = json.loads(interest_keywords_str)
@@ -159,6 +160,7 @@ async def campaign_bot_endpoint(websocket: WebSocket, bot_id: str):
             campaign_id=campaign_id,
             campaign_lead_id=campaign_lead_id,
             call_id=call_id,
+            asterisk_channel_id=asterisk_channel_id,
             keywords=keywords,
             language_code=language_code,
             call_timeout=call_timeout,

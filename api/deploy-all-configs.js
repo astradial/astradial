@@ -6,9 +6,8 @@ async function deployAllConfigurations() {
   try {
     console.log('🔍 Deploying configurations for all organizations...\n');
 
-    // 1. Get admin token
     const adminAuthResponse = await axios.post('http://localhost:3000/api/v1/admin/auth', {
-      admin_username: 'pbx_admin',
+      admin_username: process.env.ADMIN_USERNAME || 'admin',
       admin_password: process.env.ADMIN_PASSWORD
     });
 

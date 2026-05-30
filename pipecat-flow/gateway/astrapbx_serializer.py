@@ -38,7 +38,7 @@ class AstraPBXSerializer(FrameSerializer):
 
     def __init__(self, params: Optional[InputParams] = None):
         super().__init__(params or AstraPBXSerializer.InputParams())
-        self._sample_rate = 0
+        self._sample_rate = self.ASTRAPBX_SAMPLE_RATE
 
     async def setup(self, frame: StartFrame):
         self._sample_rate = self._params.sample_rate or frame.audio_in_sample_rate
@@ -75,11 +75,22 @@ class AstraPBXSerializer(FrameSerializer):
         if isinstance(data, (bytes, bytearray)) and len(data) > 0:
             audio_data = bytes(data)
 
+            logger.info(
+                f"AstraPBXSerializer: received binary audio {len(data)} bytes, sample_rate={self._sample_rate}"
+            )
+
             # If pipeline expects a different sample rate, resample
             if self._sample_rate != self.ASTRAPBX_SAMPLE_RATE:
+                logger.info(
+                    f"AstraPBXSerializer: resampling from {self.ASTRAPBX_SAMPLE_RATE} to {self._sample_rate}"
+                )
                 audio_data = self._resample(
                     audio_data, self.ASTRAPBX_SAMPLE_RATE, self._sample_rate
                 )
+
+            logger.info(
+                f"AstraPBXSerializer: created InputAudioRawFrame {len(audio_data)} bytes, sample_rate={self._sample_rate or self.ASTRAPBX_SAMPLE_RATE}"
+            )
 
             return InputAudioRawFrame(
                 audio=audio_data,
@@ -87,6 +98,7 @@ class AstraPBXSerializer(FrameSerializer):
                 sample_rate=self._sample_rate or self.ASTRAPBX_SAMPLE_RATE,
             )
 
+        logger.info(f"AstraPBXSerializer: ignored non-audio websocket data type={type(data)}")
         return None
 
     def _resample(self, data: bytes, from_rate: int, to_rate: int) -> bytes:

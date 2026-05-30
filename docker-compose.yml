@@ -83,13 +83,14 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "5060:5060/udp"
-      - "5060:5060/tcp"
+      - "5062:5060/udp"
+      - "5062:5060/tcp"
+      - "10000-10100:10000-10100/udp"
     volumes:
       - asterisk_config:/etc/asterisk
       - asterisk_recordings:/var/spool/asterisk/monitor
     environment:
-      - SIP_HOST=${SIP_HOST:-}
+      - SIP_HOST=${SIP_HOST:-164.68.118.13}
       - ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
       - ASTRADIAL_TRUNK_HOST=${ASTRADIAL_TRUNK_HOST:-}
       - ASTRADIAL_TRUNK_USER=${ASTRADIAL_TRUNK_USER:-}
@@ -153,7 +154,7 @@ services:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       - BOT_WS_PORT=8765
-      - CAMPAIGN_BOT_WS_BASE_URL=ws://localhost:8765/bot
+      - CAMPAIGN_BOT_WS_BASE_URL=${CAMPAIGN_BOT_WS_BASE_URL:-ws://localhost:8765/bot}
     depends_on:
       mariadb:
         condition: service_healthy
@@ -252,6 +253,7 @@ services:
       - DB_NAME=${DB_NAME:-astradial}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-dev-key}
       - ASTRAPBX_URL=http://api:3000
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
     depends_on:
       mariadb:
         condition: service_healthy

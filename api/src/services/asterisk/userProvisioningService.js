@@ -88,15 +88,16 @@ class UserProvisioningService {
 
     // Authentication order: username, auth_username, ip
     config += `identify_by=username,auth_username,ip\n`;
+    config += `timers=no\n`;
 
     config += `\n`;
 
     // AOR (Address of Record) configuration
     config += `[${endpoint}]\n`;
     config += `type=aor\n`;
-    config += `max_contacts=3\n`;
+    config += `max_contacts=1\n`;
     config += `remove_existing=yes\n`;
-    config += `qualify_frequency=60\n`;
+    config += `qualify_frequency=20\n`;
     config += `qualify_timeout=3.0\n`;
 
     config += `\n`;

@@ -130,6 +130,8 @@ router.post('/call-completed',
     res.json({ received: true });
 
     const { org_id, campaign_id, campaign_lead_id, call_id, duration_seconds, status } = req.body;
+    const answered = req.body.answered !== undefined ? req.body.answered : req.body.call_answered;
+    const ringed = req.body.ringed !== undefined ? req.body.ringed : req.body.call_rang;
 
     try {
       const campaign = await Campaign.findOne({ where: { id: campaign_id, org_id } });
@@ -162,6 +164,10 @@ router.post('/call-completed',
         }
       }
 
+      // Update lead status flow and get classified result
+      const { markCallResult } = require('../services/campaign-reply-handler');
+      const result = await markCallResult(org_id, campaign_lead_id, '', campaign_id, status, null, answered, ringed);
+
       // Advance the run via the shared service.  If the 5-s poll already
       // advanced it, advance() detects the non-waiting status and returns
       // without doing anything (idempotent).
@@ -170,8 +176,11 @@ router.post('/call-completed',
       });
       if (!run) return;
 
+      const finalStatus = (result && result.classified) || 'raw';
+      const touchSucceeded = ['contacted', 'engaged', 'interested'].includes(finalStatus);
+
       const { advance } = require('../services/campaign-advance');
-      await advance(run, campaign, status === 'completed');
+      await advance(run, campaign, touchSucceeded);
     } catch (err) {
       console.error('[call-completed] error:', err.message, err.stack);
     }
@@ -192,6 +201,9 @@ router.post('/call-result',
     res.json({ received: true });
 
     const { org_id, campaign_id, campaign_lead_id, call_id, transcript, duration_seconds, status } = req.body;
+    const detectedKeyword = req.body.detected_keyword;
+    const answered = req.body.answered !== undefined ? req.body.answered : req.body.call_answered;
+    const ringed = req.body.ringed !== undefined ? req.body.ringed : req.body.call_rang;
 
     if (!org_id || !campaign_lead_id) {
       console.error('[call-result] missing org_id or campaign_lead_id');
@@ -210,7 +222,7 @@ router.post('/call-result',
       }
 
       const { markCallResult } = require('../services/campaign-reply-handler');
-      await markCallResult(org_id, campaign_lead_id, transcript || '', campaign_id);
+      await markCallResult(org_id, campaign_lead_id, transcript || '', campaign_id, status, detectedKeyword, answered, ringed);
     } catch (err) {
       console.error('[call-result] error:', err.message, err.stack);
     }

@@ -3,17 +3,22 @@ import io
 import os
 import re
 import time
+import aiohttp
 from pathlib import Path
 from loguru import logger
 from pydub import AudioSegment
+import httpx
 
+from datetime import datetime, timezone
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import Frame, TranscriptionFrame, OutputAudioRawFrame, EndFrame
+from pipecat.frames.frames import Frame, TranscriptionFrame, OutputAudioRawFrame, EndFrame, InputAudioRawFrame, StartFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.services.elevenlabs.stt import ElevenLabsSTTService
+import json
+import wave
+from pipecat.frames.frames import StartFrame
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport, FastAPIWebsocketParams
 from pipecat.transcriptions.language import Language
 
@@ -99,6 +104,7 @@ class CampaignBotFrameProcessor(FrameProcessor):
     def __init__(
         self,
         call_id: str,
+        asterisk_channel_id: str,
         org_id: str,
         campaign_id: str,
         campaign_lead_id: str,
@@ -110,6 +116,7 @@ class CampaignBotFrameProcessor(FrameProcessor):
     ):
         super().__init__()
         self.call_id = call_id
+        self.asterisk_channel_id = asterisk_channel_id
         self.org_id = org_id
         self.campaign_id = campaign_id
         self.campaign_lead_id = campaign_lead_id
@@ -152,10 +159,13 @@ class CampaignBotFrameProcessor(FrameProcessor):
 
             detected_word = next((kw for kw in self.keywords if kw in text_lower_stripped), None)
             if detected_word:
-                logger.info(f"[CampaignBot] Keyword matched: '{detected_word}' | Ending call session.")
+                logger.info(f"[CampaignBot] Keyword matched: '{detected_word}' | Sending callback then ending call in 3s.")
+                # Stop STT from processing any further audio immediately
                 self.ended = True
-                
-                # Mark as matched and trigger callback
+                self.call_status["matched"] = True   # stops BufferedSTT
+                self.call_status["ended"] = True
+
+                # Send callback exactly once
                 if not self.call_status.get("webhook_sent"):
                     self.call_status["webhook_sent"] = True
                     duration = int(time.monotonic() - self.start_time)
@@ -171,8 +181,224 @@ class CampaignBotFrameProcessor(FrameProcessor):
                     }
                     asyncio.create_task(post_call_result(self.webhook_url, payload))
 
-                await self.task.queue_frame(EndFrame())
+                # Wait 3 seconds so the caller hears any pending TTS, then disconnect
+                asyncio.create_task(self._end_after_keyword_delay())
 
+    async def _end_after_keyword_delay(self):
+        """Wait 3 seconds after keyword match, then end the pipeline session."""
+        await asyncio.sleep(3)
+        # Perform hard hangup via API before ending the pipeline
+        try:
+            await self._hard_hangup()
+        except Exception as e:
+            logger.error(f"[CampaignBot] Hard hangup failed: {e}")
+        if self.task:
+            logger.info("[CampaignBot] 3s post-keyword delay elapsed, queuing EndFrame.")
+            await self.task.queue_frame(EndFrame())
+
+    async def _hard_hangup(self):
+        """Call the internal API to hang up the Asterisk channel."""
+        channel_id = self.asterisk_channel_id
+        if not channel_id:
+            logger.warning("[CampaignBot] Hard hangup skipped: no asterisk_channel_id set")
+            return
+        hangup_url = "http://api:3000/api/v1/calls/hangup"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Internal-Key": os.getenv("INTERNAL_API_KEY", "internal-dev-key")
+        }
+        payload = {"channel_id": channel_id}
+        logger.info(f"[CampaignBot] Hard hangup requested channel_id={channel_id}")
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(hangup_url, json=payload, headers=headers)
+                if resp.status_code in (200, 204):
+                    logger.info(f"[CampaignBot] Hard hangup success channel_id={channel_id}")
+                else:
+                    logger.warning(f"[CampaignBot] Hard hangup failed status={resp.status_code} body={resp.text[:300]}")
+        except Exception as e:
+            logger.error(f"[CampaignBot] Hard hangup exception channel_id={channel_id}: {e}")
+
+class AudioProbeProcessor(FrameProcessor):
+    def __init__(self):
+        super().__init__()
+        self.count = 0
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+
+        if isinstance(frame, InputAudioRawFrame):
+            self.count += 1
+
+            if self.count <= 10 or self.count % 100 == 0:
+                import struct
+
+                samples = struct.unpack(f"<{len(frame.audio) // 2}h", frame.audio)
+
+                if samples:
+                    peak = max(abs(s) for s in samples)
+                    avg = sum(abs(s) for s in samples) // len(samples)
+                else:
+                    peak = 0
+                    avg = 0
+
+                logger.info(
+                    f"[AudioProbe] frame #{self.count}: bytes={len(frame.audio)} "
+                    f"sample_rate={frame.sample_rate} peak={peak} avg={avg}"
+                )
+
+        await self.push_frame(frame, direction)
+
+class BufferedElevenLabsSTTProcessor(FrameProcessor):
+    """Collects short PCM chunks, sends WAV to ElevenLabs STT, and emits TranscriptionFrame."""
+
+    def __init__(
+        self,
+        api_key: str,
+        aiohttp_session,
+        language_code: str = "en",
+        sample_rate: int = 8000,
+        chunk_seconds: float = 4.0,
+        min_avg_level: int = 80,
+        call_status: dict | None = None
+    ):
+        super().__init__()
+        self.api_key = api_key
+        self.session = aiohttp_session
+        self.language_code = language_code
+        self.sample_rate = sample_rate
+        self.chunk_seconds = chunk_seconds
+        self.min_avg_level = min_avg_level
+        self.call_status = call_status or {}
+        self.buffer = bytearray()
+        self.chunk_bytes = int(sample_rate * 2 * chunk_seconds)  # 16-bit mono PCM
+        self.processing = False
+        self.chunk_index = 0
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if self.call_status.get("webhook_sent") or self.call_status.get("ended") or self.call_status.get("matched"):
+            return
+
+        if isinstance(frame, InputAudioRawFrame):
+            self.buffer.extend(frame.audio)
+
+            if len(self.buffer) >= self.chunk_bytes and not self.processing:
+                audio_chunk = bytes(self.buffer[:self.chunk_bytes])
+                self.buffer = self.buffer[self.chunk_bytes:]
+                self.chunk_index += 1
+                asyncio.create_task(self._transcribe_chunk(audio_chunk, self.chunk_index))
+
+            return
+
+        await self.push_frame(frame, direction)
+
+    async def _transcribe_chunk(self, pcm_audio: bytes, chunk_index: int):
+        if self.call_status.get("webhook_sent") or self.call_status.get("ended") or self.call_status.get("matched"):
+            return
+            
+        self.processing = True
+        try:
+            avg_level = self._avg_level(pcm_audio)
+            peak_level = self._peak_level(pcm_audio)
+
+            logger.info(
+                f"[BufferedSTT] chunk #{chunk_index}: bytes={len(pcm_audio)} "
+                f"avg={avg_level} peak={peak_level}"
+            )
+
+            if avg_level < self.min_avg_level and peak_level < 1000:
+                logger.info(f"[BufferedSTT] chunk #{chunk_index}: skipped low audio level")
+                return
+
+            wav_bytes = self._pcm_to_wav(pcm_audio)
+
+            url = "https://api.elevenlabs.io/v1/speech-to-text"
+            headers = {
+                "xi-api-key": self.api_key,
+            }
+
+            data = aiohttp.FormData()
+            data.add_field(
+                "file",
+                wav_bytes,
+                filename=f"chunk-{chunk_index}.wav",
+                content_type="audio/wav",
+            )
+            data.add_field("model_id", "scribe_v1")
+            data.add_field("language_code", self.language_code)
+
+            logger.info(f"[BufferedSTT] chunk #{chunk_index}: sending to ElevenLabs")
+
+            async with self.session.post(url, headers=headers, data=data, timeout=20) as resp:
+                response_text = await resp.text()
+
+                if resp.status >= 400:
+                    logger.error(
+                        f"[BufferedSTT] chunk #{chunk_index}: ElevenLabs error "
+                        f"status={resp.status} body={response_text[:300]}"
+                    )
+                    return
+
+                try:
+                    result = json.loads(response_text)
+                except Exception:
+                    logger.error(
+                        f"[BufferedSTT] chunk #{chunk_index}: invalid JSON response "
+                        f"{response_text[:300]}"
+                    )
+                    return
+
+                transcript = (
+                    result.get("text")
+                    or result.get("transcript")
+                    or ""
+                ).strip()
+
+                logger.info(f"[BufferedSTT] chunk #{chunk_index}: transcript='{transcript}'")
+
+                if transcript:
+                    if self.call_status.get("webhook_sent") or self.call_status.get("ended") or self.call_status.get("matched"):
+                        return
+                    await self.push_frame(
+                        TranscriptionFrame(
+                            text=transcript,
+                            user_id="caller",
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                        )
+                    )
+
+        except Exception as e:
+            logger.error(f"[BufferedSTT] chunk #{chunk_index}: failed: {e}")
+        finally:
+            self.processing = False
+
+    def _pcm_to_wav(self, pcm_audio: bytes) -> bytes:
+        wav_io = io.BytesIO()
+        with wave.open(wav_io, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(self.sample_rate)
+            wav_file.writeframes(pcm_audio)
+        return wav_io.getvalue()
+
+    def _avg_level(self, pcm_audio: bytes) -> int:
+        import struct
+        if len(pcm_audio) < 2:
+            return 0
+        samples = struct.unpack(f"<{len(pcm_audio) // 2}h", pcm_audio[: len(pcm_audio) - (len(pcm_audio) % 2)])
+        if not samples:
+            return 0
+        return sum(abs(s) for s in samples) // len(samples)
+
+    def _peak_level(self, pcm_audio: bytes) -> int:
+        import struct
+        if len(pcm_audio) < 2:
+            return 0
+        samples = struct.unpack(f"<{len(pcm_audio) // 2}h", pcm_audio[: len(pcm_audio) - (len(pcm_audio) % 2)])
+        if not samples:
+            return 0
+        return max(abs(s) for s in samples)
 
 async def run_campaign_bot(
     websocket,
@@ -181,6 +407,7 @@ async def run_campaign_bot(
     campaign_id: str,
     campaign_lead_id: str,
     call_id: str,
+    asterisk_channel_id: str,
     keywords: list[str],
     language_code: str,
     call_timeout: int,
@@ -191,9 +418,10 @@ async def run_campaign_bot(
     intro_frame, audio_duration = await load_audio_from_id(bot_id)
 
     # Combined timeout duration
-    listening_window = call_timeout or 8
+    listening_window = call_timeout or 20
     total_timeout = audio_duration + listening_window
     logger.info(f"[CampaignBot] Session timeouts: intro={audio_duration:.1f}s | listening={listening_window}s | total={total_timeout:.1f}s")
+    logger.info(f"[CampaignBot] Asterisk channel_id={asterisk_channel_id!r}")
 
     call_status = {"webhook_sent": False}
     end_call_task = None
@@ -225,24 +453,40 @@ async def run_campaign_bot(
         return
 
     # Setup ElevenLabs STT
-    import aiohttp
     async with aiohttp.ClientSession() as session:
-        stt = ElevenLabsSTTService(
+        buffered_stt = BufferedElevenLabsSTTProcessor(
             api_key=api_key,
             aiohttp_session=session,
-            params=ElevenLabsSTTService.InputParams(
-                language=stt_language,
-                tag_audio_events=True
-            )
+            language_code=language_code,
+            sample_rate=8000,
+            chunk_seconds=4.0,
+            min_avg_level=80,
+            call_status=call_status,
         )
+
+        # Create custom frame processor (task will be set after task initialization)
+        processor = CampaignBotFrameProcessor(
+            call_id=call_id,
+            asterisk_channel_id=asterisk_channel_id,
+            org_id=org_id,
+            campaign_id=campaign_id,
+            campaign_lead_id=campaign_lead_id,
+            keywords=keywords,
+            audio_duration=audio_duration,
+            webhook_url=webhook_url,
+            call_status=call_status,
+            task=None
+        )
+
+        audio_probe = AudioProbeProcessor()
 
         pipeline = Pipeline([
             transport.input(),
-            stt,
-            None, # Will inject the frame processor after creating task
+            audio_probe,
+            buffered_stt,
+            processor,
             transport.output(),
         ])
-
         task = PipelineTask(
             pipeline,
             params=PipelineParams(
@@ -253,20 +497,8 @@ async def run_campaign_bot(
             ),
         )
 
-        # Create and inject custom frame processor
-        processor = CampaignBotFrameProcessor(
-            call_id=call_id,
-            org_id=org_id,
-            campaign_id=campaign_id,
-            campaign_lead_id=campaign_lead_id,
-            keywords=keywords,
-            audio_duration=audio_duration,
-            webhook_url=webhook_url,
-            call_status=call_status,
-            task=task
-        )
-        # Pipeline expects index 2 for the processor slot
-        pipeline.processors[2] = processor
+        # Inject task into processor
+        processor.task = task
 
         @transport.event_handler("on_client_connected")
         async def on_connected(transport, client):
@@ -277,6 +509,9 @@ async def run_campaign_bot(
 
             async def handle_timeout():
                 await asyncio.sleep(total_timeout)
+                if call_status.get("webhook_sent") or call_status.get("ended"):
+                    logger.info("[CampaignBot] Timeout skipped because call already completed")
+                    return
                 logger.info(f"[CampaignBot] Call timeout reached after {total_timeout:.1f}s")
                 
                 if not call_status["webhook_sent"]:
@@ -293,6 +528,12 @@ async def run_campaign_bot(
                         "detected_keyword": None
                     }
                     await post_call_result(webhook_url, payload)
+
+                # Hard hangup the actual Asterisk channel before ending the pipeline
+                try:
+                    await processor._hard_hangup()
+                except Exception as e:
+                    logger.error(f"[CampaignBot] Hard hangup error on timeout: {e}")
 
                 await task.queue_frame(EndFrame())
 

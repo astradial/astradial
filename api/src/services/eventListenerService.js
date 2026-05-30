@@ -108,6 +108,7 @@ class EventListenerService {
     // Call initiated
     this.ariClient.on('callInitiated', async (callData) => {
       try {
+        if (!callData.callRecord) return;
         await this.webhookService.onCallInitiated(callData);
       } catch (error) {
         console.error('Error handling callInitiated webhook:', error);
@@ -117,6 +118,7 @@ class EventListenerService {
     // Call answered
     this.ariClient.on('callAnswered', async (callData) => {
       try {
+        if (!callData.callRecord) return;
         await this.webhookService.onCallAnswered(callData);
       } catch (error) {
         console.error('Error handling callAnswered webhook:', error);
@@ -126,6 +128,7 @@ class EventListenerService {
     // Call ended
     this.ariClient.on('callEnded', async (callData) => {
       try {
+        if (!callData.callRecord) return;
         await this.webhookService.onCallEnded(callData);
       } catch (error) {
         console.error('Error handling callEnded webhook:', error);
