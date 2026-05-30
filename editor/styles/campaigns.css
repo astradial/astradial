@@ -1151,7 +1151,31 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 .cmp-th-sort-chev { display: inline-flex; }
 
 /* ---------- §11.6 Kanban ---------- */
-.cmp-kanban-wrap { width: 100%; overflow-x: auto; padding-bottom: 8px; }
+.cmp-kanban-wrap {
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;     /* Firefox */
+}
+.cmp-kanban-wrap::-webkit-scrollbar {
+  display: none;             /* Chrome, Safari and Opera */
+}
+.cmp-kanban-wrap.is-scrolling,
+.cmp-kanban-wrap:hover {
+  -ms-overflow-style: auto;
+  scrollbar-width: auto;
+}
+.cmp-kanban-wrap.is-scrolling::-webkit-scrollbar,
+.cmp-kanban-wrap:hover::-webkit-scrollbar {
+  display: block;
+  height: 8px;
+}
+.cmp-kanban-wrap.is-scrolling::-webkit-scrollbar-thumb,
+.cmp-kanban-wrap:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb-color, rgba(156, 163, 175, 0.4));
+  border-radius: 4px;
+}
 .cmp-kanban-board {
   display: grid; grid-auto-flow: column;
   grid-auto-columns: minmax(260px, 1fr);

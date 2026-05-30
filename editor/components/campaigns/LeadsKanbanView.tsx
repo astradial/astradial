@@ -21,7 +21,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
-import { memo } from "react";
+import { memo, useState, useRef, useEffect } from "react";
 
 import { CampaignStatusPill } from "./CampaignStatusPill";
 import { showToast } from "@/components/ui/Toast";
@@ -129,6 +129,27 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
     useSensor(KeyboardSensor)
   );
 
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleScroll = () => {
+    setIsScrolling(true);
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    scrollTimeoutRef.current = setTimeout(() => {
+      setIsScrolling(false);
+    }, 1000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
+
   function onDragEnd(e: DragEndEvent) {
     const active = e.active;
     const over = e.over;
@@ -148,7 +169,11 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
 
   return (
     <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={onDragEnd}>
-      <div className="cmp-kanban-wrap">
+      <div 
+        className={`cmp-kanban-wrap ${isScrolling ? "is-scrolling" : ""}`}
+        onScroll={handleScroll}
+        style={{ overflowX: "auto" }}
+      >
         <div className="cmp-kanban-board">
           {COLUMNS.map((col) => (
             <KanbanColumn
