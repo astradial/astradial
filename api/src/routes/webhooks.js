@@ -5,8 +5,16 @@ const router = express.Router();
 const { makeHmacVerify } = require('../middleware/hmac-verify');
 const { Campaign, CampaignLead, CampaignLeadRun, CampaignEvent } = require('../models');
 
+// Helper to mask phone numbers for safe logging
+function maskPhone(p) {
+  if (!p) return '';
+  const clean = String(p).replace(/[^\d+]/g, '');
+  if (clean.length <= 4) return clean;
+  return '*'.repeat(clean.length - 4) + clean.slice(-4);
+}
+
 // POST /webhooks/msg91-inbound
-// Payload from MSG91: { from: '919812345678', message: '...', ... }
+// Payload from MSG91: support from, sender, customerNumber, mobile, etc.
 router.post('/msg91-inbound',
   makeHmacVerify('MSG91_WEBHOOK_SECRET'),
   async (req, res) => {
@@ -14,12 +22,30 @@ router.post('/msg91-inbound',
     res.json({ received: true });
 
     try {
-      // Match normPhone() in campaign-csv-importer: keep digits and leading '+'.
-      const raw = String(req.body.from || '');
-      const phone = raw.replace(/[^\d+]/g, '');
-      if (!phone) return;
+      // 1. Parse Phone Number
+      const rawFrom = req.body.from || req.body.sender || req.body.customerNumber || req.body.mobile || '';
+      const phone = String(rawFrom).replace(/[^\d+]/g, '');
+      if (!phone) {
+        console.log('[msg91-inbound] Received webhook with no valid phone number. Keys:', Object.keys(req.body || {}));
+        return;
+      }
 
-      const message = String(req.body.message || req.body.text || '');
+      // 2. Parse Message Text (including nested message body/text)
+      let message = req.body.message || req.body.text || '';
+      if (typeof message === 'object' && message !== null) {
+        message = message.text || message.body || '';
+      }
+      message = String(message);
+
+      // 3. Parse Message/Event ID
+      let messageId = req.body.messageId || req.body.msgId || req.body.id || req.body.eventId || null;
+      if (typeof req.body.message === 'object' && req.body.message !== null) {
+        messageId = messageId || req.body.message.id || req.body.message.messageId || null;
+      }
+      if (messageId) messageId = String(messageId);
+
+      // Safe logging of keys and masked phone
+      console.log(`[msg91-inbound] Webhook payload keys: ${JSON.stringify(Object.keys(req.body || {}))} | Phone: ${maskPhone(phone)} | MessageId: ${messageId || 'none'}`);
 
       const leads = await CampaignLead.findAll({
         where: { phone },
@@ -28,15 +54,18 @@ router.post('/msg91-inbound',
         raw: true,
       });
 
-      if (!leads.length) return;
+      if (!leads.length) {
+        console.log(`[msg91-inbound] No campaign lead found for phone ${maskPhone(phone)}`);
+        return;
+      }
 
-      const { markInterestedAndHalt } = require('../services/campaign-reply-handler');
+      const { handleWhatsAppInboundReply } = require('../services/campaign-reply-handler');
 
       for (const { org_id } of leads) {
         try {
-          await markInterestedAndHalt(org_id, phone, message);
+          await handleWhatsAppInboundReply(org_id, phone, message, messageId);
         } catch (err) {
-          console.error(`[msg91-inbound] markInterestedAndHalt failed org=${org_id} phone=${phone}:`, err.message);
+          console.error(`[msg91-inbound] handleWhatsAppInboundReply failed org=${org_id} phone=${maskPhone(phone)}:`, err.message);
         }
       }
     } catch (err) {

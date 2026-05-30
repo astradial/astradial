@@ -31,26 +31,61 @@ function matchesKeywords(message, keywords) {
   return keywords.some((kw) => msgLower.includes(kw.toLowerCase()));
 }
 
+// Returns true if any keyword matches exactly (case-insensitive, trimmed) as a whole word/phrase in the message.
+function matchesKeywordsExact(message, keywords) {
+  if (!Array.isArray(keywords) || keywords.length === 0) return false;
+  const cleanMsg = (message || '').trim().toLowerCase();
+  if (!cleanMsg) return false;
+
+  // Split cleanMsg by whitespace to check for exact word matching.
+  // Strip leading and trailing punctuation from words to handle standard punctuation (e.g. "yes!" -> "yes").
+  // We preserve Tamil or other non-ASCII characters by stripping punctuation specifically instead of using \w.
+  const messageWords = cleanMsg
+    .split(/\s+/)
+    .map(w => w.replace(/^[.,!?;:"'-]+|[.,!?;:"'-]+$/g, ''))
+    .filter(Boolean);
+
+  return keywords.some(kw => {
+    const cleanKw = (kw || '').trim().toLowerCase();
+    if (!cleanKw) return false;
+
+    if (cleanKw.includes(' ')) {
+      // Multi-word phrase keyword.
+      // Check if it appears as a full phrase in the message.
+      // A full phrase means it is preceded and followed by either whitespace, punctuation, or start/end of string.
+      const index = cleanMsg.indexOf(cleanKw);
+      if (index !== -1) {
+        const beforeChar = index > 0 ? cleanMsg[index - 1] : ' ';
+        const afterChar = index + cleanKw.length < cleanMsg.length ? cleanMsg[index + cleanKw.length] : ' ';
+        const isBeforeWordBoundary = /\s|[.,!?;:"'-]/.test(beforeChar);
+        const isAfterWordBoundary = /\s|[.,!?;:"'-]/.test(afterChar);
+        return isBeforeWordBoundary && isAfterWordBoundary;
+      }
+      return false;
+    } else {
+      // Single word keyword. Must match one of the message words exactly.
+      return messageWords.includes(cleanKw);
+    }
+  });
+}
+
 // Called when a MSG91 inbound webhook fires for a lead's phone.
 //
 // Classification logic:
-//   • If the campaign's WhatsApp actions define interest_keywords and the
-//     reply matches ≥1 keyword → mark lead "interested", halt the run.
-//   • If keywords are configured but none match → mark lead "engaged" (if
-//     currently raw/contacted), record a whatsapp_replied event, leave run
-//     running so outreach continues.
-//   • If no keywords are configured anywhere → treat any reply as "interested"
-//     and halt (backwards-compatible default).
+//   • If the reply matches an interested keyword -> move lead to interested.
+//   • If the reply does not match a keyword -> move lead to engaged.
+//   • Halt future outreach only when the lead becomes interested.
+//   • Do not halt future outreach for a normal non-keyword engaged reply.
+//   • Do not downgrade lead status.
 //
-// Only the ONE most-recently-touched active run for this phone is affected —
-// a phone enrolled in multiple campaigns is NOT mass-halted.
-async function markInterestedAndHalt(orgId, phone, message = '') {
+// Only the ONE most-recently-touched run for this phone is affected.
+async function handleWhatsAppInboundReply(orgId, phone, message = '', messageId = null) {
   const log = createLogger({ service: 'campaignReplyHandler', orgId, phone });
 
   const activeRun = await CampaignLeadRun.findOne({
     where: {
       org_id: orgId,
-      status: { [Op.in]: ['pending', 'waiting'] },
+      status: { [Op.in]: ['pending', 'waiting', 'queued', 'completed', 'halted'] },
     },
     include: [
       {
@@ -60,15 +95,16 @@ async function markInterestedAndHalt(orgId, phone, message = '') {
         required: true,
       },
     ],
-    order: [[{ model: CampaignLead, as: 'lead' }, 'last_touch_at', 'DESC']],
+    order: [['updated_at', 'DESC']],
   });
 
   if (!activeRun) {
-    log.info('inbound reply: no active run found for phone', { phone });
+    log.info('inbound reply: no run found for phone', { phone });
     return { halted: 0, classified: null };
   }
 
   const lead = activeRun.lead;
+  const currentStatus = lead.status;
 
   // Load the campaign snapshot for keyword matching.
   const campaign = await Campaign.findByPk(lead.campaign_id, {
@@ -80,61 +116,100 @@ async function markInterestedAndHalt(orgId, phone, message = '') {
   const keywords = extractKeywords(snapshot, 'whatsapp');
   const hasKeywords = keywords.length > 0;
 
-  // Determine classification: interested (halt) vs engaged (continue).
-  const isInterested = !hasKeywords || matchesKeywords(message, keywords);
+  // Exact keyword matching logic
+  const isMatched = hasKeywords && matchesKeywordsExact(message, keywords);
 
-  if (isInterested) {
-    const tx = await sequelize.transaction();
-    try {
-      await lead.update({ status: 'interested' }, { transaction: tx });
-      await activeRun.update(
-        { status: 'halted', halted_at: new Date() },
-        { transaction: tx }
-      );
-      await CampaignEvent.create({
-        org_id: orgId,
-        campaign_id: lead.campaign_id,
-        campaign_lead_id: lead.id,
-        kind: 'halted',
-        idempotency_key: `halted-reply-${activeRun.id}`,
-        payload: { reason: 'inbound_reply', ...(message && { message }) },
-      }, { transaction: tx });
-      await tx.commit();
-    } catch (e) {
-      try { await tx.rollback(); } catch (_) { /* ignore */ }
-      log.error('failed to halt interested lead', { leadId: lead.id, error: e.message });
-      return { halted: 0, classified: null };
-    }
+  // Target status determination:
+  // If no keywords are configured, treat any reply as "interested" (backwards-compatible default)
+  const isInterested = !hasKeywords || isMatched;
+  const targetStatus = isInterested ? 'interested' : 'engaged';
 
-    log.info('lead marked interested, run halted', { leadId: lead.id, campaignId: lead.campaign_id });
-    return { halted: 1, classified: 'interested' };
+  // Precedence check to avoid downgrading
+  const STATUS_PRECEDENCE = {
+    raw: 0,
+    contacted: 1,
+    engaged: 2,
+    interested: 3,
+    qualified: 4,
+    disqualified: 5,
+    dnc: 5
+  };
+  const currentPrec = STATUS_PRECEDENCE[currentStatus] !== undefined ? STATUS_PRECEDENCE[currentStatus] : 0;
+  const targetPrec = STATUS_PRECEDENCE[targetStatus] !== undefined ? STATUS_PRECEDENCE[targetStatus] : 0;
+  const shouldUpdateStatus = targetPrec > currentPrec;
+
+  // Find exact matched keyword if matched
+  let matchedKeyword = null;
+  if (isMatched) {
+    matchedKeyword = keywords.find(kw => matchesKeywordsExact(message, [kw])) || null;
   }
 
-  // Non-matching reply → engaged: record event, bump lead status if early-stage.
+  // Idempotency key construction
+  let idempotencyKey;
+  if (messageId) {
+    idempotencyKey = `whatsapp-reply-${messageId}`;
+  } else {
+    const roundedTime = Math.floor(Date.now() / (5 * 60 * 1000)); // 5-minute bucket
+    const cleanText = (message || '').trim().toLowerCase().slice(0, 100);
+    idempotencyKey = `whatsapp-reply-${phone}-${cleanText}-${roundedTime}`;
+  }
+
   const tx = await sequelize.transaction();
   try {
-    const EARLY_STATUSES = new Set(['raw', 'contacted']);
-    if (EARLY_STATUSES.has(lead.status)) {
-      await lead.update({ status: 'engaged' }, { transaction: tx });
-    }
+    // 1. Create CampaignEvent activity log (kind: whatsapp_replied)
     await CampaignEvent.create({
       org_id: orgId,
       campaign_id: lead.campaign_id,
       campaign_lead_id: lead.id,
       kind: 'whatsapp_replied',
-      idempotency_key: `engaged-reply-${activeRun.id}-${Date.now()}`,
-      payload: { ...(message && { message }) },
+      idempotency_key: idempotencyKey,
+      payload: {
+        direction: 'inbound',
+        channel: 'whatsapp',
+        text: message,
+        matched_keyword: matchedKeyword,
+        status_result: shouldUpdateStatus ? targetStatus : currentStatus,
+        detail: matchedKeyword
+          ? `Customer replied with interested keyword: ${matchedKeyword}`
+          : 'Customer replied on WhatsApp',
+      },
     }, { transaction: tx });
-    await tx.commit();
-  } catch (e) {
-    try { await tx.rollback(); } catch (_) { /* ignore */ }
-    log.error('failed to record engaged reply', { leadId: lead.id, error: e.message });
-    return { halted: 0, classified: null };
-  }
 
-  log.info('lead marked engaged on non-matching reply', { leadId: lead.id, campaignId: lead.campaign_id });
-  return { halted: 0, classified: 'engaged' };
+    // 2. Update lead status if it is an upgrade
+    if (shouldUpdateStatus) {
+      await lead.update({ status: targetStatus }, { transaction: tx });
+    }
+
+    // 3. Halt run if final status is 'interested' and lead becomes interested
+    let halted = 0;
+    const finalStatus = shouldUpdateStatus ? targetStatus : currentStatus;
+    if (finalStatus === 'interested' && currentStatus !== 'interested' && activeRun.status !== 'halted' && activeRun.status !== 'completed') {
+      await activeRun.update({
+        status: 'halted',
+        halted_at: new Date()
+      }, { transaction: tx });
+      halted = 1;
+    }
+
+    await tx.commit();
+    log.info('inbound reply processed successfully', { leadId: lead.id, finalStatus, halted });
+    return { halted, classified: finalStatus };
+  } catch (err) {
+    await tx.rollback();
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      log.info('inbound reply: duplicate event (idempotency key matched), skipping update');
+      return { halted: 0, classified: currentStatus };
+    }
+    log.error('failed to process inbound reply', { leadId: lead.id, error: err.message });
+    throw err;
+  }
 }
+
+// Wrapper for backwards compatibility
+async function markInterestedAndHalt(orgId, phone, message = '') {
+  return handleWhatsAppInboundReply(orgId, phone, message);
+}
+
 
 // Called when the pipecat bot POSTs /webhooks/call-result with a transcript.
 //
@@ -251,6 +326,7 @@ async function markCallResult(orgId, campaignLeadId, transcript = '', campaignId
 }
 
 module.exports = {
+  handleWhatsAppInboundReply,
   markInterestedAndHalt,
   markCallResult,
 };

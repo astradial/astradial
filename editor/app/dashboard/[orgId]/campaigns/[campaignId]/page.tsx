@@ -11,7 +11,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Pause, Play, RotateCw, Upload, WifiOff } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { lazy, Suspense, useDeferredValue, useState, useTransition } from "react";
+import { lazy, Suspense, useEffect, useDeferredValue, useState, useTransition } from "react";
 
 import { CampaignStatusPill } from "@/components/campaigns/CampaignStatusPill";
 import { FunnelView, FunnelLiveTag } from "@/components/campaigns/FunnelView";
@@ -54,6 +54,13 @@ export default function CampaignDetailPage() {
     refetchInterval: 4_000,
     refetchIntervalInBackground: false,
   });
+
+  useEffect(() => {
+    if (dashQ.dataUpdatedAt) {
+      qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "kanban"] });
+      qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "leads"] });
+    }
+  }, [dashQ.dataUpdatedAt, campaignId, qc]);
 
   const launchMut = useMutation({
     mutationFn: () => campaigns.launch(campaignId),
