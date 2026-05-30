@@ -9,7 +9,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Search } from "lucid
 import { memo, useState } from "react";
 
 import { CampaignStatusPill } from "./CampaignStatusPill";
-import { leads as leadsApi } from "@/lib/campaigns/client";
+import { leads as leadsApi, type OverviewLeadsResponse } from "@/lib/campaigns/client";
 import type { CampaignLead, LeadStatus, Paginated } from "@/lib/campaigns/types";
 
 const numberFmt = new Intl.NumberFormat("en-US");
@@ -34,13 +34,24 @@ interface Props {
   campaignId: string;
   query: string;             // already-debounced search query
   statusFilter: LeadStatus | "all";
-  onOpenLead: (leadId: string) => void;
+  onOpenLead: (leadId: string, campaignId?: string) => void;
 }
 
 export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: Props) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [sort, setSort] = useState<SortState>({ key: "name", dir: "asc" });
+
+  const fields = campaignId === "overview"
+    ? [
+        { id: "name", label: "Name", sortable: true },
+        { id: "campaign", label: "Campaign", sortable: false },
+        { id: "phone", label: "Phone", sortable: false },
+        { id: "country", label: "Country", sortable: false },
+        { id: "status", label: "Status", sortable: true },
+        { id: "lastTouch", label: "Last activity", sortable: false },
+      ]
+    : DEFAULT_FIELDS;
 
   // Reset to page 1 when filter/sort/pageSize change.
   const filterKey = `${query}|${statusFilter}|${sort.key}:${sort.dir}|${pageSize}`;
@@ -50,15 +61,27 @@ export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: P
     setPage(1);
   }
 
-  const q = useQuery<Paginated<CampaignLead>>({
+  const q = useQuery<Paginated<CampaignLead> | OverviewLeadsResponse>({
     queryKey: [
       "campaigns",
       campaignId,
       "leads",
       { status: statusFilter, q: query, sort: `${sort.key}:${sort.dir}`, page, pageSize },
     ],
-    queryFn: ({ signal }) =>
-      leadsApi.list(
+    queryFn: ({ signal }) => {
+      if (campaignId === "overview") {
+        return leadsApi.overview(
+          {
+            status: statusFilter,
+            q: query || undefined,
+            sort: `${sort.key}:${sort.dir}`,
+            page,
+            limit: pageSize,
+          },
+          { signal }
+        );
+      }
+      return leadsApi.list(
         campaignId,
         {
           status: statusFilter,
@@ -68,12 +91,14 @@ export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: P
           limit: pageSize,
         },
         { signal }
-      ),
+      );
+    },
     placeholderData: keepPreviousData, // keep last page rendered while fetching next
   });
 
-  const rows: CampaignLead[] = q.data?.data ?? [];
-  const filtered = q.data?.filtered ?? q.data?.total ?? 0;
+  const rows = q.data?.data ?? [];
+  const firstPage = q.data as any;
+  const filtered = firstPage?.filtered ?? firstPage?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(filtered / pageSize));
   const startIdx = (page - 1) * pageSize;
 
@@ -90,7 +115,7 @@ export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: P
         <table className="cmp-data-table">
           <thead>
             <tr>
-              {DEFAULT_FIELDS.map((f) =>
+              {fields.map((f) =>
                 f.sortable ? (
                   <th
                     key={f.id}
@@ -124,7 +149,7 @@ export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: P
             {q.isPending &&
               Array.from({ length: 10 }).map((_, i) => (
                 <tr key={`skel-${i}`} aria-busy="true">
-                  {DEFAULT_FIELDS.map((f) => (
+                  {fields.map((f) => (
                     <td key={f.id}>
                       <div className="cmp-skeleton-line" />
                     </td>
@@ -134,7 +159,7 @@ export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: P
 
             {!q.isPending && q.isError && (
               <tr>
-                <td colSpan={DEFAULT_FIELDS.length}>
+                <td colSpan={fields.length}>
                   <div className="cmp-empty">
                     <Search />
                     <div className="cmp-empty-title">Couldn&apos;t load leads</div>
@@ -151,7 +176,7 @@ export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: P
 
             {!q.isPending && !q.isError && rows.length === 0 && (
               <tr>
-                <td colSpan={DEFAULT_FIELDS.length}>
+                <td colSpan={fields.length}>
                   <div className="cmp-empty">
                     <Search />
                     <div className="cmp-empty-title">No leads match these filters</div>
@@ -161,7 +186,12 @@ export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: P
             )}
 
             {rows.map((l) => (
-              <LeadRow key={l.id} lead={l} onClick={onOpenLead} />
+              <LeadRow
+                key={l.id}
+                lead={l}
+                showCampaignColumn={campaignId === "overview"}
+                onClick={onOpenLead}
+              />
             ))}
           </tbody>
         </table>
@@ -241,17 +271,21 @@ export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: P
 }
 
 interface RowProps {
-  lead: CampaignLead;
-  onClick: (id: string) => void;
+  lead: CampaignLead & { campaign_name?: string | null; campaign_id?: string };
+  showCampaignColumn?: boolean;
+  onClick: (id: string, campaignId?: string) => void;
 }
 
 const LeadRow = memo(
-  function LeadRow({ lead, onClick }: RowProps) {
+  function LeadRow({ lead, showCampaignColumn, onClick }: RowProps) {
     return (
-      <tr onClick={() => onClick(lead.id)}>
+      <tr onClick={() => onClick(lead.id, lead.campaign_id)}>
         <td>
           <div className="font-medium">{lead.name}</div>
         </td>
+        {showCampaignColumn && (
+          <td className="text-[13px] text-muted-foreground">{lead.campaign_name || "—"}</td>
+        )}
         <td className="cmp-mono text-[13px]">{lead.phone}</td>
         <td className="text-[13px]">{lead.country || "—"}</td>
         <td>
@@ -268,5 +302,6 @@ const LeadRow = memo(
     prev.lead.status === next.lead.status &&
     prev.lead.name === next.lead.name &&
     prev.lead.last_touch_at === next.lead.last_touch_at &&
+    prev.showCampaignColumn === next.showCampaignColumn &&
     prev.onClick === next.onClick
 );

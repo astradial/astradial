@@ -193,6 +193,24 @@ export interface LeadsListParams {
   sort?: string;
 }
 
+export interface OverviewLeadsParams {
+  page?: number;
+  limit?: number;
+  status?: LeadStatus | "all";
+  q?: string;
+  sort?: string;
+  campaign_ids?: string;
+  include_draft?: boolean;
+}
+
+export interface OverviewLeadsResponse {
+  data: (CampaignLead & { campaign_name: string | null; score: number })[];
+  counts: Record<LeadStatus, number>;
+  total: number;
+  page: number;
+  pages: number;
+}
+
 export const leads = {
   list: (
     campaignId: string,
@@ -200,6 +218,13 @@ export const leads = {
     opts: { signal?: AbortSignal } = {}
   ) =>
     req<Paginated<CampaignLead>>(`/${campaignId}/leads${qs(params)}`, {
+      signal: opts.signal,
+    }),
+  overview: (
+    params: OverviewLeadsParams = {},
+    opts: { signal?: AbortSignal } = {}
+  ) =>
+    req<OverviewLeadsResponse>(`/leads${qs(params)}`, {
       signal: opts.signal,
     }),
   get: (campaignId: string, leadId: string, opts: { signal?: AbortSignal } = {}) =>

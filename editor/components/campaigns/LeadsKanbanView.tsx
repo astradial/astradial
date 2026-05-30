@@ -25,7 +25,7 @@ import { memo, useState, useRef, useEffect } from "react";
 
 import { CampaignStatusPill } from "./CampaignStatusPill";
 import { showToast } from "@/components/ui/Toast";
-import { leads as leadsApi } from "@/lib/campaigns/client";
+import { leads as leadsApi, type OverviewLeadsResponse } from "@/lib/campaigns/client";
 import type { CampaignLead, LeadStatus, Paginated } from "@/lib/campaigns/types";
 
 const numberFmt = new Intl.NumberFormat("en-US");
@@ -46,7 +46,7 @@ const PAGE_SIZE = 25;
 interface Props {
   campaignId: string;
   query: string;
-  onOpenLead: (leadId: string) => void;
+  onOpenLead: (leadId: string, campaignId?: string) => void;
 }
 
 export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
@@ -54,10 +54,10 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
 
   // PATCH lead status. Optimistic: remove from source-column's first page,
   // prepend to target column, rollback on error.
-  type MoveVars = { leadId: string; status: LeadStatus; fromStatus: LeadStatus; lead: CampaignLead };
+  type MoveVars = { leadId: string; status: LeadStatus; fromStatus: LeadStatus; lead: CampaignLead & { campaign_id?: string } };
   const move = useMutation({
-    mutationFn: ({ leadId, status }: MoveVars) =>
-      leadsApi.update(campaignId, leadId, { status }),
+    mutationFn: ({ leadId, status, lead }: MoveVars) =>
+      leadsApi.update(campaignId === "overview" && lead.campaign_id ? lead.campaign_id : campaignId, leadId, { status }),
     onMutate: async ({ leadId, status, fromStatus, lead }: MoveVars) => {
       const allKeys = [
         ["campaigns", campaignId, "kanban", fromStatus, { q: query }],
@@ -119,10 +119,14 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
       }
       showToast("Move failed", "error");
     },
-    onSuccess: (_data, { fromStatus, status }) => {
+    onSuccess: (_data, { fromStatus, status, lead }) => {
+      const activeCid = campaignId === "overview" && lead.campaign_id ? lead.campaign_id : campaignId;
       qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "kanban", fromStatus] });
       qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "kanban", status] });
-      qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "dashboard"] });
+      qc.invalidateQueries({ queryKey: ["campaigns", activeCid, "dashboard"] });
+      if (campaignId === "overview") {
+        qc.invalidateQueries({ queryKey: ["campaigns", "overview", "dashboard"] });
+      }
     },
   });
 
@@ -196,14 +200,26 @@ interface KanbanColumnProps {
   campaignId: string;
   column: { id: LeadStatus; label: string; hint: string };
   query: string;
-  onOpenLead: (leadId: string) => void;
+  onOpenLead: (leadId: string, campaignId?: string) => void;
 }
 
 function KanbanColumn({ campaignId, column, query, onOpenLead }: KanbanColumnProps) {
-  const q = useInfiniteQuery<Paginated<CampaignLead>>({
+  const q = useInfiniteQuery<Paginated<CampaignLead> | OverviewLeadsResponse>({
     queryKey: ["campaigns", campaignId, "kanban", column.id, { q: query }],
-    queryFn: ({ pageParam, signal }) =>
-      leadsApi.list(
+    queryFn: ({ pageParam, signal }) => {
+      if (campaignId === "overview") {
+        return leadsApi.overview(
+          {
+            status: column.id,
+            q: query || undefined,
+            page: pageParam as number,
+            limit: PAGE_SIZE,
+            sort: "last_touch_at:desc",
+          },
+          { signal }
+        );
+      }
+      return leadsApi.list(
         campaignId,
         {
           status: column.id,
@@ -213,16 +229,18 @@ function KanbanColumn({ campaignId, column, query, onOpenLead }: KanbanColumnPro
           sort: "lastTouch:desc",
         },
         { signal }
-      ),
+      );
+    },
     initialPageParam: 1,
-    getNextPageParam: (last) =>
+    getNextPageParam: (last: any) =>
       (last.filtered ?? last.total) > last.page * (last.pageSize ?? PAGE_SIZE)
         ? last.page + 1
         : undefined,
   });
 
   const rows: CampaignLead[] = q.data?.pages.flatMap((p) => p.data) ?? [];
-  const filtered = q.data?.pages[0]?.filtered ?? q.data?.pages[0]?.total ?? 0;
+  const firstPage = q.data?.pages[0] as any;
+  const filtered = firstPage?.filtered ?? firstPage?.total ?? 0;
   const hasMore = !!q.hasNextPage;
   const loading = q.isPending;
   const fetchingMore = q.isFetchingNextPage;
@@ -291,8 +309,8 @@ function KanbanColumn({ campaignId, column, query, onOpenLead }: KanbanColumnPro
 }
 
 interface KanbanCardProps {
-  lead: CampaignLead;
-  onClick: (id: string) => void;
+  lead: CampaignLead & { campaign_name?: string | null; campaign_id?: string };
+  onClick: (id: string, campaignId?: string) => void;
 }
 
 const KanbanCard = memo(
@@ -322,12 +340,14 @@ const KanbanCard = memo(
         {...listeners}
         {...attributes}
         onClick={(e) => {
-          // dnd-kit listeners may fire onClick on tiny pointer moves; guard.
-          if (!isDragging) onClick(lead.id);
+          if (!isDragging) onClick(lead.id, lead.campaign_id);
           e.stopPropagation();
         }}
       >
         <div className="cmp-kanban-card-name">{lead.name}</div>
+        {lead.campaign_name && (
+          <div className="text-[11px] text-muted-foreground mb-1 font-medium">{lead.campaign_name}</div>
+        )}
         <div className="cmp-kanban-card-phone">{lead.phone}</div>
         <div className="cmp-kanban-card-foot">
           <span className="cmp-kanban-card-time">{relTime(lead.last_touch_at)}</span>
@@ -340,5 +360,6 @@ const KanbanCard = memo(
     prev.lead.status === next.lead.status &&
     prev.lead.last_touch_at === next.lead.last_touch_at &&
     prev.lead.name === next.lead.name &&
+    prev.lead.campaign_name === next.lead.campaign_name &&
     prev.onClick === next.onClick
 );

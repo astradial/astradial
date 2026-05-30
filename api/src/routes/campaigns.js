@@ -640,6 +640,166 @@ router.get("/whatsapp-templates", requirePermission("campaigns.read"), async (re
   }
 });
 
+// ── Campaign Leads Overview ─────────────────────────────────────────
+
+router.get('/leads', requirePermission('campaigns.read'), async (req, res) => {
+  try {
+    const { limit, offset, page } = paginate(req.query);
+    
+    // Parse campaign_ids if provided
+    let targetCampaignIds = [];
+    if (req.query.campaign_ids) {
+      targetCampaignIds = String(req.query.campaign_ids)
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
+    }
+    
+    // Define allowed statuses for auto-scoping
+    const allowedStatuses = ['running', 'paused', 'scheduled'];
+    if (req.query.include_draft === 'true') {
+      allowedStatuses.push('draft');
+    }
+    
+    // Build campaign query conditions
+    const campaignWhere = { org_id: req.orgId };
+    if (targetCampaignIds.length > 0) {
+      campaignWhere.id = { [Op.in]: targetCampaignIds };
+    } else {
+      campaignWhere.status = { [Op.in]: allowedStatuses };
+    }
+    
+    // Query campaigns in scope to construct campaign names lookup
+    const scopeCampaigns = await Campaign.findAll({
+      where: campaignWhere,
+      attributes: ['id', 'name'],
+      raw: true,
+    });
+    
+    const scopeCampaignIds = scopeCampaigns.map((c) => c.id);
+    const campaignNamesMap = Object.fromEntries(scopeCampaigns.map((c) => [c.id, c.name]));
+    
+    // If no campaigns are in scope, return empty result directly
+    if (scopeCampaignIds.length === 0) {
+      return res.json({
+        data: [],
+        counts: {
+          raw: 0,
+          contacted: 0,
+          engaged: 0,
+          interested: 0,
+          qualified: 0,
+          disqualified: 0,
+          dnc: 0,
+        },
+        total: 0,
+        page,
+        pages: 0,
+      });
+    }
+    
+    // Build lead query conditions
+    const leadWhere = {
+      org_id: req.orgId,
+      campaign_id: { [Op.in]: scopeCampaignIds },
+    };
+    
+    // Apply status filter if provided (and not 'all')
+    if (req.query.status && req.query.status !== 'all') {
+      leadWhere.status = req.query.status;
+    }
+    
+    // Apply search query q matching name, business, or phone
+    if (req.query.q) {
+      const searchVal = `%${req.query.q}%`;
+      leadWhere[Op.or] = [
+        { name: { [Op.like]: searchVal } },
+        { phone: { [Op.like]: searchVal } },
+        { business: { [Op.like]: searchVal } },
+      ];
+    }
+    
+    // Build counts query conditions (must ignore status filter)
+    const countWhere = {
+      org_id: req.orgId,
+      campaign_id: { [Op.in]: scopeCampaignIds },
+    };
+    if (req.query.q) {
+      const searchVal = `%${req.query.q}%`;
+      countWhere[Op.or] = [
+        { name: { [Op.like]: searchVal } },
+        { phone: { [Op.like]: searchVal } },
+        { business: { [Op.like]: searchVal } },
+      ];
+    }
+    
+    // Run paginated leads list query and counts aggregation concurrently
+    const [leadsResult, rawCountsResult] = await Promise.all([
+      CampaignLead.findAndCountAll({
+        where: leadWhere,
+        limit,
+        offset,
+        order: parseSort(req.query, [['last_touch_at', 'DESC']]),
+        include: [
+          {
+            model: Campaign,
+            as: 'campaign',
+            attributes: ['name'],
+          },
+        ],
+      }),
+      CampaignLead.findAll({
+        where: countWhere,
+        attributes: ['status', [sequelize.fn('COUNT', '*'), 'n']],
+        group: ['status'],
+        raw: true,
+      }),
+    ]);
+    
+    // Parse status counts mapping
+    const counts = {
+      raw: 0,
+      contacted: 0,
+      engaged: 0,
+      interested: 0,
+      qualified: 0,
+      disqualified: 0,
+      dnc: 0,
+    };
+    for (const item of rawCountsResult) {
+      if (item.status in counts) {
+        counts[item.status] = Number(item.n) || 0;
+      }
+    }
+    
+    // Map leads response structure to fit API contract
+    const data = leadsResult.rows.map((lead) => {
+      const plain = lead.toJSON ? lead.toJSON() : lead;
+      return {
+        id: plain.id,
+        name: plain.name,
+        phone: plain.phone,
+        business: plain.business,
+        status: plain.status,
+        campaign_id: plain.campaign_id,
+        campaign_name: plain.campaign?.name || campaignNamesMap[plain.campaign_id] || null,
+        last_touch_at: plain.last_touch_at,
+        score: plain.intent_score,
+      };
+    });
+    
+    res.json({
+      data,
+      counts,
+      total: leadsResult.count,
+      page,
+      pages: Math.ceil(leadsResult.count / limit),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Campaign by id ──────────────────────────────────────────────────
 
 router.get('/:id', requirePermission('campaigns.read'), async (req, res) => {

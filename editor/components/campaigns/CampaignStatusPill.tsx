@@ -26,9 +26,6 @@ const DOT_STATUSES = new Set([
   "qualified",
   "dnc",
   "running",
-  "paused",
-  "scheduled",
-  "pending",
 ]);
 
 export function CampaignStatusPill({ status }: { status: string }) {
