@@ -148,6 +148,18 @@ type HoverState =
   | { kind: "actionGap"; dayId: string; idx: number }
   | null;
 
+type WorkflowHistory = {
+  past: Workflow[];
+  future: Workflow[];
+};
+
+const EMPTY_HISTORY: WorkflowHistory = { past: [], future: [] };
+const MAX_HISTORY = 50;
+
+function workflowEquals(a: Workflow, b: Workflow): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 // =================================================================
 // Page
 // =================================================================
@@ -158,6 +170,7 @@ export default function StudioEditorPage() {
 
   const [tpl, setTpl] = useState<CampaignTemplate | null>(null);
   const [workflow, setWorkflow] = useState<Workflow>({ meta: {}, days: [] });
+  const [history, setHistory] = useState<WorkflowHistory>(EMPTY_HISTORY);
   const [name, setName] = useState("");
   const [selection, setSelection] = useState<{ dayId: string; actionId: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -166,6 +179,16 @@ export default function StudioEditorPage() {
 
   const dragRef = useRef<DragPayload | null>(null);
   const dirtySnapshot = useRef("");
+  const workflowRef = useRef(workflow);
+  const historyRef = useRef(history);
+
+  useEffect(() => {
+    workflowRef.current = workflow;
+  }, [workflow]);
+
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
 
   // Load template
   useEffect(() => {
@@ -183,7 +206,11 @@ export default function StudioEditorPage() {
         t.workflow && Array.isArray(t.workflow.days)
           ? t.workflow
           : { meta: { name: t.name }, days: [] };
+      workflowRef.current = wf;
+      historyRef.current = EMPTY_HISTORY;
       setWorkflow(wf);
+      setHistory(EMPTY_HISTORY);
+      setSelection(null);
       dirtySnapshot.current = JSON.stringify({ name: t.name, workflow: wf });
     } catch (e: unknown) {
       showToast((e as Error).message, "error");
@@ -196,31 +223,85 @@ export default function StudioEditorPage() {
     [name, workflow]
   );
 
+  const canUndo = history.past.length > 0;
+  const canRedo = history.future.length > 0;
+
+  const commitWorkflow = useCallback((updater: React.SetStateAction<Workflow>) => {
+    const current = workflowRef.current;
+    const next =
+      typeof updater === "function"
+        ? (updater as (value: Workflow) => Workflow)(current)
+        : updater;
+
+    if (workflowEquals(current, next)) return;
+
+    const nextHistory = {
+      past: [...historyRef.current.past.slice(-(MAX_HISTORY - 1)), current],
+      future: [],
+    };
+    workflowRef.current = next;
+    historyRef.current = nextHistory;
+    setHistory(nextHistory);
+    setWorkflow(next);
+  }, []);
+
+  const undoWorkflow = useCallback(() => {
+    const currentHistory = historyRef.current;
+    const previous = currentHistory.past[currentHistory.past.length - 1];
+    if (!previous) return;
+
+    const nextHistory = {
+      past: currentHistory.past.slice(0, -1),
+      future: [workflowRef.current, ...currentHistory.future].slice(0, MAX_HISTORY),
+    };
+    workflowRef.current = previous;
+    historyRef.current = nextHistory;
+    setHistory(nextHistory);
+    setWorkflow(previous);
+    setSelection(null);
+  }, []);
+
+  const redoWorkflow = useCallback(() => {
+    const currentHistory = historyRef.current;
+    const next = currentHistory.future[0];
+    if (!next) return;
+
+    const nextHistory = {
+      past: [...currentHistory.past.slice(-(MAX_HISTORY - 1)), workflowRef.current],
+      future: currentHistory.future.slice(1),
+    };
+    workflowRef.current = next;
+    historyRef.current = nextHistory;
+    setHistory(nextHistory);
+    setWorkflow(next);
+    setSelection(null);
+  }, []);
+
   // ── Mutators (UI.md §9.15) ──────────────────────────────────────
   const addActionToDay = useCallback((dayId: string, type: ActionType) => {
     const action = makeAction(type);
-    setWorkflow((w) => ({
+    commitWorkflow((w) => ({
       ...w,
       days: w.days.map((d) => (d.id === dayId ? { ...d, actions: [...d.actions, action] } : d)),
     }));
     setSelection({ dayId, actionId: action.id });
-  }, []);
+  }, [commitWorkflow]);
 
   const insertDayAt = useCallback((index: number, type: ActionType) => {
     const action = makeAction(type);
     const day = makeDay(action, index === 0 ? 0 : 2);
-    setWorkflow((w) => {
+    commitWorkflow((w) => {
       const days = [...w.days];
       days.splice(index, 0, day);
       if (days[0]) days[0] = { ...days[0], gap: 0 };
       return { ...w, days };
     });
     setSelection({ dayId: day.id, actionId: action.id });
-  }, []);
+  }, [commitWorkflow]);
 
   const moveDay = useCallback((fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx || fromIdx === toIdx - 1) return;
-    setWorkflow((w) => {
+    commitWorkflow((w) => {
       const days = [...w.days];
       const [moved] = days.splice(fromIdx, 1);
       const adjustedTo = fromIdx < toIdx ? toIdx - 1 : toIdx;
@@ -228,11 +309,11 @@ export default function StudioEditorPage() {
       if (days[0]) days[0] = { ...days[0], gap: 0 };
       return { ...w, days };
     });
-  }, []);
+  }, [commitWorkflow]);
 
   const moveActionWithinDay = useCallback((dayId: string, fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx || fromIdx === toIdx - 1) return;
-    setWorkflow((w) => ({
+    commitWorkflow((w) => ({
       ...w,
       days: w.days.map((d) => {
         if (d.id !== dayId) return d;
@@ -243,11 +324,11 @@ export default function StudioEditorPage() {
         return { ...d, actions };
       }),
     }));
-  }, []);
+  }, [commitWorkflow]);
 
   const updateAction = useCallback(
     (dayId: string, actionId: string, patch: Partial<WorkflowAction>) => {
-      setWorkflow((w) => ({
+      commitWorkflow((w) => ({
         ...w,
         days: w.days.map((d) =>
           d.id !== dayId
@@ -259,18 +340,18 @@ export default function StudioEditorPage() {
         ),
       }));
     },
-    []
+    [commitWorkflow]
   );
 
   const updateGap = useCallback((dayId: string, gap: number) => {
-    setWorkflow((w) => ({
+    commitWorkflow((w) => ({
       ...w,
       days: w.days.map((d) => (d.id === dayId ? { ...d, gap: Math.max(1, Number(gap) || 1) } : d)),
     }));
-  }, []);
+  }, [commitWorkflow]);
 
   const deleteAction = useCallback((dayId: string, actionId: string) => {
-    setWorkflow((w) => ({
+    commitWorkflow((w) => ({
       ...w,
       days: w.days
         .map((d) =>
@@ -279,12 +360,12 @@ export default function StudioEditorPage() {
         .filter((d) => d.actions.length > 0),
     }));
     setSelection(null);
-  }, []);
+  }, [commitWorkflow]);
 
   const deleteDay = useCallback((dayId: string) => {
-    setWorkflow((w) => ({ ...w, days: w.days.filter((d) => d.id !== dayId) }));
+    commitWorkflow((w) => ({ ...w, days: w.days.filter((d) => d.id !== dayId) }));
     setSelection(null);
-  }, []);
+  }, [commitWorkflow]);
 
   // ── Drag plumbing ───────────────────────────────────────────────
   const onDragStart = useCallback(
@@ -361,7 +442,7 @@ export default function StudioEditorPage() {
               onChange={(e) => setName(e.target.value)}
               size={Math.max(8, (name || "Untitled template").length)}
             />
-            <span className="cmp-version-badge">
+            <span className="cmp-version-badge" style={{ alignSelf: "center", flexShrink: 0 }}>
               v{tpl.version} · {tpl.status}
             </span>
           </div>
@@ -369,31 +450,23 @@ export default function StudioEditorPage() {
         <div className="cmp-flow-toolbar-group">
           <button
             className="cmp-btn cmp-btn-ghost cmp-btn-sm"
-            disabled
-            title="Undo (not yet wired)"
+            disabled={!canUndo}
+            onClick={undoWorkflow}
+            title="Undo"
+            aria-label="Undo"
           >
             <Undo2 />
           </button>
           <button
             className="cmp-btn cmp-btn-ghost cmp-btn-sm"
-            disabled
-            title="Redo (not yet wired)"
+            disabled={!canRedo}
+            onClick={redoWorkflow}
+            title="Redo"
+            aria-label="Redo"
           >
             <Redo2 />
           </button>
           <div className="cmp-toolbar-sep" />
-          <button
-            className="cmp-btn cmp-btn-sm"
-            style={{
-              background: "var(--background)",
-              border: "1px solid var(--border)",
-              color: "var(--foreground)",
-            }}
-            disabled
-            title="Test run coming soon"
-          >
-            <Play /> Test run
-          </button>
           <button
             className="cmp-btn cmp-btn-default cmp-btn-sm"
             disabled={saving || workflow.days.length === 0 || !dirty}
