@@ -2,9 +2,7 @@
 
 import {
   Activity,
-  CheckSquare,
   ChevronRight,
-  Settings as SettingsIcon,
   Target,
   Workflow,
   Zap,
@@ -13,7 +11,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
 
-import { subscribeToApprovalsCount } from "@/lib/campaigns/client";
 import { cn } from "@/lib/utils";
 import {
   SidebarMenuItem,
@@ -27,11 +24,9 @@ const CHILDREN = [
   { id: "dashboard", label: "Dashboard", url: "/campaigns/dashboard", icon: Activity },
   { id: "campaigns", label: "Campaigns", url: "/campaigns", icon: Target },
   { id: "studio", label: "Studio", url: "/campaigns/studio", icon: Workflow },
-  { id: "approvals", label: "Approvals", url: "/campaigns/approvals", icon: CheckSquare },
-  { id: "settings", label: "Settings", url: "/campaigns/settings", icon: SettingsIcon },
+  // for future use
+  // { id: "approvals", label: "Approvals", url: "/campaigns/approvals", icon: CheckSquare },
 ] as const;
-
-const COUNT_FMT = new Intl.NumberFormat("en-US");
 
 // Local lightweight Collapsible components matching Radix interface without new package dependencies
 interface CollapsibleProps {
@@ -103,15 +98,6 @@ function CollapsibleContent({ open, children }: CollapsibleContentProps) {
 export function CampaignsTree({ orgId }: { orgId: string }) {
   const basePath = `/dashboard/${orgId}`;
   const pathname = usePathname();
-  const [approvalsCount, setApprovalsCount] = React.useState<number | null>(null);
-
-  React.useEffect(() => {
-    const unsub = subscribeToApprovalsCount(
-      (n) => setApprovalsCount(n),
-      () => { /* swallow stream errors — badge just stays at last known value */ }
-    );
-    return unsub;
-  }, []);
 
   function isChildActive(url: string): boolean {
     const full = basePath + url;
@@ -119,8 +105,8 @@ export function CampaignsTree({ orgId }: { orgId: string }) {
   }
 
   // /campaigns is the ambiguous parent path. It is "active" only when no
-  // deeper child route matched — Dashboard, Studio, Raw Leads, Approvals,
-  // Settings all share the /campaigns/ prefix.
+  // deeper child route matched — Dashboard and Studio share the
+  // /campaigns/ prefix.
   const activeChild = CHILDREN.find((c) => {
     const full = basePath + c.url;
     if (c.id === "campaigns") {
@@ -161,7 +147,6 @@ export function CampaignsTree({ orgId }: { orgId: string }) {
             {CHILDREN.map((c) => {
               const Icon = c.icon;
               const active = c.id === activeChild?.id;
-              const showBadge = c.id === "approvals" && approvalsCount != null && approvalsCount > 0;
               const href = basePath + c.url;
               return (
                 <SidebarMenuSubItem key={c.id}>
@@ -172,14 +157,6 @@ export function CampaignsTree({ orgId }: { orgId: string }) {
                     <Link href={href}>
                       <Icon className="size-4 shrink-0" />
                       <span>{c.label}</span>
-                      {showBadge && (
-                        <span
-                          aria-label={`${approvalsCount} pending approvals`}
-                          className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-medium text-white"
-                        >
-                          {approvalsCount > 99 ? "99+" : COUNT_FMT.format(approvalsCount)}
-                        </span>
-                      )}
                     </Link>
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>
