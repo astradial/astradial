@@ -182,6 +182,60 @@ export const campaigns = {
   },
 };
 
+// ── Campaign voice bots (org-scoped by auth) ──
+
+export interface CampaignBot {
+  id: string;
+  org_id: string;
+  name: string;
+  language: string;
+  keywords: string[];
+  max_words: number;
+  call_timeout: number;
+  webhook_url: string | null;
+  intro_audio_path: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampaignBotInput {
+  name: string;
+  language?: string;
+  keywords?: string[];
+  max_words?: number;
+  call_timeout?: number;
+  webhook_url?: string | null;
+}
+
+export const campaignBots = {
+  list: (orgId: string) => {
+    void orgId;
+    return req<{ data: CampaignBot[]; total: number }>("/bots");
+  },
+  get: (orgId: string, id: string) => {
+    void orgId;
+    return req<CampaignBot>(`/bots/${id}`);
+  },
+  create: (orgId: string, data: CampaignBotInput) => {
+    void orgId;
+    return req<CampaignBot>("/bots", { method: "POST", body: JSON.stringify(data) });
+  },
+  update: (orgId: string, id: string, data: Partial<CampaignBotInput>) => {
+    void orgId;
+    return req<CampaignBot>(`/bots/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+  },
+  delete: (orgId: string, id: string) => {
+    void orgId;
+    return req<void>(`/bots/${id}`, { method: "DELETE" });
+  },
+  uploadAudio: (orgId: string, id: string, file: File) => {
+    void orgId;
+    const fd = new FormData();
+    fd.append("audio", file);
+    return reqMultipart<{ message: string; path: string }>(`/bots/${id}/upload-audio`, fd);
+  },
+};
+
 // ── Leads (nested under a campaign) ──
 
 export interface LeadsListParams {
