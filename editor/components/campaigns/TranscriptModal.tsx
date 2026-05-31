@@ -20,6 +20,19 @@ interface Props {
   onClose: () => void;
 }
 
+function getRecordingUrl(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const payload = data as Record<string, unknown>;
+  const candidates = [
+    payload.recordingUrl,
+    payload.recording_url,
+    payload.recordingPath,
+    payload.recording_path,
+  ];
+  const found = candidates.find((value) => typeof value === "string" && value.trim());
+  return typeof found === "string" ? found : null;
+}
+
 export function TranscriptModal({ open, campaignId, leadId, eventId, leadName, onClose }: Props) {
   // Escape to close.
   useEffect(() => {
@@ -42,11 +55,18 @@ export function TranscriptModal({ open, campaignId, leadId, eventId, leadName, o
 
   const data = q.data;
   const ready = data?.ready === true;
+  const recordingUrl = ready ? getRecordingUrl(data) : null;
   const agentMsgs: TranscriptMessage[] = ready ? (data?.messages ?? []).filter((m) => m.speaker === "agent") : [];
   const customerMsgs: TranscriptMessage[] = ready ? (data?.messages ?? []).filter((m) => m.speaker === "customer") : [];
 
   return createPortal(
-    <div className="cmp-modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
+    <div
+      className="cmp-modal-overlay"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      style={{ zIndex: 80 }}
+    >
       <div
         className="cmp-modal cmp-modal-lg"
         onClick={(e) => e.stopPropagation()}
@@ -63,9 +83,25 @@ export function TranscriptModal({ open, campaignId, leadId, eventId, leadName, o
             ) : null}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button className="cmp-btn cmp-btn-outline cmp-btn-sm" disabled={!ready}>
-              <Download size={14} /> Recording
-            </button>
+            {recordingUrl ? (
+              <a
+                className="cmp-btn cmp-btn-outline cmp-btn-sm"
+                href={recordingUrl}
+                download
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Download size={14} /> Recording
+              </a>
+            ) : ready ? (
+              <button
+                className="cmp-btn cmp-btn-outline cmp-btn-sm"
+                disabled
+                title="No recording is available for this call"
+              >
+                <Download size={14} /> Recording unavailable
+              </button>
+            ) : null}
             <button className="cmp-toolbar-icon-btn" onClick={onClose} aria-label="Close">
               <X />
             </button>
@@ -116,25 +152,33 @@ export function TranscriptModal({ open, campaignId, leadId, eventId, leadName, o
 
               <div className="cmp-transcript-wrap">
                 <div className="cmp-transcript-col">
-                  <div className="cmp-transcript-col-head">Caller</div>
-                  {agentMsgs.map((m, i) => (
-                    <div key={i} className="cmp-tx-msg">
-                      <div className="cmp-tx-time">{m.t}</div>
-                      <div>{m.text}</div>
-                    </div>
-                  ))}
+                  <div className="cmp-transcript-col-head">Bot / agent</div>
+                  {agentMsgs.length > 0 ? (
+                    agentMsgs.map((m, i) => (
+                      <div key={i} className="cmp-tx-msg">
+                        <div className="cmp-tx-time">{m.t}</div>
+                        <div>{m.text}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="cmp-empty-sub">No bot transcript found.</div>
+                  )}
                 </div>
                 <div className="cmp-transcript-col">
-                  <div className="cmp-transcript-col-head">Customer · {leadName}</div>
-                  {customerMsgs.map((m, i) => (
-                    <div key={i} className="cmp-tx-msg">
-                      <div className="cmp-tx-time">{m.t}</div>
-                      <div>
-                        {m.text}
-                        {m.signal && <span className="cmp-tx-signal">{m.signal}</span>}
+                  <div className="cmp-transcript-col-head">User / customer · {leadName}</div>
+                  {customerMsgs.length > 0 ? (
+                    customerMsgs.map((m, i) => (
+                      <div key={i} className="cmp-tx-msg">
+                        <div className="cmp-tx-time">{m.t}</div>
+                        <div>
+                          {m.text}
+                          {m.signal && <span className="cmp-tx-signal">{m.signal}</span>}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <div className="cmp-empty-sub">No user transcript found.</div>
+                  )}
                 </div>
               </div>
 

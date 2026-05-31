@@ -127,6 +127,10 @@ export interface TranscriptPayload {
   durationLabel?: string;
   direction?: "outbound" | "inbound";
   qualificationLine?: string;
+  recordingUrl?: string;
+  recording_url?: string;
+  recordingPath?: string;
+  recording_path?: string;
   signals?: string[];
   messages?: TranscriptMessage[];
   summary?: string;

@@ -225,9 +225,9 @@ export function LeadDrawer({ open, campaignId, leadId, onClose }: Props) {
                 className="cmp-btn cmp-btn-outline cmp-btn-sm"
                 style={{ flex: 1 }}
                 disabled
-                title="Lead-level pause coming in PR 5"
+                title="Lead-level pause is not available yet"
               >
-                <Pause size={14} /> Pause this run
+                <Pause size={14} /> Pause unavailable
               </button>
             </div>
           )}
