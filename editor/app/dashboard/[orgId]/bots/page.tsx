@@ -59,6 +59,8 @@ export default function BotsPage() {
   const [astraliteEditingBot, setAstraliteEditingBot] = useState<CampaignBot | null>(null);
   const [astraliteForm, setAstraliteForm] = useState<AstraliteBotForm>(defaultAstraliteForm);
   const [astraliteSaving, setAstraliteSaving] = useState(false);
+  const [astraliteDeletingBotId, setAstraliteDeletingBotId] = useState<string | null>(null);
+  const [astraliteUploadingBotId, setAstraliteUploadingBotId] = useState<string | null>(null);
 
   // Create Agent dialog
   const [createBotOpen, setCreateBotOpen] = useState(false);
@@ -368,6 +370,34 @@ export default function BotsPage() {
       toast.error(e instanceof Error ? e.message : "Failed to save Astralite bot");
     } finally {
       setAstraliteSaving(false);
+    }
+  }
+
+  async function handleDeleteAstraliteBot(bot: CampaignBot) {
+    if (!confirm(`Delete Astralite bot "${bot.name}"?`)) return;
+    setAstraliteDeletingBotId(bot.id);
+    try {
+      await campaignBots.delete(orgId, bot.id);
+      toast.success("Astralite bot deleted");
+      await loadAstraliteBots();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete Astralite bot");
+    } finally {
+      setAstraliteDeletingBotId(null);
+    }
+  }
+
+  async function handleAstraliteAudioUpload(bot: CampaignBot, file: File | null) {
+    if (!file) return;
+    setAstraliteUploadingBotId(bot.id);
+    try {
+      await campaignBots.uploadAudio(orgId, bot.id, file);
+      toast.success("Intro audio uploaded");
+      await loadAstraliteBots();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to upload intro audio");
+    } finally {
+      setAstraliteUploadingBotId(null);
     }
   }
 
@@ -875,8 +905,40 @@ export default function BotsPage() {
                         <p className="text-[10px] uppercase text-muted-foreground">Max words</p>
                         <p className="font-medium">{bot.max_words}</p>
                       </div>
+                      <Input
+                        id={`astralite-audio-${bot.id}`}
+                        type="file"
+                        accept="audio/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0] || null;
+                          await handleAstraliteAudioUpload(bot, file);
+                          e.target.value = "";
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={astraliteUploadingBotId === bot.id}
+                        onClick={() => document.getElementById(`astralite-audio-${bot.id}`)?.click()}
+                      >
+                        {astraliteUploadingBotId === bot.id
+                          ? "Uploading..."
+                          : bot.intro_audio_path
+                            ? "Change Audio"
+                            : "Upload Audio"}
+                      </Button>
                       <Button variant="outline" size="sm" onClick={() => openEditAstraliteBot(bot)}>
                         Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        disabled={astraliteDeletingBotId === bot.id}
+                        onClick={() => handleDeleteAstraliteBot(bot)}
+                      >
+                        {astraliteDeletingBotId === bot.id ? "Deleting..." : "Delete"}
                       </Button>
                     </div>
                   </div>
