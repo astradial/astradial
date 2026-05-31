@@ -284,7 +284,7 @@ function KanbanColumn({ campaignId, column, query, onOpenLead }: KanbanColumnPro
 
         {!loading && !q.isError && rows.length === 0 && (
           <div className={`cmp-kanban-empty ${isOver ? "cmp-kanban-empty-target" : ""}`}>
-            {isOver ? "Drop here" : "No leads"}
+            {isOver ? "Drop here" : "No lead"}
           </div>
         )}
 
@@ -324,7 +324,7 @@ const KanbanCard = memo(
     // because the label is "X ago" and there's no cheap alternative that
     // captures wall-clock without state. Static snapshot per render is fine.
     function relTime(iso: string | null | undefined): string {
-      if (!iso) return "—";
+      if (!iso) return "No activity";
       // eslint-disable-next-line react-hooks/purity
       const d = Date.now() - new Date(iso).getTime();
       const m = Math.round(d / 60000);

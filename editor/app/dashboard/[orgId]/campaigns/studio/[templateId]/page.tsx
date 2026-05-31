@@ -10,8 +10,7 @@ import {
   ChevronLeft,
   File as FileIcon,
   FileText,
-  MessageCircle,
-  Phone,
+  PhoneCall,
   Play,
   Plus,
   Redo2,
@@ -30,6 +29,7 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -92,7 +92,7 @@ function ActionIcon({ type, size = 14 }: { type: ActionType; size?: number }) {
   return type === "whatsapp" ? (
     <WhatsappIcon size={size} />
   ) : (
-    <Phone size={size} strokeWidth={2.4} />
+    <PhoneCall size={size} strokeWidth={2.4} />
   );
 }
 
@@ -754,7 +754,7 @@ function EmptyState({ onPick }: { onPick: (t: ActionType) => void }) {
           }}
         >
           <span className="cmp-empty-choice-icon" style={bubbleColor("call")}>
-            <Phone size={20} strokeWidth={2.4} />
+            <PhoneCall size={20} strokeWidth={2.4} />
           </span>
           <div className="cmp-empty-choice-title">Make a phone call</div>
           <div className="cmp-empty-choice-sub">Voice agent + caller ID · best for warm leads</div>
@@ -1151,7 +1151,7 @@ function AddStepButton({ onPick }: { onPick: (t: ActionType) => void }) {
             }}
           >
             <span className="cmp-action-bubble-mini" style={bubbleColor("call")}>
-              <Phone size={12} strokeWidth={2.4} />
+              <PhoneCall size={12} strokeWidth={2.4} />
             </span>
             <div>
               <div className="text-[13px] font-medium">Phone call</div>
@@ -1253,11 +1253,10 @@ function Inspector({
           <div className="cmp-field">
             <label className="cmp-field-label">Message template</label>
             {waConfigured && waTemplates.length > 0 ? (
-              <select
-                className="cmp-input"
-                value={action.template || ""}
-                onChange={(e) => {
-                  const val = e.target.value;
+              <Select
+                value={action.template || "__none"}
+                onValueChange={(value) => {
+                  const val = value === "__none" ? "" : value;
                   const selected = waTemplates.find((t) => t.name === val);
                   updateAction(day.id, action.id, {
                     template: val,
@@ -1265,16 +1264,24 @@ function Inspector({
                   });
                 }}
               >
-                <option value="">Select a template…</option>
-                {waTemplates.map((t) => {
-                  const langCode = t.language || t.languages?.[0]?.language || "";
-                  return (
-                    <option key={t.name} value={t.name}>
-                      {t.name}{langCode ? ` (${langCode})` : ""}
-                    </option>
-                  );
-                })}
-              </select>
+                <SelectTrigger className="h-9 w-full text-[13.5px]">
+                  <SelectValue placeholder="Select a template…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectLabel>Message template</SelectLabel>
+                    <SelectItem value="__none">Select a template…</SelectItem>
+                    {waTemplates.map((t) => {
+                      const langCode = t.language || t.languages?.[0]?.language || "";
+                      return (
+                        <SelectItem key={t.name} value={t.name}>
+                          {t.name}{langCode ? ` (${langCode})` : ""}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             ) : (
               <input
                 className="cmp-input"

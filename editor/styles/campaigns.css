@@ -4,6 +4,13 @@
  * to campaign UI surfaces live here.
  */
 
+:root {
+  --cmp-shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --cmp-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --cmp-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --cmp-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
 /* ── Status pill (Campaign + Template) ───────────────────────────── */
 .cmp-status-pill {
   display: inline-flex;
@@ -12,7 +19,7 @@
   gap: 6px;
   padding: 2px 10px;
   font-size: 11.5px;
-  font-weight: 500;
+  font-weight: 600;
   border-radius: 999px;
   line-height: 18px;
   white-space: nowrap;
@@ -115,7 +122,7 @@
 }
 .cmp-card:hover {
   border-color: oklch(0.85 0.005 240);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--cmp-shadow-sm);
 }
 .cmp-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .cmp-card-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
@@ -148,13 +155,16 @@
   margin-bottom: -1px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  line-height: 20px;
+  min-height: 41px;
 }
 .cmp-tab:hover { color: var(--foreground); }
 .cmp-tab-active {
   color: var(--foreground);
   border-bottom-color: var(--foreground);
-  font-weight: 500;
+  font-weight: 600;
 }
 .cmp-tab-badge {
   background: var(--secondary);
@@ -201,7 +211,7 @@
 .cmp-btn-default {
   background: var(--primary);
   color: var(--primary-foreground);
-  box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.05);
+  box-shadow: var(--cmp-shadow-xs);
 }
 .cmp-btn-default:hover { background: color-mix(in oklch, var(--primary) 90%, black); }
 .cmp-btn-ghost { background: transparent; color: var(--foreground); }
@@ -257,7 +267,7 @@
   background: var(--card);
   color: var(--card-foreground);
   border-radius: 14px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--cmp-shadow-lg);
   width: 100%;
   max-width: 720px;
   max-height: 90vh;
@@ -321,9 +331,9 @@
 }
 .cmp-wizard-step.cmp-wizard-active { color: var(--foreground); }
 .cmp-wizard-step.cmp-wizard-active .cmp-step-num {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-foreground);
+  background: var(--foreground);
+  border-color: var(--foreground);
+  color: var(--background);
 }
 .cmp-wizard-step.cmp-wizard-done .cmp-step-num {
   background: oklch(0.95 0.04 150);
@@ -343,9 +353,9 @@
   text-align: left;
   width: 100%;
 }
-.cmp-pick-card:hover { background: color-mix(in oklch, var(--primary) 3%, var(--card)); }
+.cmp-pick-card:hover { background: color-mix(in oklch, var(--muted) 28%, var(--card)); }
 .cmp-pick-card.cmp-pick-selected {
-  border-color: var(--primary);
+  border-color: var(--foreground);
   border-width: 2px;
   padding: 13px;
 }
@@ -361,16 +371,16 @@
   flex-shrink: 0;
 }
 .cmp-chk-on {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-foreground);
+  background: var(--foreground);
+  border-color: var(--foreground);
+  color: var(--background);
 }
 .cmp-chip {
   display: inline-flex;
   align-items: center;
   padding: 1px 8px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   border-radius: 999px;
   background: var(--secondary);
   color: var(--secondary-foreground);
@@ -391,8 +401,8 @@
   transition: border-color 0.15s, background 0.15s;
 }
 .cmp-csv-drop:hover {
-  border-color: var(--primary);
-  background: color-mix(in oklch, var(--primary) 4%, transparent);
+  border-color: var(--ring);
+  background: color-mix(in oklch, var(--muted) 45%, transparent);
 }
 .cmp-csv-uploaded {
   display: flex;
@@ -434,7 +444,10 @@
   font-size: 13px;
   outline: none;
 }
-.cmp-input:focus { border-color: var(--primary); }
+.cmp-input:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 1px var(--ring);
+}
 textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 
 /* ── Mapping table ───────────────────────────────────────────────── */
@@ -502,8 +515,8 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 .cmp-template-name-input::placeholder { color: var(--muted-foreground); font-weight: 500; }
 .cmp-template-name-input:hover { background: color-mix(in oklch, var(--secondary) 60%, transparent); }
 .cmp-template-name-input:focus {
-  background: var(--card); border-color: var(--primary);
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 16%, transparent);
+  background: var(--card); border-color: var(--ring);
+  box-shadow: 0 0 0 1px var(--ring);
 }
 .cmp-version-badge {
   display: inline-flex; align-items: center;
@@ -533,7 +546,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   cursor: grab; user-select: none;
   transition: transform .08s, box-shadow .12s, border-color .12s;
 }
-.cmp-palette-card:hover  { border-color: oklch(0.78 0.01 240); box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.05); }
+.cmp-palette-card:hover  { border-color: oklch(0.78 0.01 240); box-shadow: var(--cmp-shadow-xs); }
 .cmp-palette-card:active { cursor: grabbing; transform: scale(0.98); }
 .cmp-palette-bubble {
   width: 36px; height: 36px; border-radius: 10px;
@@ -580,7 +593,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   padding: 10px 18px 10px 12px;
   background: var(--card); border: 1px solid var(--border);
   border-radius: 999px;
-  box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.05);
+  box-shadow: var(--cmp-shadow-xs);
   white-space: nowrap;
 }
 .cmp-cap-dot {
@@ -614,13 +627,13 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   transform: translateX(-50%); pointer-events: none;
 }
 .cmp-connector-hover .cmp-connector-line,
-.cmp-gap-hover .cmp-connector-line { background: var(--primary); width: 3px; }
+.cmp-gap-hover .cmp-connector-line { background: var(--ring); width: 3px; }
 .cmp-connector-dropchip {
   position: relative; z-index: 2;
   background: var(--primary); color: var(--primary-foreground);
   font-size: 11px; font-weight: 500;
   padding: 4px 10px; border-radius: 999px;
-  box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.05); white-space: nowrap;
+  box-shadow: var(--cmp-shadow-xs); white-space: nowrap;
 }
 
 .cmp-gap { padding: 10px 0; }
@@ -634,9 +647,9 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   transition: border-color .12s, background .12s, box-shadow .12s;
 }
 .cmp-gap-pill:hover {
-  border-color: var(--primary);
-  background: color-mix(in oklch, var(--primary) 4%, var(--card));
-  box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.05);
+  border-color: var(--ring);
+  background: color-mix(in oklch, var(--muted) 28%, var(--card));
+  box-shadow: var(--cmp-shadow-xs);
 }
 .cmp-gap-pill-prefix    { color: var(--muted-foreground); font-weight: 600; margin-right: -2px; }
 .cmp-gap-pill-suffix    { color: var(--muted-foreground); }
@@ -644,8 +657,8 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
                           opacity: 0; transition: opacity .12s; }
 .cmp-gap-pill:hover .cmp-gap-pill-edit-hint { opacity: 1; }
 .cmp-gap-pill-editing {
-  background: var(--card); border-color: var(--primary);
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 18%, transparent);
+  background: var(--card); border-color: var(--ring);
+  box-shadow: 0 0 0 1px var(--ring);
   padding-right: 10px;
 }
 .cmp-gap-input {
@@ -662,13 +675,13 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   background: var(--card); border: 1px solid var(--border);
   border-radius: 10px;
   padding: 14px 18px 16px 22px;
-  box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.05);
+  box-shadow: var(--cmp-shadow-xs);
   transition: border-color .12s, box-shadow .12s;
 }
 .cmp-day-node:hover { border-color: oklch(0.82 0.005 240); }
 .cmp-day-node-droptarget {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 16%, transparent);
+  border-color: var(--ring);
+  box-shadow: 0 0 0 1px var(--ring), var(--cmp-shadow-xs);
 }
 .cmp-day-grip {
   position: absolute; top: 0; bottom: 0; left: 0; width: 18px;
@@ -715,8 +728,8 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 }
 .cmp-action-row:hover { background: color-mix(in oklch, var(--secondary) 50%, transparent); }
 .cmp-action-row-selected {
-  background: color-mix(in oklch, var(--primary) 7%, transparent);
-  box-shadow: inset 2px 0 0 var(--primary);
+  background: color-mix(in oklch, var(--muted) 36%, transparent);
+  box-shadow: inset 2px 0 0 var(--ring);
 }
 .cmp-action-grip {
   color: oklch(0.78 0.01 240); display: inline-flex; cursor: grab;
@@ -759,7 +772,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   background: transparent;
   transition: background .12s, height .12s;
 }
-.cmp-action-dropline-hover::before { background: var(--primary); height: 4px; }
+.cmp-action-dropline-hover::before { background: var(--ring); height: 4px; }
 
 .cmp-action-add-row {
   display: inline-flex; align-items: center; gap: 6px; width: 100%;
@@ -784,17 +797,17 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 }
 .cmp-add-step-pill:hover,
 .cmp-add-step-pill-open {
-  border-color: var(--primary); color: var(--primary);
-  background: color-mix(in oklch, var(--primary) 4%, var(--card));
+  border-color: var(--ring); color: var(--foreground);
+  background: color-mix(in oklch, var(--muted) 28%, var(--card));
   border-style: solid;
-  box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.05);
+  box-shadow: var(--cmp-shadow-xs);
 }
 .cmp-add-step-menu {
   position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
   min-width: 240px;
   background: var(--card);
   border: 1px solid var(--border); border-radius: 8px;
-  box-shadow: 0 4px 12px oklch(0 0 0 / 0.1);
+  box-shadow: var(--cmp-shadow-md);
   padding: 4px; z-index: 30;
   display: flex; flex-direction: column; gap: 2px;
   animation: cmp-fade-in .12s;
@@ -822,7 +835,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   padding: 36px 36px 28px;
   display: flex; flex-direction: column; align-items: center;
   text-align: center;
-  box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.05);
+  box-shadow: var(--cmp-shadow-xs);
   gap: 8px;
 }
 .cmp-empty-state-eyebrow {
@@ -850,8 +863,8 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   transition: border-color .14s, box-shadow .14s, transform .12s, background .14s;
 }
 .cmp-empty-choice:hover {
-  border-color: var(--primary);
-  box-shadow: 0 1px 3px 0 oklch(0 0 0 / 0.1);
+  border-color: var(--ring);
+  box-shadow: var(--cmp-shadow-sm);
   transform: translateY(-2px); background: var(--card);
 }
 .cmp-empty-choice:active { transform: translateY(0); }
@@ -915,12 +928,15 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   background: var(--background);
   cursor: text;
 }
-.cmp-keyword-tags:focus-within { border-color: var(--primary); }
+.cmp-keyword-tags:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 1px var(--ring);
+}
 .cmp-keyword-tag {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 2px 8px 2px 10px;
-  background: oklch(0.93 0.04 250); border-radius: 999px;
-  font-size: 12px; font-weight: 500; color: oklch(0.35 0.12 250);
+  background: var(--secondary); border-radius: 999px;
+  font-size: 12px; font-weight: 600; color: var(--secondary-foreground);
   white-space: nowrap;
 }
 .cmp-keyword-tag-remove {
@@ -1102,7 +1118,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 .cmp-view-switcher button:hover { color: var(--foreground); }
 .cmp-view-switcher button.cmp-active {
   background: var(--background); color: var(--foreground);
-  font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  font-weight: 600; box-shadow: var(--cmp-shadow-xs);
 }
 
 /* ---------- §11.4 Toolbar ---------- */
@@ -1129,8 +1145,8 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   transition: border-color .12s, box-shadow .12s;
 }
 .cmp-input:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 16%, transparent);
+  border-color: var(--ring);
+  box-shadow: 0 0 0 1px var(--ring);
 }
 .cmp-input::placeholder { color: var(--muted-foreground); }
 
@@ -1210,7 +1226,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 }
 .cmp-kanban-card:hover {
   border-color: oklch(0.85 0.005 240);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--cmp-shadow-sm);
 }
 .cmp-kanban-card:active { cursor: grabbing; }
 .cmp-kanban-card-name { font-size: 13px; font-weight: 500; letter-spacing: -0.005em; }
@@ -1240,24 +1256,24 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 .cmp-kanban-more:disabled { opacity: 0.6; cursor: progress; }
 .cmp-kanban-empty {
   font-size: 12px; color: var(--muted-foreground);
-  padding: 16px 0; text-align: center; font-style: italic;
+  padding: 16px 0; text-align: center; font-weight: 600;
 }
-.cmp-kanban-empty-target { color: var(--primary); font-style: normal; font-weight: 500; }
+.cmp-kanban-empty-target { color: var(--foreground); font-weight: 600; }
 
 /* Drag affordances */
 .cmp-kanban-col-target {
-  background: color-mix(in oklch, var(--primary) 5%, transparent);
-  border-color: var(--primary);
+  background: color-mix(in oklch, var(--muted) 45%, transparent);
+  border-color: var(--ring);
 }
 .cmp-kanban-col-target .cmp-kanban-col-body {
-  outline: 2px dashed color-mix(in oklch, var(--primary) 60%, transparent);
+  outline: 2px dashed color-mix(in oklch, var(--ring) 55%, transparent);
   outline-offset: -4px;
   border-radius: var(--radius-md);
   padding: 8px;
 }
 .cmp-kanban-card-dragging {
   opacity: 0.4; transform: rotate(-1deg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--cmp-shadow-lg);
 }
 
 /* ---------- §11.7 Drawer ---------- */
@@ -1276,7 +1292,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   border-left: 1px solid var(--border);
   z-index: 61;
   display: flex; flex-direction: column;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--cmp-shadow-lg);
   animation: cmpSlideR .15s ease-out;
 }
 @keyframes cmpFadeIn { from { opacity: 0 } to { opacity: 1 } }
@@ -1405,7 +1421,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 }
 .cmp-transcript-signal {
   display: inline-flex; padding: 2px 8px;
-  font-size: 11px; font-weight: 500;
+  font-size: 11px; font-weight: 600;
   border-radius: 6px;
   background: oklch(0.95 0.04 264);
   color: oklch(0.45 0.22 264);
@@ -1441,7 +1457,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   background: oklch(0.95 0.04 264);
   color: oklch(0.45 0.22 264);
   padding: 0 6px; border-radius: 4px;
-  font-size: 11.5px; font-weight: 500;
+  font-size: 11.5px; font-weight: 600;
   margin-left: 4px;
 }
 .cmp-transcript-summary-kicker {
@@ -1529,7 +1545,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 .cmp-settings-row.is-dragging {
   opacity: 0.5;
   cursor: grabbing;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--cmp-shadow-md);
 }
 .cmp-settings-row-handle {
   cursor: grab;
@@ -1609,7 +1625,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   align-items: center;
   gap: 4px;
   font-size: 11.5px;
-  font-weight: 500;
+  font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
   background: oklch(0.98 0.02 55);
@@ -1710,7 +1726,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   background: var(--popover, var(--card));
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 4px 12px oklch(0 0 0 / 0.1);
+  box-shadow: var(--cmp-shadow-md);
   padding: 4px;
   z-index: 20;
   display: flex;

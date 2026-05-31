@@ -9,6 +9,15 @@ import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Search } from "lucid
 import { memo, useState } from "react";
 
 import { CampaignStatusPill } from "./CampaignStatusPill";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { leads as leadsApi, type OverviewLeadsResponse } from "@/lib/campaigns/client";
 import type { CampaignLead, LeadStatus, Paginated } from "@/lib/campaigns/types";
 
@@ -212,19 +221,24 @@ export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: P
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span className="text-xs text-muted-foreground">Rows</span>
-            <select
-              className="cmp-input"
-              style={{ height: 28, padding: "0 24px 0 8px", width: "auto", fontSize: 12 }}
-              value={pageSize}
-              onChange={(e) => setPageSize(parseInt(e.target.value, 10))}
-              aria-label="Rows per page"
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => setPageSize(parseInt(value, 10))}
             >
-              {PAGE_SIZES.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-7 w-20 px-2 text-xs" aria-label="Rows per page">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Rows</SelectLabel>
+                  {PAGE_SIZES.map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      {n}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <button
@@ -284,15 +298,17 @@ const LeadRow = memo(
           <div className="font-medium">{lead.name}</div>
         </td>
         {showCampaignColumn && (
-          <td className="text-[13px] text-muted-foreground">{lead.campaign_name || "—"}</td>
+          <td className="text-[13px] text-muted-foreground">
+            {lead.campaign_name || "No campaign"}
+          </td>
         )}
         <td className="cmp-mono text-[13px]">{lead.phone}</td>
-        <td className="text-[13px]">{lead.country || "—"}</td>
+        <td className="text-[13px]">{lead.country || "Unknown"}</td>
         <td>
           <CampaignStatusPill status={lead.status} />
         </td>
         <td className="text-[13px] text-muted-foreground">
-          {lead.last_touch_at ? new Date(lead.last_touch_at).toLocaleString() : "—"}
+          {lead.last_touch_at ? new Date(lead.last_touch_at).toLocaleString() : "No activity"}
         </td>
       </tr>
     );

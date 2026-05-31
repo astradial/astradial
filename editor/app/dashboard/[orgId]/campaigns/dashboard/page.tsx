@@ -52,7 +52,7 @@ export default function CampaignsOverviewPage() {
         },
         { signal }
       ),
-    refetchInterval: 4_000,
+    refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
 

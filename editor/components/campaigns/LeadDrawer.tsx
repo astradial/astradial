@@ -8,8 +8,16 @@ import { AlertCircle, Clock, Pause, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { CampaignStatusPill } from "./CampaignStatusPill";
 import { TimelineItem } from "./TimelineItem";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { showToast } from "@/components/ui/Toast";
 import { leads as leadsApi } from "@/lib/campaigns/client";
 import type { CampaignEvent, CampaignLead, LeadStatus } from "@/lib/campaigns/types";
@@ -119,10 +127,10 @@ export function LeadDrawer({ open, campaignId, leadId, onClose }: Props) {
           <div style={{ minWidth: 0, flex: 1 }}>
             <div className="cmp-drawer-kicker">LEAD DETAIL</div>
             <div id="cmp-drawer-title" className="cmp-drawer-title">
-              {leadQ.isPending ? "Loading…" : lead?.name || "—"}
+              {leadQ.isPending ? "Loading…" : lead?.name || "Unnamed lead"}
             </div>
             <div className="cmp-drawer-sub">
-              {[lead?.business, lead?.country].filter(Boolean).join(" • ") || "—"}
+              {[lead?.business, lead?.country].filter(Boolean).join(" • ") || "No lead details"}
             </div>
           </div>
           <button className="cmp-toolbar-icon-btn" onClick={onClose} aria-label="Close">
@@ -136,18 +144,25 @@ export function LeadDrawer({ open, campaignId, leadId, onClose }: Props) {
             <div className="cmp-status-changer-row">
               <div className="cmp-status-changer-col w-full">
                 <label className="cmp-status-changer-label">Status</label>
-                <select
-                  className="cmp-input w-full"
+                <Select
                   value={lead.status}
-                  onChange={(e) => statusMut.mutate(e.target.value as LeadStatus)}
                   disabled={statusMut.isPending}
+                  onValueChange={(value) => statusMut.mutate(value as LeadStatus)}
                 >
-                  {STATUS_OPTIONS.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="h-9 w-full text-[13.5px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Status</SelectLabel>
+                      {STATUS_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           )}

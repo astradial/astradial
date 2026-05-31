@@ -28,6 +28,15 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { showToast } from "@/components/ui/Toast";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { leadFields as leadFieldsApi, orgSettings as orgSettingsApi } from "@/lib/campaigns/client";
 import type { CampaignLeadField, LeadFieldType } from "@/lib/campaigns/types";
 
@@ -472,17 +481,24 @@ function AddFieldForm({
       </div>
       <label style={fieldLabelStyle}>
         <span>Type</span>
-        <select
+        <Select
           value={type}
-          onChange={(e) => setType(e.target.value as LeadFieldType)}
-          style={inputStyle}
+          onValueChange={(value) => setType(value as LeadFieldType)}
         >
-          {FIELD_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger style={inputStyle}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectLabel>Type</SelectLabel>
+              {FIELD_TYPES.map((t) => (
+                <SelectItem key={t.value} value={t.value}>
+                  {t.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </label>
       <label style={fieldLabelStyle}>
         <span>Description (optional)</span>
@@ -602,13 +618,30 @@ function EditFieldRow({
       <label style={fieldLabelStyle} title="Type cannot be changed after creation">
         <span>Type</span>
         <div style={{ position: "relative", cursor: "not-allowed" }}>
-          <select value={field.type} disabled style={{ ...inputStyle, backgroundColor: "var(--muted)", color: "var(--muted-foreground)", opacity: 0.65, pointerEvents: "none", width: "100%" }}>
-            {FIELD_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
+          <Select value={field.type} disabled>
+            <SelectTrigger
+              style={{
+                ...inputStyle,
+                backgroundColor: "var(--muted)",
+                color: "var(--muted-foreground)",
+                opacity: 0.65,
+                pointerEvents: "none",
+                width: "100%",
+              }}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectLabel>Type</SelectLabel>
+                {FIELD_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </div>
       </label>
       <label style={fieldLabelStyle}>

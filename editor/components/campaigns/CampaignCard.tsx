@@ -26,11 +26,11 @@ interface Props {
 }
 
 function relTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "No activity";
   try {
     return formatDistanceToNow(new Date(iso), { addSuffix: true });
   } catch {
-    return "—";
+    return "No activity";
   }
 }
 
@@ -52,7 +52,7 @@ export function CampaignCard({
         <div className="min-w-0">
           <h3 className="cmp-card-title truncate">{c.name}</h3>
           <div className="cmp-card-meta">
-            {templateName || "—"} · {total.toLocaleString()} leads
+            {templateName || "No template"} · {total.toLocaleString()} leads
           </div>
         </div>
         <CampaignStatusPill status={c.status} />
@@ -72,7 +72,9 @@ export function CampaignCard({
         <div className="text-[13px] text-muted-foreground py-2">
           {c.status === "draft"
             ? "Not started — finish setup to launch"
-            : `Scheduled for ${c.start_at ? new Date(c.start_at).toLocaleString() : "—"}`}
+            : c.start_at
+              ? `Scheduled for ${new Date(c.start_at).toLocaleString()}`
+              : "Schedule not set"}
         </div>
       )}
 

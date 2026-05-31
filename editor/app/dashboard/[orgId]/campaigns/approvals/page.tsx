@@ -29,9 +29,9 @@ const TABS: { id: ApprovalStatus; label: string }[] = [
 const numberFmt = new Intl.NumberFormat("en-US");
 
 function formatSla(slaAt: string | null, now: number): { label: string; urgent: boolean } {
-  if (!slaAt) return { label: "—", urgent: false };
+  if (!slaAt) return { label: "No SLA", urgent: false };
   const target = new Date(slaAt).getTime();
-  if (Number.isNaN(target)) return { label: "—", urgent: false };
+  if (Number.isNaN(target)) return { label: "No SLA", urgent: false };
   const diffMs = target - now;
   if (diffMs <= 0) return { label: "Overdue", urgent: true };
   const totalMin = Math.floor(diffMs / 60_000);
@@ -97,7 +97,7 @@ function leadBusiness(a: CampaignApproval): string | null {
 }
 
 function nodeLabel(a: CampaignApproval): string {
-  return a.node_id ?? "—";
+  return a.node_id ?? "No node";
 }
 
 function SkeletonCard() {

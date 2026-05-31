@@ -7,6 +7,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ImportProgress } from "@/components/campaigns/ImportProgress";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { showToast } from "@/components/ui/Toast";
 import { campaigns, imports, templates } from "@/lib/campaigns/client";
 import type { CampaignImportJob, CampaignTemplate } from "@/lib/campaigns/types";
@@ -403,21 +412,25 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
                 <label className="cmp-label" htmlFor="c-owner">
                   Owner
                 </label>
-                <select
-                  id="c-owner"
-                  className="cmp-input w-full"
+                <Select
                   value={owner}
-                  onChange={(e) => setOwner(e.target.value)}
+                  onValueChange={setOwner}
+                  disabled={orgUsers.length === 0}
                 >
-                  <option value="" disabled style={{ display: orgUsers.length === 0 ? "block" : "none" }}>
-                    Loading…
-                  </option>
-                  {orgUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.full_name || u.username || u.email}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id="c-owner" className="h-9 w-full text-[13px]">
+                    <SelectValue placeholder="Loading…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Owner</SelectLabel>
+                      {orgUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.full_name || u.username || u.email}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           )}
@@ -471,11 +484,11 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
                     </div>
                     <button
                       type="button"
-                      className="cmp-icon-btn"
+                      className="cmp-btn cmp-btn-ghost cmp-btn-sm"
                       onClick={() => handleFile(null)}
                       aria-label="Remove file"
                     >
-                      <X size={14} />
+                      Remove ×
                     </button>
                   </div>
 
@@ -495,27 +508,33 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
                             <tr key={h}>
                               <td className="cmp-mono">{h}</td>
                               <td>
-                                <select
-                                  className="cmp-input"
-                                  style={{ height: 30 }}
+                                <Select
                                   value={mapping[h] || "__skip"}
-                                  onChange={(e) =>
+                                  onValueChange={(value) =>
                                     setMapping((m) => ({
                                       ...m,
-                                      [h]: e.target.value === "__skip" ? "" : e.target.value,
+                                      [h]: value === "__skip" ? "" : value,
                                     }))
                                   }
                                 >
-                                  <option value="__skip">(skip)</option>
-                                  {SYSTEM_FIELD_OPTIONS.map((o) => (
-                                    <option key={o.id} value={o.id}>
-                                      {o.label}
-                                    </option>
-                                  ))}
-                                </select>
+                                  <SelectTrigger className="h-[30px] w-full text-[13px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectGroup>
+                                      <SelectLabel>Maps to</SelectLabel>
+                                      <SelectItem value="__skip">(skip)</SelectItem>
+                                      {SYSTEM_FIELD_OPTIONS.map((o) => (
+                                        <SelectItem key={o.id} value={o.id}>
+                                          {o.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectGroup>
+                                  </SelectContent>
+                                </Select>
                               </td>
                               <td className="text-[13px] text-muted-foreground">
-                                {previewRows[0]?.[idx] || "—"}
+                                {previewRows[0]?.[idx] || "No sample"}
                               </td>
                             </tr>
                           ))}
@@ -650,11 +669,11 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
                 </div>
                 <div className="cmp-summary-row">
                   <span>Leads</span>
-                  <span>{file?.name || "—"}</span>
+                  <span>{file?.name || "No file selected"}</span>
                 </div>
                 <div className="cmp-summary-row">
                   <span>Template</span>
-                  <span>{selectedTpl?.name || "—"}</span>
+                  <span>{selectedTpl?.name || "No template selected"}</span>
                 </div>
                 <div className="cmp-summary-row">
                   <span>Start</span>
@@ -664,7 +683,7 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
                       : schedule === "scheduled"
                         ? scheduleDate
                           ? new Date(scheduleDate).toLocaleString()
-                          : "—"
+                          : "Not scheduled"
                         : "Manual"}
                   </span>
                 </div>

@@ -6,7 +6,7 @@
 //   Tabs (single "Leads" tab in PR 4)
 //   View switcher → Kanban OR List
 //   LeadDrawer + (via drawer) TranscriptModal
-// 4-second polling on /campaigns/:id/dashboard.
+// 60-second polling on /campaigns/:id/dashboard.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Pause, Play, RotateCw, Upload, WifiOff } from "lucide-react";
@@ -51,7 +51,7 @@ export default function CampaignDetailPage() {
   const dashQ = useQuery({
     queryKey: ["campaigns", campaignId, "dashboard"],
     queryFn: ({ signal }) => dashboard.get(campaignId, { signal }),
-    refetchInterval: 4_000,
+    refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
 

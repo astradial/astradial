@@ -17,11 +17,11 @@ import { showToast } from "@/components/ui/Toast";
 import { type CampaignTemplate, templates } from "@/lib/campaigns/client";
 
 function relTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "No edits";
   try {
     return formatDistanceToNow(new Date(iso), { addSuffix: true });
   } catch {
-    return "—";
+    return "No edits";
   }
 }
 

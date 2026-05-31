@@ -9,9 +9,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
-  MessageCircle,
   Pause,
-  Phone,
   PhoneCall,
   PhoneIncoming,
   Play,
@@ -51,7 +49,7 @@ const KIND_ICON: Record<EventKind, IconDef> = {
   enrolled:           { Icon: Play,         variant: "primary" },
   whatsapp_sent:      { Icon: WhatsappIcon, variant: "" },
   whatsapp_delivered: { Icon: WhatsappIcon, variant: "" },
-  whatsapp_replied:   { Icon: MessageCircle, variant: "primary" },
+  whatsapp_replied:   { Icon: WhatsappIcon, variant: "primary" },
   call_started:       { Icon: PhoneCall,     variant: "info" },
   call_completed:     { Icon: PhoneCall,     variant: "info" },
   call_failed:        { Icon: XCircle,       variant: "warning" },
@@ -89,7 +87,7 @@ function eventTitle(kind: EventKind): string {
 function eventDetail(ev: CampaignEvent): { detail?: string; quote?: boolean } {
   const p = (ev.payload || {}) as Record<string, unknown>;
   if (ev.kind === "whatsapp_sent") {
-    const template = p.template_name ? String(p.template_name) : "—";
+    const template = p.template_name ? String(p.template_name) : "No template";
     const direction = p.direction ? String(p.direction) : "outbound";
     const status = p.send_status ? String(p.send_status) : "sent";
     const detailText = typeof p.detail === "string" ? p.detail : "";
@@ -121,11 +119,11 @@ function eventDetail(ev: CampaignEvent): { detail?: string; quote?: boolean } {
 }
 
 function relTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "No time";
   try {
     return formatDistanceToNow(new Date(iso), { addSuffix: true });
   } catch {
-    return "—";
+    return "No time";
   }
 }
 

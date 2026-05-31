@@ -42,7 +42,7 @@ const FILTER_TABS: { id: Filter; label: string }[] = [
 const PAGE_SIZE = 25;
 
 function formatBytes(n: number | null): string {
-  if (n == null) return "—";
+  if (n == null) return "Size pending";
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;

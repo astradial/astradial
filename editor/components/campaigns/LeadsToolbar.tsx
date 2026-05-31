@@ -1,9 +1,19 @@
 "use client";
 
 // Per UI.md §11.4. Search (debounced 300ms by parent via useDeferredValue),
-// status filter dropdown, More filters button (PR 6), view switcher.
+// status filter dropdown and view switcher.
 
-import { Filter, LayoutDashboard, List as ListIcon, Search } from "lucide-react";
+import { LayoutDashboard, List as ListIcon, Search } from "lucide-react";
+
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { LeadStatus } from "@/lib/campaigns/types";
 
 type StatusFilter = LeadStatus | "all";
@@ -64,25 +74,27 @@ export function LeadsToolbar({
             aria-label="Search leads"
           />
         </div>
-        <select
-          className="cmp-input"
-          style={{ width: "auto", minWidth: 180 }}
+        <Select
           value={statusFilter}
-          onChange={(e) => onStatusFilterChange(e.target.value as StatusFilter)}
-          aria-label="Filter by status"
+          onValueChange={(value) => onStatusFilterChange(value as StatusFilter)}
         >
-          {STATUS_ORDER.map((s) => (
-            <option key={s} value={s}>{label(s, counts)}</option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="cmp-btn cmp-btn-outline cmp-btn-sm"
-          disabled
-          title="More filters coming in PR 6"
-        >
-          <Filter size={14} /> More filters
-        </button>
+          <SelectTrigger
+            className="h-9 w-auto min-w-[180px] text-[13.5px]"
+            aria-label="Filter by status"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectLabel>Status</SelectLabel>
+              {STATUS_ORDER.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {label(s, counts)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </div>
       <div className="cmp-view-switcher" role="tablist" aria-label="View">
         <button
