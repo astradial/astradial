@@ -70,9 +70,27 @@ function bubbleColor(type: ActionType): React.CSSProperties {
   return { color: `var(${def.cssVar}, ${def.accent})` };
 }
 
+function WhatsappIcon({ size = 14, className }: { size?: number; className?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </svg>
+  );
+}
+
 function ActionIcon({ type, size = 14 }: { type: ActionType; size?: number }) {
   return type === "whatsapp" ? (
-    <MessageCircle size={size} strokeWidth={2.4} />
+    <WhatsappIcon size={size} />
   ) : (
     <Phone size={size} strokeWidth={2.4} />
   );
@@ -721,7 +739,7 @@ function EmptyState({ onPick }: { onPick: (t: ActionType) => void }) {
           }}
         >
           <span className="cmp-empty-choice-icon" style={bubbleColor("whatsapp")}>
-            <MessageCircle size={20} strokeWidth={2.4} />
+            <WhatsappIcon size={20} />
           </span>
           <div className="cmp-empty-choice-title">Send a WhatsApp</div>
           <div className="cmp-empty-choice-sub">
@@ -1118,7 +1136,7 @@ function AddStepButton({ onPick }: { onPick: (t: ActionType) => void }) {
             }}
           >
             <span className="cmp-action-bubble-mini" style={bubbleColor("whatsapp")}>
-              <MessageCircle size={12} strokeWidth={2.4} />
+              <WhatsappIcon size={12} />
             </span>
             <div>
               <div className="text-[13px] font-medium">WhatsApp message</div>
@@ -1235,34 +1253,28 @@ function Inspector({
           <div className="cmp-field">
             <label className="cmp-field-label">Message template</label>
             {waConfigured && waTemplates.length > 0 ? (
-              <Select
-                value={action.template || "__none__"}
-                onValueChange={(val) => {
-                  const templateVal = val === "__none__" ? "" : val;
-                  const selected = waTemplates.find((t) => t.name === templateVal);
+              <select
+                className="cmp-input"
+                value={action.template || ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const selected = waTemplates.find((t) => t.name === val);
                   updateAction(day.id, action.id, {
-                    template: templateVal,
+                    template: val,
                     namespace: selected?.namespace || action.namespace || undefined,
                   });
                 }}
               >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select a template…" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="__none__">Select a template…</SelectItem>
-                    {waTemplates.map((t) => {
-                      const langCode = t.language || t.languages?.[0]?.language || "";
-                      return (
-                        <SelectItem key={t.name} value={t.name}>
-                          {t.name}{langCode ? ` (${langCode})` : ""}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+                <option value="">Select a template…</option>
+                {waTemplates.map((t) => {
+                  const langCode = t.language || t.languages?.[0]?.language || "";
+                  return (
+                    <option key={t.name} value={t.name}>
+                      {t.name}{langCode ? ` (${langCode})` : ""}
+                    </option>
+                  );
+                })}
+              </select>
             ) : (
               <input
                 className="cmp-input"

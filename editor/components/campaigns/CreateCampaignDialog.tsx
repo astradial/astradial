@@ -7,14 +7,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ImportProgress } from "@/components/campaigns/ImportProgress";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { showToast } from "@/components/ui/Toast";
 import { campaigns, imports, templates } from "@/lib/campaigns/client";
 import type { CampaignImportJob, CampaignTemplate } from "@/lib/campaigns/types";
@@ -411,25 +403,21 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
                 <label className="cmp-label" htmlFor="c-owner">
                   Owner
                 </label>
-                <Select value={owner} onValueChange={setOwner}>
-                  <SelectTrigger id="c-owner" className="w-full">
-                    <SelectValue placeholder="Select owner" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {orgUsers.length === 0 && (
-                        <SelectItem value="loading" disabled>
-                          Loading…
-                        </SelectItem>
-                      )}
-                      {orgUsers.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.full_name || u.username || u.email}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <select
+                  id="c-owner"
+                  className="cmp-input w-full"
+                  value={owner}
+                  onChange={(e) => setOwner(e.target.value)}
+                >
+                  <option value="" disabled style={{ display: orgUsers.length === 0 ? "block" : "none" }}>
+                    Loading…
+                  </option>
+                  {orgUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.full_name || u.username || u.email}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           )}

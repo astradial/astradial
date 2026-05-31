@@ -1271,13 +1271,13 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 }
 .cmp-drawer {
   position: fixed; top: 0; right: 0;
-  height: 100vh; width: 520px; max-width: 100%;
+  height: 100vh; width: 440px; max-width: 100%;
   background: var(--card);
   border-left: 1px solid var(--border);
   z-index: 61;
   display: flex; flex-direction: column;
   box-shadow: var(--shadow-lg);
-  animation: cmpSlideR .18s ease-out;
+  animation: cmpSlideR .15s ease-out;
 }
 @keyframes cmpFadeIn { from { opacity: 0 } to { opacity: 1 } }
 @keyframes cmpSlideR {
