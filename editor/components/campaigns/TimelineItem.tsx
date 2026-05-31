@@ -9,33 +9,15 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  MessageCircleMore,
   Pause,
   PhoneCall,
-  PhoneIncoming,
   Play,
   XCircle,
 } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 import type { CampaignEvent, EventKind } from "@/lib/campaigns/types";
-
-function WhatsappIcon({ size = 11, className }: { size?: number; className?: string }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-    </svg>
-  );
-}
 
 type Variant = "" | "success" | "primary" | "warning" | "info";
 
@@ -47,14 +29,14 @@ interface IconDef {
 // Per UI.md §11.8 icon table — every EventKind must map.
 const KIND_ICON: Record<EventKind, IconDef> = {
   enrolled:           { Icon: Play,         variant: "primary" },
-  whatsapp_sent:      { Icon: WhatsappIcon, variant: "" },
-  whatsapp_delivered: { Icon: WhatsappIcon, variant: "" },
-  whatsapp_replied:   { Icon: WhatsappIcon, variant: "primary" },
+  whatsapp_sent:      { Icon: MessageCircleMore, variant: "" },
+  whatsapp_delivered: { Icon: MessageCircleMore, variant: "" },
+  whatsapp_replied:   { Icon: MessageCircleMore, variant: "primary" },
   call_started:       { Icon: PhoneCall,     variant: "info" },
   call_completed:     { Icon: PhoneCall,     variant: "info" },
   call_failed:        { Icon: XCircle,       variant: "warning" },
-  call_interested:    { Icon: PhoneIncoming, variant: "success" },
-  call_engaged:       { Icon: PhoneIncoming, variant: "primary" },
+  call_interested:    { Icon: PhoneCall,     variant: "success" },
+  call_engaged:       { Icon: PhoneCall,     variant: "primary" },
   status_changed:     { Icon: Clock,        variant: "" },
   qualified:          { Icon: CheckCircle2, variant: "success" },
   disqualified:       { Icon: XCircle,      variant: "warning" },

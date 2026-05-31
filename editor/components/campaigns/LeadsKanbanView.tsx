@@ -41,7 +41,7 @@ const COLUMNS: { id: LeadStatus; label: string; hint: string }[] = [
   { id: "disqualified", label: "Disqualified", hint: "Off-pipe / DNC" },
 ];
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 50;
 
 interface Props {
   campaignId: string;
@@ -300,7 +300,7 @@ function KanbanColumn({ campaignId, column, query, onOpenLead }: KanbanColumnPro
           >
             {fetchingMore
               ? "Loading…"
-              : `Load ${Math.min(PAGE_SIZE, filtered - rows.length)} more`}
+              : `Load next ${Math.min(PAGE_SIZE, filtered - rows.length)}`}
           </button>
         )}
       </div>

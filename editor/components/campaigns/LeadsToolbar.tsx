@@ -3,7 +3,7 @@
 // Per UI.md §11.4. Search (debounced 300ms by parent via useDeferredValue),
 // status filter dropdown and view switcher.
 
-import { LayoutDashboard, List as ListIcon, Search } from "lucide-react";
+import { List as ListIcon, Search, SquareKanban } from "lucide-react";
 
 import {
   Select,
@@ -104,7 +104,7 @@ export function LeadsToolbar({
           className={view === "kanban" ? "cmp-active" : ""}
           onClick={() => onViewChange("kanban")}
         >
-          <LayoutDashboard size={14} /> Kanban
+          <SquareKanban size={14} /> Kanban
         </button>
         <button
           type="button"
