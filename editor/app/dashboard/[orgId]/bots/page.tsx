@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ChevronDown, ChevronUp, Plus, Trash2, Settings, Check, Sparkles, Key as KeyIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { campaignBots, type CampaignBot } from "@/lib/campaigns/client";
 import { bots, keys, orgConfig, type Bot, type ApiKey } from "@/lib/gateway/client";
 import { queues as pbxQueues, users as pbxUsers, type PbxQueue, type PbxUser } from "@/lib/pbx/client";
 import { toast } from "sonner";
@@ -31,6 +32,11 @@ export default function BotsPage() {
   const [savingDepts, setSavingDepts] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [botMode, setBotMode] = useState<"superhuman" | "astralite">("superhuman");
+  const [astraliteBots, setAstraliteBots] = useState<CampaignBot[]>([]);
+  const [astraliteLoading, setAstraliteLoading] = useState(false);
+  const [astraliteError, setAstraliteError] = useState("");
+  const [astraliteSearch, setAstraliteSearch] = useState("");
+  const [astraliteSort, setAstraliteSort] = useState<"updated_at" | "name">("updated_at");
 
   // Create Agent dialog
   const [createBotOpen, setCreateBotOpen] = useState(false);
@@ -54,6 +60,11 @@ export default function BotsPage() {
     loadAll();
     pbxQueues.list().then(setQueueList).catch(() => {});
   }, [orgId]);
+
+  useEffect(() => {
+    if (botMode !== "astralite") return;
+    loadAstraliteBots();
+  }, [botMode, orgId]);
 
   async function loadAll() {
     try {
@@ -253,6 +264,33 @@ export default function BotsPage() {
   }
 
   const isConnected = !!googleApiKey;
+  const filteredAstraliteBots = useMemo(() => {
+    const q = astraliteSearch.trim().toLowerCase();
+    const filtered = q
+      ? astraliteBots.filter((bot) => {
+          const keywords = Array.isArray(bot.keywords) ? bot.keywords.join(" ") : "";
+          return `${bot.name} ${keywords}`.toLowerCase().includes(q);
+        })
+      : astraliteBots;
+
+    return [...filtered].sort((a, b) => {
+      if (astraliteSort === "name") return a.name.localeCompare(b.name);
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+    });
+  }, [astraliteBots, astraliteSearch, astraliteSort]);
+
+  async function loadAstraliteBots() {
+    try {
+      setAstraliteLoading(true);
+      setAstraliteError("");
+      const res = await campaignBots.list(orgId);
+      setAstraliteBots(res.data);
+    } catch (e) {
+      setAstraliteError(e instanceof Error ? e.message : "Failed to load Astralite bots");
+    } finally {
+      setAstraliteLoading(false);
+    }
+  }
 
   return (
     <div className="p-3 md:p-6 space-y-8">
@@ -679,10 +717,91 @@ export default function BotsPage() {
               Create Bot
             </Button>
           </div>
-          <div className="rounded-lg border bg-muted/30 p-6">
-            <p className="text-sm font-medium">No Astralite bots yet.</p>
-            <p className="text-sm text-muted-foreground mt-1">Bot management will appear here.</p>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Input
+              value={astraliteSearch}
+              onChange={(e) => setAstraliteSearch(e.target.value)}
+              placeholder="Search by name or keyword"
+              className="sm:max-w-xs"
+            />
+            <Select value={astraliteSort} onValueChange={(v) => setAstraliteSort(v as "updated_at" | "name")}>
+              <SelectTrigger className="sm:w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="updated_at">Recently updated</SelectItem>
+                <SelectItem value="name">Name</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
+
+          {astraliteError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950">
+              <p className="text-sm text-red-600 dark:text-red-300">{astraliteError}</p>
+            </div>
+          )}
+
+          {astraliteLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="rounded-lg border p-4 space-y-2">
+                  <div className="h-4 bg-muted/60 rounded animate-pulse w-1/3" />
+                  <div className="h-3 bg-muted/60 rounded animate-pulse w-1/2" />
+                </div>
+              ))}
+            </div>
+          ) : astraliteBots.length === 0 ? (
+            <div className="rounded-lg border bg-muted/30 p-6">
+              <p className="text-sm font-medium">No Astralite bots yet.</p>
+              <p className="text-sm text-muted-foreground mt-1">Bot management will appear here.</p>
+            </div>
+          ) : filteredAstraliteBots.length === 0 ? (
+            <div className="rounded-lg border bg-muted/30 p-6">
+              <p className="text-sm font-medium">No matching bots.</p>
+              <p className="text-sm text-muted-foreground mt-1">Try a different name or keyword.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredAstraliteBots.map((bot) => (
+                <div key={bot.id} className="rounded-lg border p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">{bot.name}</p>
+                        <Badge variant="secondary">{bot.language}</Badge>
+                        <Badge variant={bot.intro_audio_path ? "default" : "outline"}>
+                          {bot.intro_audio_path ? "Audio ready" : "No audio"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground font-mono">{bot.id}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {bot.keywords.length > 0 ? (
+                          bot.keywords.map((keyword) => (
+                            <Badge key={keyword} variant="outline" className="text-xs">
+                              {keyword}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No keywords</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-sm sm:flex sm:items-center">
+                      <div className="rounded-md border bg-muted/20 px-3 py-2">
+                        <p className="text-[10px] uppercase text-muted-foreground">Timeout</p>
+                        <p className="font-medium">{bot.call_timeout}s</p>
+                      </div>
+                      <div className="rounded-md border bg-muted/20 px-3 py-2">
+                        <p className="text-[10px] uppercase text-muted-foreground">Max words</p>
+                        <p className="font-medium">{bot.max_words}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
       </div>
