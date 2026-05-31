@@ -12,10 +12,28 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { campaignBots, type CampaignBot } from "@/lib/campaigns/client";
+import { campaignBots, type CampaignBot, type CampaignBotInput } from "@/lib/campaigns/client";
 import { bots, keys, orgConfig, type Bot, type ApiKey } from "@/lib/gateway/client";
 import { queues as pbxQueues, users as pbxUsers, type PbxQueue, type PbxUser } from "@/lib/pbx/client";
 import { toast } from "sonner";
+
+interface AstraliteBotForm {
+  name: string;
+  language: string;
+  keywords: string;
+  max_words: string;
+  call_timeout: string;
+  webhook_url: string;
+}
+
+const defaultAstraliteForm: AstraliteBotForm = {
+  name: "",
+  language: "en",
+  keywords: "",
+  max_words: "3",
+  call_timeout: "20",
+  webhook_url: "",
+};
 
 export default function BotsPage() {
   const { orgId } = useParams<{ orgId: string }>();
@@ -37,6 +55,10 @@ export default function BotsPage() {
   const [astraliteError, setAstraliteError] = useState("");
   const [astraliteSearch, setAstraliteSearch] = useState("");
   const [astraliteSort, setAstraliteSort] = useState<"updated_at" | "name">("updated_at");
+  const [astraliteDialogOpen, setAstraliteDialogOpen] = useState(false);
+  const [astraliteEditingBot, setAstraliteEditingBot] = useState<CampaignBot | null>(null);
+  const [astraliteForm, setAstraliteForm] = useState<AstraliteBotForm>(defaultAstraliteForm);
+  const [astraliteSaving, setAstraliteSaving] = useState(false);
 
   // Create Agent dialog
   const [createBotOpen, setCreateBotOpen] = useState(false);
@@ -289,6 +311,63 @@ export default function BotsPage() {
       setAstraliteError(e instanceof Error ? e.message : "Failed to load Astralite bots");
     } finally {
       setAstraliteLoading(false);
+    }
+  }
+
+  function openCreateAstraliteBot() {
+    setAstraliteEditingBot(null);
+    setAstraliteForm(defaultAstraliteForm);
+    setAstraliteDialogOpen(true);
+  }
+
+  function openEditAstraliteBot(bot: CampaignBot) {
+    setAstraliteEditingBot(bot);
+    setAstraliteForm({
+      name: bot.name,
+      language: bot.language || "en",
+      keywords: Array.isArray(bot.keywords) ? bot.keywords.join(", ") : "",
+      max_words: String(bot.max_words ?? 3),
+      call_timeout: String(bot.call_timeout ?? 20),
+      webhook_url: bot.webhook_url || "",
+    });
+    setAstraliteDialogOpen(true);
+  }
+
+  function buildAstralitePayload(): CampaignBotInput {
+    return {
+      name: astraliteForm.name.trim(),
+      language: astraliteForm.language.trim() || "en",
+      keywords: astraliteForm.keywords
+        .split(",")
+        .map((keyword) => keyword.trim())
+        .filter(Boolean),
+      max_words: Math.max(1, Number(astraliteForm.max_words) || 3),
+      call_timeout: Math.max(1, Number(astraliteForm.call_timeout) || 20),
+      webhook_url: astraliteForm.webhook_url.trim() || null,
+    };
+  }
+
+  async function handleSaveAstraliteBot() {
+    if (!astraliteForm.name.trim()) {
+      toast.error("Bot name required");
+      return;
+    }
+    setAstraliteSaving(true);
+    try {
+      const data = buildAstralitePayload();
+      if (astraliteEditingBot) {
+        await campaignBots.update(orgId, astraliteEditingBot.id, data);
+        toast.success("Astralite bot updated");
+      } else {
+        await campaignBots.create(orgId, data);
+        toast.success("Astralite bot created");
+      }
+      setAstraliteDialogOpen(false);
+      await loadAstraliteBots();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save Astralite bot");
+    } finally {
+      setAstraliteSaving(false);
     }
   }
 
@@ -712,7 +791,7 @@ export default function BotsPage() {
               <h1 className="text-2xl font-semibold">Astralite Voice Bots</h1>
               <p className="text-sm text-muted-foreground mt-1">Create and manage campaign phone bots.</p>
             </div>
-            <Button size="sm">
+            <Button size="sm" onClick={openCreateAstraliteBot}>
               <Sparkles className="h-3.5 w-3.5 mr-1.5" />
               Create Bot
             </Button>
@@ -796,12 +875,87 @@ export default function BotsPage() {
                         <p className="text-[10px] uppercase text-muted-foreground">Max words</p>
                         <p className="font-medium">{bot.max_words}</p>
                       </div>
+                      <Button variant="outline" size="sm" onClick={() => openEditAstraliteBot(bot)}>
+                        Edit
+                      </Button>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
+
+          <Dialog open={astraliteDialogOpen} onOpenChange={setAstraliteDialogOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>{astraliteEditingBot ? "Edit Astralite Bot" : "Create Astralite Bot"}</DialogTitle>
+                <DialogDescription>Configure the campaign phone bot behavior.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                <div className="space-y-1.5">
+                  <Label>Name</Label>
+                  <Input
+                    value={astraliteForm.name}
+                    onChange={(e) => setAstraliteForm({ ...astraliteForm, name: e.target.value })}
+                    placeholder="e.g. Campaign Qualifier"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Language</Label>
+                    <Input
+                      value={astraliteForm.language}
+                      onChange={(e) => setAstraliteForm({ ...astraliteForm, language: e.target.value })}
+                      placeholder="en"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Max Words</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={astraliteForm.max_words}
+                      onChange={(e) => setAstraliteForm({ ...astraliteForm, max_words: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Call Timeout</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={astraliteForm.call_timeout}
+                    onChange={(e) => setAstraliteForm({ ...astraliteForm, call_timeout: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Keywords</Label>
+                  <Input
+                    value={astraliteForm.keywords}
+                    onChange={(e) => setAstraliteForm({ ...astraliteForm, keywords: e.target.value })}
+                    placeholder="yes, interested, pricing"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Separate keywords with commas.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Webhook URL (optional)</Label>
+                  <Input
+                    value={astraliteForm.webhook_url}
+                    onChange={(e) => setAstraliteForm({ ...astraliteForm, webhook_url: e.target.value })}
+                    placeholder="https://example.com/webhook"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setAstraliteDialogOpen(false)} disabled={astraliteSaving}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveAstraliteBot} disabled={astraliteSaving || !astraliteForm.name.trim()}>
+                  {astraliteSaving ? "Saving..." : astraliteEditingBot ? "Save Changes" : "Create Bot"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </section>
       )}
       </div>
