@@ -90,7 +90,7 @@ services:
       - asterisk_config:/etc/asterisk
       - asterisk_recordings:/var/spool/asterisk/monitor
     environment:
-      - SIP_HOST=${SIP_HOST:-164.68.118.13}
+      - SIP_HOST=${SIP_HOST:-}
       - ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
       - ASTRADIAL_TRUNK_HOST=${ASTRADIAL_TRUNK_HOST:-}
       - ASTRADIAL_TRUNK_USER=${ASTRADIAL_TRUNK_USER:-}
