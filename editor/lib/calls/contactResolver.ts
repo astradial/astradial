@@ -14,7 +14,7 @@
  *
  * Each step normalises by stripping non-digits and keeping the
  * trailing 10 digits — covers `9876543210`, `09876543210`,
- * `919876543210`, `+91-99444-21125` collapsing to the same key.
+ * `919876543210`, `+91-98765-43210` collapsing to the same key.
  */
 import type { CallContactsMap } from "@/lib/pbx/client";
 
@@ -49,7 +49,7 @@ export interface ContactResolver {
   queueByNumber: (num: string) => CallContactsMap["queues"][number] | undefined;
 }
 
-// "9876543210", "919876543210", "+91-99444-21125", "09876543210"
+// "9876543210", "919876543210", "+91-98765-43210", "09876543210"
 // all collapse to "9876543210" — the canonical 10-digit Indian key.
 function phoneKey(raw: string): string {
   const digits = raw.replace(/\D/g, "");
@@ -60,7 +60,7 @@ function phoneKey(raw: string): string {
   return digits.slice(-10);
 }
 
-// Pretty-print an Indian phone: "+91 99444 21125" from "9876543210"
+// Pretty-print an Indian phone: "+91 98765 43210" from "9876543210"
 // Falls back to whatever digits we have when length is non-standard.
 function formatIndian(raw: string): string {
   const d = raw.replace(/\D/g, "");

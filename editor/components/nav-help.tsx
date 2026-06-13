@@ -21,7 +21,7 @@ export function NavHelp({
   orgId: string;
 } & React.ComponentPropsWithoutRef<typeof SidebarGroup>) {
   function handleUrgentCall() {
-    if (typeof window !== "undefined") window.alert("For urgent issues, call: +91 99444 21125");
+    if (typeof window !== "undefined") window.alert("For urgent issues, please contact your administrator.");
   }
 
   return (

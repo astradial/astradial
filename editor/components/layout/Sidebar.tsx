@@ -287,7 +287,7 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
         <button
           onClick={() => {
             if (typeof window !== "undefined")
-              window.alert("For urgent issues, call: +91 99444 21125");
+              window.alert("For urgent issues, please contact your administrator.");
           }}
           className="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors w-full text-left"
         >

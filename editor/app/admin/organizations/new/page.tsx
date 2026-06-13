@@ -294,7 +294,7 @@ export default function CreateOrgPage() {
               <Input
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="+91 99444 21125"
+                placeholder="+91 98765 43210"
               />
             </div>
           </div>
