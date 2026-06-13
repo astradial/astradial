@@ -15,13 +15,12 @@
  * use the local provider (only NEXT_PUBLIC_PBX_URL needed).
  */
 
-import type { AuthProvider } from "./types";
 import { firebaseProvider } from "./providers/firebase";
 import { localProvider } from "./providers/local";
+import type { AuthProvider } from "./types";
 
-export const USE_FIREBASE =
-  (process.env.NEXT_PUBLIC_USE_FIREBASE || "").toLowerCase() === "true";
+export const USE_FIREBASE = (process.env.NEXT_PUBLIC_USE_FIREBASE || "").toLowerCase() === "true";
 
 export const auth: AuthProvider = USE_FIREBASE ? firebaseProvider : localProvider;
 
-export type { AuthProvider, AuthUser, SignInCredentials, AuthResult } from "./types";
+export type { AuthProvider, AuthResult, AuthUser, SignInCredentials } from "./types";

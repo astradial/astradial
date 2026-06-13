@@ -8,7 +8,6 @@ import { AlertCircle, Clock, Pause, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { TimelineItem } from "./TimelineItem";
 import {
   Select,
   SelectContent,
@@ -21,6 +20,8 @@ import {
 import { showToast } from "@/components/ui/Toast";
 import { leads as leadsApi } from "@/lib/campaigns/client";
 import type { CampaignEvent, CampaignLead, LeadStatus } from "@/lib/campaigns/types";
+
+import { TimelineItem } from "./TimelineItem";
 
 const TranscriptModal = lazy(() =>
   import("./TranscriptModal").then((m) => ({ default: m.TranscriptModal }))
@@ -70,8 +71,7 @@ export function LeadDrawer({ open, campaignId, leadId, onClose }: Props) {
   });
 
   const statusMut = useMutation({
-    mutationFn: (status: LeadStatus) =>
-      leadsApi.update(campaignId, leadId as string, { status }),
+    mutationFn: (status: LeadStatus) => leadsApi.update(campaignId, leadId as string, { status }),
     onMutate: async (status) => {
       await qc.cancelQueries({ queryKey: ["campaigns", campaignId, "leads", leadId] });
       const prev = qc.getQueryData<CampaignLead>(["campaigns", campaignId, "leads", leadId]);

@@ -1,29 +1,36 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  MiniMap,
-  addEdge,
-  useNodesState,
-  useEdgesState,
-  type Connection,
-  type Node,
-  type Edge,
-  type NodeTypes,
-  BackgroundVariant,
-} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+
+import {
+  addEdge,
+  Background,
+  BackgroundVariant,
+  type Connection,
+  Controls,
+  type Edge,
+  MiniMap,
+  type Node,
+  type NodeTypes,
+  ReactFlow,
+  useEdgesState,
+  useNodesState,
+} from "@xyflow/react";
 import { format } from "date-fns";
-import { Plus, Save, Play, History, ArrowLeft, Trash2, X, ChevronRight, ChevronLeft } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  History,
+  Play,
+  Plus,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +40,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -40,15 +50,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import { showToast } from "@/components/ui/Toast";
-import { workflows, type Workflow, type WorkflowExecution } from "@/lib/workflow/client";
 import { NodeConfigFields } from "@/components/workflows/NodeConfigFields";
-import { bots as gwBots, type Bot as GwBot } from "@/lib/gateway/client";
-import { dids as pbxDids, type PbxDid } from "@/lib/pbx/client";
-import { msg91 } from "@/lib/msg91/client";
-import { TriggerNode } from "@/components/workflows/nodes/TriggerNode";
 import { ActionNode } from "@/components/workflows/nodes/ActionNode";
 import { ConditionNode } from "@/components/workflows/nodes/ConditionNode";
+import { TriggerNode } from "@/components/workflows/nodes/TriggerNode";
+import { type Bot as GwBot, bots as gwBots } from "@/lib/gateway/client";
+import { msg91 } from "@/lib/msg91/client";
+import { dids as pbxDids, type PbxDid } from "@/lib/pbx/client";
+import { type Workflow, type WorkflowExecution, workflows } from "@/lib/workflow/client";
 
 const nodeTypes: NodeTypes = {
   trigger: TriggerNode,
@@ -90,24 +101,57 @@ export default function WorkflowEditorPage() {
   // Bots + DIDs + MSG91 for node config
   const [botList, setBotList] = useState<{ id: string; name: string; wss_url?: string }[]>([]);
   const [didList, setDidList] = useState<{ number: string; description?: string }[]>([]);
-  const [msg91Numbers, setMsg91Numbers] = useState<{ integrated_number?: string; number?: string }[]>([]);
-  const [msg91Templates, setMsg91Templates] = useState<{ name?: string; languages?: { language?: string; status?: string; variables?: string[] }[] }[]>([]);
+  const [msg91Numbers, setMsg91Numbers] = useState<
+    { integrated_number?: string; number?: string }[]
+  >([]);
+  const [msg91Templates, setMsg91Templates] = useState<
+    { name?: string; languages?: { language?: string; status?: string; variables?: string[] }[] }[]
+  >([]);
 
   useEffect(() => {
-    gwBots.list(orgId).then((b) => setBotList(b.map((bot) => ({
-      id: bot.id, name: bot.name,
-      wss_url: `wss://gateway.example.com/ws/${orgId}/${bot.id}`,
-    })))).catch(() => {});
-    pbxDids.list().then((d) => setDidList(d.filter((x) => x.status === "active").map((x) => ({
-      number: x.number, description: x.description,
-    })))).catch(() => {});
+    gwBots
+      .list(orgId)
+      .then((b) =>
+        setBotList(
+          b.map((bot) => ({
+            id: bot.id,
+            name: bot.name,
+            wss_url: `wss://gateway.example.com/ws/${orgId}/${bot.id}`,
+          }))
+        )
+      )
+      .catch(() => {});
+    pbxDids
+      .list()
+      .then((d) =>
+        setDidList(
+          d
+            .filter((x) => x.status === "active")
+            .map((x) => ({
+              number: x.number,
+              description: x.description,
+            }))
+        )
+      )
+      .catch(() => {});
     // MSG91 data
-    msg91.getNumbers(orgId).then((nums) => {
-      setMsg91Numbers(nums as { integrated_number?: string; number?: string }[]);
-      // Auto-fetch templates for first number
-      const firstNum = String((nums[0] as Record<string, unknown>)?.integrated_number || (nums[0] as Record<string, unknown>)?.number || "");
-      if (firstNum) msg91.getTemplates(orgId, firstNum).then((t) => setMsg91Templates(t as typeof msg91Templates)).catch(() => {});
-    }).catch(() => {});
+    msg91
+      .getNumbers(orgId)
+      .then((nums) => {
+        setMsg91Numbers(nums as { integrated_number?: string; number?: string }[]);
+        // Auto-fetch templates for first number
+        const firstNum = String(
+          (nums[0] as Record<string, unknown>)?.integrated_number ||
+            (nums[0] as Record<string, unknown>)?.number ||
+            ""
+        );
+        if (firstNum)
+          msg91
+            .getTemplates(orgId, firstNum)
+            .then((t) => setMsg91Templates(t as typeof msg91Templates))
+            .catch(() => {});
+      })
+      .catch(() => {});
   }, [orgId]);
 
   // Resizable panel state
@@ -163,19 +207,25 @@ export default function WorkflowEditorPage() {
             id: "trigger",
             type: "trigger",
             position: { x: 250, y: 50 },
-            data: { label: `Trigger: ${wf.trigger_type}`, config: { ...wf.trigger_config, triggerType: wf.trigger_type }, triggerType: wf.trigger_type },
+            data: {
+              label: `Trigger: ${wf.trigger_type}`,
+              config: { ...wf.trigger_config, triggerType: wf.trigger_type },
+              triggerType: wf.trigger_type,
+            },
           });
         }
 
         setNodes(rfNodes);
-        setEdges((wf.edges || []).map((e) => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          label: e.label,
-          animated: true,
-          style: { strokeWidth: 2 },
-        })));
+        setEdges(
+          (wf.edges || []).map((e) => ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            label: e.label,
+            animated: true,
+            style: { strokeWidth: 2 },
+          }))
+        );
       } catch (e) {
         showToast("Failed to load workflow", "error");
       }
@@ -193,27 +243,43 @@ export default function WorkflowEditorPage() {
     setNodes((nds) =>
       nds.map((n) =>
         n.id === nodeId
-          ? { ...n, data: { ...n.data, config: { ...(n.data.config as Record<string, unknown> || {}), [key]: value } } }
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                config: { ...((n.data.config as Record<string, unknown>) || {}), [key]: value },
+              },
+            }
           : n
       )
     );
     // Update selected node reference
-    setSelectedNode((prev) => prev && prev.id === nodeId
-      ? { ...prev, data: { ...prev.data, config: { ...(prev.data.config as Record<string, unknown> || {}), [key]: value } } }
-      : prev
+    setSelectedNode((prev) =>
+      prev && prev.id === nodeId
+        ? {
+            ...prev,
+            data: {
+              ...prev.data,
+              config: { ...((prev.data.config as Record<string, unknown>) || {}), [key]: value },
+            },
+          }
+        : prev
     );
   }
 
   function updateNodeLabel(nodeId: string, label: string) {
-    setNodes((nds) =>
-      nds.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, label } } : n)
+    setNodes((nds) => nds.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, label } } : n)));
+    setSelectedNode((prev) =>
+      prev && prev.id === nodeId ? { ...prev, data: { ...prev.data, label } } : prev
     );
-    setSelectedNode((prev) => prev && prev.id === nodeId ? { ...prev, data: { ...prev.data, label } } : prev);
   }
 
-  const onConnect = useCallback((connection: Connection) => {
-    setEdges((eds) => addEdge({ ...connection, animated: true, style: { strokeWidth: 2 } }, eds));
-  }, [setEdges]);
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      setEdges((eds) => addEdge({ ...connection, animated: true, style: { strokeWidth: 2 } }, eds));
+    },
+    [setEdges]
+  );
 
   // Add node
   function addNode(type: string, label: string) {
@@ -235,7 +301,13 @@ export default function WorkflowEditorPage() {
     if (lastNode) {
       setEdges((eds) => [
         ...eds,
-        { id: `e_${lastNode.id}_${id}`, source: lastNode.id, target: id, animated: true, style: { strokeWidth: 2 } },
+        {
+          id: `e_${lastNode.id}_${id}`,
+          source: lastNode.id,
+          target: id,
+          animated: true,
+          style: { strokeWidth: 2 },
+        },
       ]);
     }
   }
@@ -293,9 +365,12 @@ export default function WorkflowEditorPage() {
   function getTriggerFields(): string[] {
     const triggerNode = nodes.find((n) => n.type === "trigger");
     if (!triggerNode) return [];
-    const config = triggerNode.data?.config as Record<string, string> || {};
+    const config = (triggerNode.data?.config as Record<string, string>) || {};
     const fieldsStr = config.expected_fields || "";
-    return fieldsStr.split(",").map((f: string) => f.trim()).filter(Boolean);
+    return fieldsStr
+      .split(",")
+      .map((f: string) => f.trim())
+      .filter(Boolean);
   }
 
   // Toggle active/pause
@@ -323,20 +398,34 @@ export default function WorkflowEditorPage() {
       {/* Top bar */}
       <div className="flex items-center justify-between border-b px-3 py-1.5 bg-background z-50 shrink-0">
         <div className="flex items-center gap-3">
-          <Link href={`/dashboard/${orgId}/workflows`} className="text-muted-foreground hover:text-foreground">
+          <Link
+            href={`/dashboard/${orgId}/workflows`}
+            className="text-muted-foreground hover:text-foreground"
+          >
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <span className="font-medium text-sm">{workflow?.name || "Loading..."}</span>
-          <Badge variant="outline" className="text-xs">{workflow?.trigger_type}</Badge>
+          <Badge variant="outline" className="text-xs">
+            {workflow?.trigger_type}
+          </Badge>
           <div className="flex items-center gap-1.5">
-            <Switch checked={workflow?.is_active ?? true} onCheckedChange={toggleActive} className="scale-75" />
-            <span className="text-xs text-muted-foreground">{workflow?.is_active ? "Active" : "Paused"}</span>
+            <Switch
+              checked={workflow?.is_active ?? true}
+              onCheckedChange={toggleActive}
+              className="scale-75"
+            />
+            <span className="text-xs text-muted-foreground">
+              {workflow?.is_active ? "Active" : "Paused"}
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm"><Plus className="h-3.5 w-3.5 mr-1" />Add Node</Button>
+              <Button variant="outline" size="sm">
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Add Node
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {NODE_TEMPLATES.map((t) => (
@@ -347,13 +436,16 @@ export default function WorkflowEditorPage() {
             </DropdownMenuContent>
           </DropdownMenu>
           <Button variant="outline" size="sm" onClick={loadExecutions}>
-            <History className="h-3.5 w-3.5 mr-1" />Runs
+            <History className="h-3.5 w-3.5 mr-1" />
+            Runs
           </Button>
           <Button variant="outline" size="sm" onClick={handleTestRun}>
-            <Play className="h-3.5 w-3.5 mr-1" />Test
+            <Play className="h-3.5 w-3.5 mr-1" />
+            Test
           </Button>
           <Button size="sm" onClick={handleSave} disabled={saving}>
-            <Save className="h-3.5 w-3.5 mr-1" />{saving ? "Saving..." : "Save"}
+            <Save className="h-3.5 w-3.5 mr-1" />
+            {saving ? "Saving..." : "Save"}
           </Button>
         </div>
       </div>
@@ -370,7 +462,11 @@ export default function WorkflowEditorPage() {
             onConnect={onConnect}
             onNodeClick={onNodeClick}
             onEdgeClick={(_: unknown, edge: Edge) => {
-              if (confirm(`Delete connection from "${nodes.find(n => n.id === edge.source)?.data?.label || edge.source}" to "${nodes.find(n => n.id === edge.target)?.data?.label || edge.target}"?`)) {
+              if (
+                confirm(
+                  `Delete connection from "${nodes.find((n) => n.id === edge.source)?.data?.label || edge.source}" to "${nodes.find((n) => n.id === edge.target)?.data?.label || edge.target}"?`
+                )
+              ) {
                 setEdges((eds) => eds.filter((e) => e.id !== edge.id));
               }
             }}
@@ -379,18 +475,24 @@ export default function WorkflowEditorPage() {
             fitView
             deleteKeyCode={["Delete", "Backspace"]}
             edgesFocusable
-            defaultEdgeOptions={{ style: { strokeWidth: 2, cursor: "pointer" }, interactionWidth: 20 }}
+            defaultEdgeOptions={{
+              style: { strokeWidth: 2, cursor: "pointer" },
+              interactionWidth: 20,
+            }}
             className="bg-background"
           >
-            <Background variant={BackgroundVariant.Dots} gap={16} size={1} className="!bg-background" />
+            <Background
+              variant={BackgroundVariant.Dots}
+              gap={16}
+              size={1}
+              className="!bg-background"
+            />
             <Controls className="!bg-card !border-border !shadow-sm" />
             <MiniMap className="!bg-card !border-border" />
           </ReactFlow>
 
           {/* Drag overlay — prevents React Flow from stealing mouse during resize */}
-          {isDraggingResize && (
-            <div className="absolute inset-0 z-50 cursor-col-resize" />
-          )}
+          {isDraggingResize && <div className="absolute inset-0 z-50 cursor-col-resize" />}
         </div>
 
         {/* Resize handle — sits between canvas and panel as a flex sibling */}
@@ -406,7 +508,10 @@ export default function WorkflowEditorPage() {
             {!isDraggingResize && (
               <button
                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded-full border bg-background opacity-0 shadow-sm transition-opacity hover:bg-muted group-hover:opacity-100 z-10"
-                onClick={(e) => { e.stopPropagation(); setPanelCollapsed(true); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPanelCollapsed(true);
+                }}
                 onMouseDown={(e) => e.stopPropagation()}
                 type="button"
               >
@@ -437,10 +542,23 @@ export default function WorkflowEditorPage() {
             <div className="flex items-center justify-between border-b px-4 py-2.5 shrink-0">
               <h3 className="text-sm font-semibold">Node Properties</h3>
               <div className="flex gap-1">
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" onClick={() => { deleteNode(selectedNode.id); setSelectedNode(null); }}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-destructive"
+                  onClick={() => {
+                    deleteNode(selectedNode.id);
+                    setSelectedNode(null);
+                  }}
+                >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setSelectedNode(null)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={() => setSelectedNode(null)}
+                >
                   <X className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -458,7 +576,10 @@ export default function WorkflowEditorPage() {
               </div>
 
               <div className="text-xs text-muted-foreground">
-                Type: <Badge variant="outline" className="text-[10px] ml-1">{selectedNode.type}</Badge>
+                Type:{" "}
+                <Badge variant="outline" className="text-[10px] ml-1">
+                  {selectedNode.type}
+                </Badge>
               </div>
 
               <Separator />
@@ -488,31 +609,45 @@ export default function WorkflowEditorPage() {
           <div className="mt-4 space-y-3 max-h-[80vh] overflow-y-auto">
             {executions.length === 0 ? (
               <p className="text-sm text-muted-foreground">No executions yet</p>
-            ) : executions.map((ex) => (
-              <div key={ex.id} className="border rounded-lg p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <Badge variant={ex.status === "completed" ? "default" : ex.status === "failed" ? "destructive" : "secondary"} className="text-xs">
-                    {ex.status}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {format(new Date(ex.started_at), "MMM d, h:mm a")}
-                  </span>
-                </div>
-                {ex.error && <p className="text-xs text-destructive">{ex.error}</p>}
-                {Array.isArray(ex.steps) && ex.steps.length > 0 && (
-                  <div className="space-y-1">
-                    {(ex.steps as Array<Record<string, unknown>>).map((step, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <Badge variant={step.status === "completed" ? "default" : "secondary"} className="text-[10px] h-4">
-                          {String(step.status)}
-                        </Badge>
-                        <span>{String(step.node_label || step.node_type)}</span>
-                      </div>
-                    ))}
+            ) : (
+              executions.map((ex) => (
+                <div key={ex.id} className="border rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Badge
+                      variant={
+                        ex.status === "completed"
+                          ? "default"
+                          : ex.status === "failed"
+                            ? "destructive"
+                            : "secondary"
+                      }
+                      className="text-xs"
+                    >
+                      {ex.status}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {format(new Date(ex.started_at), "MMM d, h:mm a")}
+                    </span>
                   </div>
-                )}
-              </div>
-            ))}
+                  {ex.error && <p className="text-xs text-destructive">{ex.error}</p>}
+                  {Array.isArray(ex.steps) && ex.steps.length > 0 && (
+                    <div className="space-y-1">
+                      {(ex.steps as Array<Record<string, unknown>>).map((step, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          <Badge
+                            variant={step.status === "completed" ? "default" : "secondary"}
+                            className="text-[10px] h-4"
+                          >
+                            {String(step.status)}
+                          </Badge>
+                          <span>{String(step.node_label || step.node_type)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </SheetContent>
       </Sheet>

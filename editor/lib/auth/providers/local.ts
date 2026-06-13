@@ -9,12 +9,7 @@
  * No external dependencies (no Firebase project required).
  */
 
-import type {
-  AuthProvider,
-  AuthResult,
-  AuthUser,
-  SignInCredentials,
-} from "../types";
+import type { AuthProvider, AuthResult, AuthUser, SignInCredentials } from "../types";
 
 const TOKEN_KEY = "pbx_org_token";
 const USER_KEY = "pbx_local_auth_user";
@@ -44,7 +39,11 @@ function persistUser(user: AuthUser | null, token?: string) {
   }
   // Notify all subscribers synchronously after persistence
   for (const l of listeners) {
-    try { l(user); } catch { /* ignore listener errors */ }
+    try {
+      l(user);
+    } catch {
+      /* ignore listener errors */
+    }
   }
 }
 
@@ -63,7 +62,7 @@ export const localProvider: AuthProvider = {
     const apiSecret = credentials.apiSecret;
     if (!apiKey || !apiSecret) {
       throw new Error(
-        "Local auth mode: api_key and api_secret are required. Find them via the editor admin or the org-creation response.",
+        "Local auth mode: api_key and api_secret are required. Find them via the editor admin or the org-creation response."
       );
     }
 
@@ -78,7 +77,9 @@ export const localProvider: AuthProvider = {
       try {
         const body = await r.json();
         detail = body.error || body.detail || detail;
-      } catch { /* body wasn't JSON */ }
+      } catch {
+        /* body wasn't JSON */
+      }
       throw new Error(detail);
     }
 
@@ -106,7 +107,11 @@ export const localProvider: AuthProvider = {
     // Emit current state asynchronously so the subscriber can finish
     // setting up before the callback fires (matches Firebase's behaviour).
     queueMicrotask(() => {
-      try { callback(getUserFromStorage()); } catch { /* ignore */ }
+      try {
+        callback(getUserFromStorage());
+      } catch {
+        /* ignore */
+      }
     });
     return () => {
       listeners.delete(callback);

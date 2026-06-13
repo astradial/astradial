@@ -5,14 +5,14 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import LogsPanel from "@/components/LogsPanel";
+import { Button } from "@/components/ui/button";
 import { reactFlowToFlowJson } from "@/lib/convert/flowAdapters";
 import { flowJsonToReactFlow } from "@/lib/convert/flowAdapters";
-import { bots, type Bot } from "@/lib/gateway/client";
+import { type Bot, bots } from "@/lib/gateway/client";
 import type { FlowJson } from "@/lib/schema/flow.schema";
-import { saveCurrent, loadCurrent } from "@/lib/storage/localStore";
-import type { FlowNode, FlowEdge } from "@/lib/types/flowTypes";
+import { loadCurrent, saveCurrent } from "@/lib/storage/localStore";
+import type { FlowEdge, FlowNode } from "@/lib/types/flowTypes";
 
 const EditorShell = dynamic(() => import("@/components/EditorShell"), { ssr: false });
 
@@ -67,10 +67,14 @@ export default function BotEditorPage() {
       const original = (latestBot?.flow_json || bot?.flow_json) as Record<string, unknown> | null;
       if (original) {
         if (original.meta) flowJson.meta = original.meta as typeof flowJson.meta;
-        if (original.value_maps) (flowJson as Record<string, unknown>).value_maps = original.value_maps;
-        if (original.idle_config) (flowJson as Record<string, unknown>).idle_config = original.idle_config;
+        if (original.value_maps)
+          (flowJson as Record<string, unknown>).value_maps = original.value_maps;
+        if (original.idle_config)
+          (flowJson as Record<string, unknown>).idle_config = original.idle_config;
       }
-      await bots.update(orgId, botId, { flow_json: flowJson as unknown as Record<string, unknown> });
+      await bots.update(orgId, botId, {
+        flow_json: flowJson as unknown as Record<string, unknown>,
+      });
       setStatus("Saved!");
       setTimeout(() => setStatus(""), 2000);
     } catch (e) {
@@ -93,7 +97,11 @@ export default function BotEditorPage() {
   }, [handleSave]);
 
   if (!loaded) {
-    return <div className="flex h-full items-center justify-center bg-background text-foreground">Loading bot...</div>;
+    return (
+      <div className="flex h-full items-center justify-center bg-background text-foreground">
+        Loading bot...
+      </div>
+    );
   }
 
   return (
@@ -103,7 +111,12 @@ export default function BotEditorPage() {
       {/* Top bar */}
       <div className="flex items-center justify-between border-b px-3 py-1.5 bg-background z-50">
         <div className="flex items-center gap-3">
-          <Link href={`/dashboard/${orgId}`} className="text-muted-foreground hover:text-foreground text-sm">&larr; Back</Link>
+          <Link
+            href={`/dashboard/${orgId}`}
+            className="text-muted-foreground hover:text-foreground text-sm"
+          >
+            &larr; Back
+          </Link>
           <span className="font-medium text-sm">{bot?.name}</span>
           {bot?.extension && (
             <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 px-2 py-0.5 rounded-full font-mono">

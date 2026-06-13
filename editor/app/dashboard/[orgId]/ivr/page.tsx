@@ -1,19 +1,22 @@
 "use client";
 
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Edit3,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Plus, MoreHorizontal, Trash2, Edit3, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -46,14 +50,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
-import { Switch } from "@/components/ui/switch";
 import { showToast } from "@/components/ui/Toast";
-import {
-  ivrs,
-  tts,
-  type Ivr,
-  type TtsVoiceGroup,
-} from "@/lib/pbx/client";
+import { type Ivr, ivrs, tts, type TtsVoiceGroup } from "@/lib/pbx/client";
 
 export default function IvrListPage() {
   const { orgId } = useParams<{ orgId: string }>();
@@ -96,8 +94,7 @@ export default function IvrListPage() {
     }
   }
 
-  const voicesForLang = (lang: string) =>
-    voices.find((v) => v.language === lang)?.voices ?? [];
+  const voicesForLang = (lang: string) => voices.find((v) => v.language === lang)?.voices ?? [];
 
   async function handleCreate() {
     if (!form.name.trim() || !form.extension.trim()) {
@@ -153,136 +150,168 @@ export default function IvrListPage() {
         </Button>
       </div>
 
-        <CardContent>
-          {loading ? (
-            <Table>
-              <TableBody>
-                <TableSkeleton rows={3} cols={6} />
-              </TableBody>
-            </Table>
-          ) : list.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <p className="mb-4">No IVRs yet.</p>
-              <Button onClick={() => setCreateOpen(true)} variant="outline">
-                <Plus className="h-4 w-4 mr-2" />
-                Create your first IVR
-              </Button>
-            </div>
-          ) : (
-            <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
-              <div className="overflow-auto flex-1 relative">
-                <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
-                    <TableRow className="border-b-border/50 hover:bg-transparent">
-                  <TableHead>Name</TableHead>
-                  <TableHead>Extension</TableHead>
-                  <TableHead>Language</TableHead>
-                  <TableHead>Options</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-12" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {list.slice((page - 1) * pageSize, page * pageSize).map((ivr) => (
-                  <TableRow key={ivr.id}>
-                    <TableCell className="font-medium">
-                      <Link
-                        href={`/dashboard/${orgId}/ivr/${ivr.id}`}
-                        className="hover:underline"
-                      >
-                        {ivr.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="tabular-nums">{ivr.extension}</TableCell>
-                    <TableCell>
-                      <span className="text-xs text-muted-foreground">
-                        {ivr.greeting_language}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {ivr.menuOptions?.length ?? 0} option
-                      {(ivr.menuOptions?.length ?? 0) === 1 ? "" : "s"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={ivr.status === "active" ? "default" : "secondary"}>
-                        {ivr.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/dashboard/${orgId}/ivr/${ivr.id}`}>
-                              <Edit3 className="h-4 w-4 mr-2" />
-                              Open builder
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDelete(ivr)}
-                            className="text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+      <CardContent>
+        {loading ? (
+          <Table>
+            <TableBody>
+              <TableSkeleton rows={3} cols={6} />
+            </TableBody>
+          </Table>
+        ) : list.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p className="mb-4">No IVRs yet.</p>
+            <Button onClick={() => setCreateOpen(true)} variant="outline">
+              <Plus className="h-4 w-4 mr-2" />
+              Create your first IVR
+            </Button>
+          </div>
+        ) : (
+          <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
+            <div className="overflow-auto flex-1 relative">
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                  <TableRow className="border-b-border/50 hover:bg-transparent">
+                    <TableHead>Name</TableHead>
+                    <TableHead>Extension</TableHead>
+                    <TableHead>Language</TableHead>
+                    <TableHead>Options</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="w-12" />
                   </TableRow>
-                ))}
+                </TableHeader>
+                <TableBody>
+                  {list.slice((page - 1) * pageSize, page * pageSize).map((ivr) => (
+                    <TableRow key={ivr.id}>
+                      <TableCell className="font-medium">
+                        <Link
+                          href={`/dashboard/${orgId}/ivr/${ivr.id}`}
+                          className="hover:underline"
+                        >
+                          {ivr.name}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="tabular-nums">{ivr.extension}</TableCell>
+                      <TableCell>
+                        <span className="text-xs text-muted-foreground">
+                          {ivr.greeting_language}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        {ivr.menuOptions?.length ?? 0} option
+                        {(ivr.menuOptions?.length ?? 0) === 1 ? "" : "s"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={ivr.status === "active" ? "default" : "secondary"}>
+                          {ivr.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                              <Link href={`/dashboard/${orgId}/ivr/${ivr.id}`}>
+                                <Edit3 className="h-4 w-4 mr-2" />
+                                Open builder
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleDelete(ivr)}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
-              </div>
-              {list.length > 10 && (
-                <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
-                  <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
-                    Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, list.length)} of {list.length} entries
+            </div>
+            {list.length > 10 && (
+              <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
+                <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+                  Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, list.length)} of{" "}
+                  {list.length} entries
+                </div>
+                <div className="flex w-full items-center gap-8 lg:w-fit">
+                  <div className="hidden items-center gap-2 lg:flex">
+                    <Label className="text-sm font-medium">Rows per page</Label>
+                    <Select
+                      value={`${pageSize}`}
+                      onValueChange={(value) => {
+                        setPageSize(Number(value));
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="w-20">
+                        <SelectValue placeholder={pageSize} />
+                      </SelectTrigger>
+                      <SelectContent side="top">
+                        {[10, 20, 30, 40, 50].map((size) => (
+                          <SelectItem key={size} value={`${size}`}>
+                            {size}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="flex w-full items-center gap-8 lg:w-fit">
-                    <div className="hidden items-center gap-2 lg:flex">
-                      <Label className="text-sm font-medium">Rows per page</Label>
-                      <Select value={`${pageSize}`} onValueChange={(value) => { setPageSize(Number(value)); setPage(1); }}>
-                        <SelectTrigger className="w-20">
-                          <SelectValue placeholder={pageSize} />
-                        </SelectTrigger>
-                        <SelectContent side="top">
-                          {[10, 20, 30, 40, 50].map((size) => (
-                            <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex w-fit items-center justify-center text-sm font-medium">
-                      Page {page} of {Math.ceil(list.length / pageSize) || 1}
-                    </div>
-                    <div className="ml-auto flex items-center gap-2 lg:ml-0">
-                      <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => setPage(1)} disabled={page <= 1}>
-                        <span className="sr-only">Go to first page</span>
-                        <ChevronsLeft className="size-4" />
-                      </Button>
-                      <Button variant="outline" className="size-8" size="icon" onClick={() => setPage(p => p - 1)} disabled={page <= 1}>
-                        <span className="sr-only">Go to previous page</span>
-                        <ChevronLeft className="size-4" />
-                      </Button>
-                      <Button variant="outline" className="size-8" size="icon" onClick={() => setPage(p => p + 1)} disabled={page * pageSize >= list.length}>
-                        <span className="sr-only">Go to next page</span>
-                        <ChevronRight className="size-4" />
-                      </Button>
-                      <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => setPage(Math.ceil(list.length / pageSize))} disabled={page * pageSize >= list.length}>
-                        <span className="sr-only">Go to last page</span>
-                        <ChevronsRight className="size-4" />
-                      </Button>
-                    </div>
+                  <div className="flex w-fit items-center justify-center text-sm font-medium">
+                    Page {page} of {Math.ceil(list.length / pageSize) || 1}
+                  </div>
+                  <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                    <Button
+                      variant="outline"
+                      className="hidden h-8 w-8 p-0 lg:flex"
+                      onClick={() => setPage(1)}
+                      disabled={page <= 1}
+                    >
+                      <span className="sr-only">Go to first page</span>
+                      <ChevronsLeft className="size-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="size-8"
+                      size="icon"
+                      onClick={() => setPage((p) => p - 1)}
+                      disabled={page <= 1}
+                    >
+                      <span className="sr-only">Go to previous page</span>
+                      <ChevronLeft className="size-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="size-8"
+                      size="icon"
+                      onClick={() => setPage((p) => p + 1)}
+                      disabled={page * pageSize >= list.length}
+                    >
+                      <span className="sr-only">Go to next page</span>
+                      <ChevronRight className="size-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="hidden size-8 lg:flex"
+                      size="icon"
+                      onClick={() => setPage(Math.ceil(list.length / pageSize))}
+                      disabled={page * pageSize >= list.length}
+                    >
+                      <span className="sr-only">Go to last page</span>
+                      <ChevronsRight className="size-4" />
+                    </Button>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-        </CardContent>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
 
       {/* Create IVR dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -290,8 +319,7 @@ export default function IvrListPage() {
           <DialogHeader>
             <DialogTitle>Create IVR</DialogTitle>
             <DialogDescription>
-              The greeting and menu options can be configured in the builder
-              after creation.
+              The greeting and menu options can be configured in the builder after creation.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -310,9 +338,7 @@ export default function IvrListPage() {
                 <Input
                   id="ivr-ext"
                   value={form.extension}
-                  onChange={(e) =>
-                    setForm({ ...form, extension: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, extension: e.target.value })}
                   placeholder="7001"
                 />
               </div>
@@ -322,9 +348,7 @@ export default function IvrListPage() {
                   id="ivr-timeout"
                   type="number"
                   value={form.timeout}
-                  onChange={(e) =>
-                    setForm({ ...form, timeout: Number(e.target.value) || 10 })
-                  }
+                  onChange={(e) => setForm({ ...form, timeout: Number(e.target.value) || 10 })}
                 />
               </div>
             </div>
@@ -383,9 +407,7 @@ export default function IvrListPage() {
               <Switch
                 id="direct-dial"
                 checked={form.enable_direct_dial}
-                onCheckedChange={(c) =>
-                  setForm({ ...form, enable_direct_dial: c })
-                }
+                onCheckedChange={(c) => setForm({ ...form, enable_direct_dial: c })}
               />
             </div>
           </div>

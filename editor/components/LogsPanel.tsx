@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import { bots } from "@/lib/gateway/client";
 
 interface LogsPanelProps {
@@ -65,26 +66,26 @@ export default function LogsPanel({ orgId, botId, onClose }: LogsPanelProps) {
       if (cancelled) return;
       es = new EventSource(url);
 
-    es.onopen = () => setConnected(true);
+      es.onopen = () => setConnected(true);
 
-    es.onmessage = (event) => {
-      const text = event.data;
-      if (!text) return;
-      const entry: LogLine = {
-        id: ++lineIdCounter,
-        text,
-        category: categorize(text),
+      es.onmessage = (event) => {
+        const text = event.data;
+        if (!text) return;
+        const entry: LogLine = {
+          id: ++lineIdCounter,
+          text,
+          category: categorize(text),
+        };
+        setLines((prev) => {
+          const next = [...prev, entry];
+          if (next.length > MAX_LINES) {
+            return next.slice(next.length - MAX_LINES);
+          }
+          return next;
+        });
       };
-      setLines((prev) => {
-        const next = [...prev, entry];
-        if (next.length > MAX_LINES) {
-          return next.slice(next.length - MAX_LINES);
-        }
-        return next;
-      });
-    };
 
-    es.onerror = () => setConnected(false);
+      es.onerror = () => setConnected(false);
     }
 
     connect();
@@ -138,11 +139,12 @@ export default function LogsPanel({ orgId, botId, onClose }: LogsPanelProps) {
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-1 font-mono text-xs leading-5"
       >
-        {lines.length === 0 && (
-          <div className="text-gray-600 py-2">Waiting for log entries...</div>
-        )}
+        {lines.length === 0 && <div className="text-gray-600 py-2">Waiting for log entries...</div>}
         {lines.map((line) => (
-          <div key={line.id} className={`whitespace-pre-wrap break-all ${categoryColors[line.category]}`}>
+          <div
+            key={line.id}
+            className={`whitespace-pre-wrap break-all ${categoryColors[line.category]}`}
+          >
             {line.text}
           </div>
         ))}

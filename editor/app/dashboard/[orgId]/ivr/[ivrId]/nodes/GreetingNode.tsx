@@ -1,7 +1,7 @@
 "use client";
 
-import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Volume2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Handle, type NodeProps, Position } from "@xyflow/react";
+import { AlertCircle, CheckCircle2, Volume2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 
@@ -18,9 +18,7 @@ export default function GreetingNode({ data, selected }: NodeProps) {
   return (
     <div
       className={`rounded-lg border-2 bg-white dark:bg-neutral-800 shadow-sm min-w-[240px] max-w-[280px] ${
-        selected
-          ? "border-blue-500"
-          : "border-neutral-300 dark:border-neutral-600"
+        selected ? "border-blue-500" : "border-neutral-300 dark:border-neutral-600"
       }`}
     >
       <Handle type="target" position={Position.Left} className="bg-neutral-400!" />
@@ -45,20 +43,12 @@ export default function GreetingNode({ data, selected }: NodeProps) {
           </span>
         </div>
         {d.text ? (
-          <div className="text-xs text-muted-foreground line-clamp-3 leading-snug">
-            {d.text}
-          </div>
+          <div className="text-xs text-muted-foreground line-clamp-3 leading-snug">{d.text}</div>
         ) : (
-          <div className="text-xs italic text-muted-foreground">
-            No greeting text yet
-          </div>
+          <div className="text-xs italic text-muted-foreground">No greeting text yet</div>
         )}
       </div>
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="bg-neutral-400!"
-      />
+      <Handle type="source" position={Position.Right} className="bg-neutral-400!" />
     </div>
   );
 }

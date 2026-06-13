@@ -5,7 +5,6 @@ import { useId } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -13,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ActionJson } from "@/lib/schema/flow.schema";
 
@@ -110,7 +110,11 @@ export function ActionItem({ action, index, onUpdate, onRemove }: ActionItemProp
             <Textarea
               id={actionBodyId}
               className="text-xs font-mono min-h-[80px]"
-              value={typeof action.body === "object" ? JSON.stringify(action.body, null, 2) : (action.body ?? "")}
+              value={
+                typeof action.body === "object"
+                  ? JSON.stringify(action.body, null, 2)
+                  : (action.body ?? "")
+              }
               onChange={(e) => {
                 try {
                   const parsed = JSON.parse(e.target.value);
@@ -120,17 +124,23 @@ export function ActionItem({ action, index, onUpdate, onRemove }: ActionItemProp
                   onUpdate({ body: e.target.value as any });
                 }
               }}
-              placeholder={'{\n  "destination": "{state.queue_number}",\n  "destination_type": "queue"\n}'}
+              placeholder={
+                '{\n  "destination": "{state.queue_number}",\n  "destination_type": "queue"\n}'
+              }
             />
             <p className="text-[10px] text-muted-foreground mt-1">
-              Templates: {"{call.channel_id}"}, {"{state.xxx}"}, {"{args.xxx}"}, {"{value_map.name.key}"}
+              Templates: {"{call.channel_id}"}, {"{state.xxx}"}, {"{args.xxx}"},{" "}
+              {"{value_map.name.key}"}
             </p>
           </div>
           <div>
             <label htmlFor={actionAuthId} className="text-xs text-muted-foreground mb-1 block">
               Auth Mode
             </label>
-            <Select value={action.auth ?? ""} onValueChange={(v) => onUpdate({ auth: v || undefined })}>
+            <Select
+              value={action.auth ?? ""}
+              onValueChange={(v) => onUpdate({ auth: v || undefined })}
+            >
               <SelectTrigger id={actionAuthId} className="h-8 text-xs">
                 <SelectValue placeholder="None" />
               </SelectTrigger>

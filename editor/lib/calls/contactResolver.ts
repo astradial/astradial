@@ -19,18 +19,18 @@
 import type { CallContactsMap } from "@/lib/pbx/client";
 
 export type ResolvedKind =
-  | "queue"        // matched a queue.number
-  | "user-ext"     // matched a user.extension
-  | "user-phone"   // matched a user.phone_number (personal mobile)
-  | "did"          // matched a registered DID
-  | "external"    // no match — formatted PSTN number
-  | "unknown";    // empty / unparseable input
+  | "queue" // matched a queue.number
+  | "user-ext" // matched a user.extension
+  | "user-phone" // matched a user.phone_number (personal mobile)
+  | "did" // matched a registered DID
+  | "external" // no match — formatted PSTN number
+  | "unknown"; // empty / unparseable input
 
 export interface ResolvedContact {
   kind: ResolvedKind;
-  primary: string;          // big label (e.g. "Girija R" or "+91 63821 36190")
-  secondary?: string;       // small dim label (e.g. "ext 1009", "Personal mobile")
-  raw: string;              // the original input (for tooltip / copy)
+  primary: string; // big label (e.g. "Girija R" or "+91 63821 36190")
+  secondary?: string; // small dim label (e.g. "ext 1009", "Personal mobile")
+  raw: string; // the original input (for tooltip / copy)
   // Optional metadata for the expanded row's contact card.
   user?: CallContactsMap["users"][number];
   queue?: CallContactsMap["queues"][number];
@@ -38,7 +38,10 @@ export interface ResolvedContact {
 }
 
 export interface ContactResolver {
-  resolve: (raw: string | null | undefined, opts?: { callerIdName?: string | null }) => ResolvedContact;
+  resolve: (
+    raw: string | null | undefined,
+    opts?: { callerIdName?: string | null }
+  ) => ResolvedContact;
   // Direct lookups used by the row's "answered by" / "routed to" cards
   // which already know the exact key type.
   userByExtension: (ext: string) => CallContactsMap["users"][number] | undefined;
@@ -70,7 +73,7 @@ function formatIndian(raw: string): string {
     const k = d.slice(1);
     return `+91 ${k.slice(0, 5)} ${k.slice(5)}`;
   }
-  return raw;  // short codes, weird formats — leave alone
+  return raw; // short codes, weird formats — leave alone
 }
 
 export function buildResolver(map: CallContactsMap | null | undefined): ContactResolver {
@@ -98,7 +101,7 @@ export function buildResolver(map: CallContactsMap | null | undefined): ContactR
   }
   for (const d of map?.dids || []) {
     if (d.number) didByNum.set(phoneKey(d.number), d);
-    if (d.number) didByNum.set(String(d.number), d);  // also raw key for short DIDs
+    if (d.number) didByNum.set(String(d.number), d); // also raw key for short DIDs
   }
 
   const resolve: ContactResolver["resolve"] = (raw, opts) => {
@@ -113,7 +116,13 @@ export function buildResolver(map: CallContactsMap | null | undefined): ContactR
     if (digits.length >= 3 && digits.length <= 5) {
       const q = queueByNum.get(digits);
       if (q) {
-        return { kind: "queue", primary: q.name, secondary: `queue · ${q.number}`, raw: s, queue: q };
+        return {
+          kind: "queue",
+          primary: q.name,
+          secondary: `queue · ${q.number}`,
+          raw: s,
+          queue: q,
+        };
       }
       // 2. user.extension — also short (typically 4 digits).
       const u = byExt.get(digits);

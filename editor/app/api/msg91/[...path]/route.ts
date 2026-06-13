@@ -23,7 +23,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
   const authkey = await getAuthkey(orgId);
   if (!authkey) return NextResponse.json({ error: "MSG91 not configured" }, { status: 400 });
 
-  const headers: Record<string, string> = { authkey, accept: "application/json", "content-type": "application/json" };
+  const headers: Record<string, string> = {
+    authkey,
+    accept: "application/json",
+    "content-type": "application/json",
+  };
 
   if (action === "numbers") {
     const res = await fetch(`${MSG91_BASE}/whatsapp/whatsapp-activation/`, { headers });
@@ -47,11 +51,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
   const authkey = await getAuthkey(orgId);
   if (!authkey) return NextResponse.json({ error: "MSG91 not configured" }, { status: 400 });
 
-  const headers: Record<string, string> = { authkey, accept: "application/json", "content-type": "application/json" };
+  const headers: Record<string, string> = {
+    authkey,
+    accept: "application/json",
+    "content-type": "application/json",
+  };
 
   if (action === "send") {
     const res = await fetch(`${MSG91_BASE}/whatsapp/whatsapp-outbound-message/bulk/`, {
-      method: "POST", headers, body: JSON.stringify(body.payload),
+      method: "POST",
+      headers,
+      body: JSON.stringify(body.payload),
     });
     return NextResponse.json(await res.json());
   }
@@ -59,9 +69,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
   if (action === "logs") {
     const startDate = body.startDate || new Date().toISOString().split("T")[0];
     const endDate = body.endDate || startDate;
-    const res = await fetch(`${MSG91_BASE}/report/logs/wa?startDate=${startDate}&endDate=${endDate}`, {
-      method: "POST", headers,
-    });
+    const res = await fetch(
+      `${MSG91_BASE}/report/logs/wa?startDate=${startDate}&endDate=${endDate}`,
+      {
+        method: "POST",
+        headers,
+      }
+    );
     return NextResponse.json(await res.json());
   }
 

@@ -1,7 +1,7 @@
 "use client";
 
-import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Webhook, Clock, Zap } from "lucide-react";
+import { Handle, type NodeProps, Position } from "@xyflow/react";
+import { Clock, Webhook, Zap } from "lucide-react";
 
 const triggerIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   webhook: Webhook,
@@ -11,7 +11,7 @@ const triggerIcons: Record<string, React.ComponentType<{ className?: string }>> 
 };
 
 export function TriggerNode({ data }: NodeProps) {
-  const triggerType = (data as Record<string, unknown>).triggerType as string || "webhook";
+  const triggerType = ((data as Record<string, unknown>).triggerType as string) || "webhook";
   const Icon = triggerIcons[triggerType] || Webhook;
 
   return (
@@ -25,7 +25,11 @@ export function TriggerNode({ data }: NodeProps) {
           <div className="text-[10px] text-muted-foreground capitalize">{triggerType} trigger</div>
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!bg-blue-500 !w-3 !h-3 !border-2 !border-background" />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!bg-blue-500 !w-3 !h-3 !border-2 !border-background"
+      />
     </div>
   );
 }

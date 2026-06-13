@@ -1,9 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
+import * as React from "react";
 
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -13,11 +12,8 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 /**
  * Searchable single-select dropdown.
@@ -79,7 +75,10 @@ export function SearchableSelect({
     // common TTS prefixes for the label, but fall through to the
     // raw value if no prefix matched. The "(legacy)" hint nudges
     // the operator that this voice is outside the curated set.
-    const label = value.replace(/^[a-z]{2}-[A-Z]{2}-(?:Chirp3-HD-|Chirp3-|Wavenet-|Neural2-|Studio-|Standard-)/, "");
+    const label = value.replace(
+      /^[a-z]{2}-[A-Z]{2}-(?:Chirp3-HD-|Chirp3-|Wavenet-|Neural2-|Studio-|Standard-)/,
+      ""
+    );
     return [{ value, label, hint: "legacy — pick a new voice to upgrade" }, ...options];
   }, [options, value, selected]);
 
@@ -99,9 +98,7 @@ export function SearchableSelect({
           disabled={disabled}
           className={cn("w-full justify-between font-normal", className)}
         >
-          <span className="truncate">
-            {selected ? selected.label : placeholder}
-          </span>
+          <span className="truncate">{selected ? selected.label : placeholder}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -112,11 +109,7 @@ export function SearchableSelect({
         align="start"
       >
         <Command shouldFilter={true}>
-          <CommandInput
-            placeholder={searchPlaceholder}
-            value={query}
-            onValueChange={setQuery}
-          />
+          <CommandInput placeholder={searchPlaceholder} value={query} onValueChange={setQuery} />
           <CommandList style={{ maxHeight }}>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>

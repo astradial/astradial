@@ -7,11 +7,13 @@
  */
 
 import {
+  onAuthStateChanged as fbOnAuthStateChanged,
   signInWithEmailAndPassword,
   signOut as fbSignOut,
-  onAuthStateChanged as fbOnAuthStateChanged,
 } from "firebase/auth";
+
 import { auth as firebaseAuth } from "@/lib/firebase/config";
+
 import type { AuthProvider, AuthUser, SignInCredentials } from "../types";
 
 function mapFirebaseUser(u: { uid: string; email: string | null } | null): AuthUser | null {
@@ -25,14 +27,12 @@ export const firebaseProvider: AuthProvider = {
       throw new Error("Firebase mode requires email + password");
     }
     if (!firebaseAuth) {
-      throw new Error(
-        "Firebase auth is not initialised — check NEXT_PUBLIC_FIREBASE_* env vars",
-      );
+      throw new Error("Firebase auth is not initialised — check NEXT_PUBLIC_FIREBASE_* env vars");
     }
     const cred = await signInWithEmailAndPassword(
       firebaseAuth,
       credentials.email,
-      credentials.password,
+      credentials.password
     );
     return {
       user: { uid: cred.user.uid, email: cred.user.email || undefined },
@@ -50,11 +50,15 @@ export const firebaseProvider: AuthProvider = {
       queueMicrotask(() => callback(null));
       return () => {};
     }
-    return fbOnAuthStateChanged(firebaseAuth, (u) => callback(mapFirebaseUser(u as { uid: string; email: string | null } | null)));
+    return fbOnAuthStateChanged(firebaseAuth, (u) =>
+      callback(mapFirebaseUser(u as { uid: string; email: string | null } | null))
+    );
   },
 
   getCurrentUser() {
     if (!firebaseAuth) return null;
-    return mapFirebaseUser(firebaseAuth.currentUser as { uid: string; email: string | null } | null);
+    return mapFirebaseUser(
+      firebaseAuth.currentUser as { uid: string; email: string | null } | null
+    );
   },
 };

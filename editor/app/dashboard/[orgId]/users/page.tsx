@@ -1,8 +1,29 @@
 "use client";
 
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Eye,
+  EyeOff,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  Phone,
+  Plus,
+  QrCode,
+  RefreshCw,
+  Search,
+  Wifi,
+} from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, QrCode, MoreHorizontal, Phone, Bot, Wifi, Pencil, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, ArrowUpDown, ArrowUp, ArrowDown, Search, Loader2, RefreshCw, AlertTriangle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,9 +63,14 @@ import {
 } from "@/components/ui/table";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { showToast } from "@/components/ui/Toast";
-import { users, config as pbxConfig, type PbxUser, type PbxUserRegistration } from "@/lib/pbx/client";
-import { didPool, type PoolDid } from "@/lib/did-pool/client";
 import { SipQrDialog } from "@/components/users/SipQrDialog";
+import { didPool, type PoolDid } from "@/lib/did-pool/client";
+import {
+  config as pbxConfig,
+  type PbxUser,
+  type PbxUserRegistration,
+  users,
+} from "@/lib/pbx/client";
 
 export default function UsersPage() {
   const { orgId } = useParams<{ orgId: string }>();
@@ -128,10 +154,14 @@ export default function UsersPage() {
     }, 750);
   }
   const [editForm, setEditForm] = useState({
-    full_name: "", email: "", extension: "", password: "",
+    full_name: "",
+    email: "",
+    extension: "",
+    password: "",
     role: "agent" as PbxUser["role"],
     routing_type: "sip" as "sip" | "ai_agent",
-    routing_destination: "", phone_number: "",
+    routing_destination: "",
+    phone_number: "",
     ring_target: "ext" as "ext" | "phone",
     outbound_did: "",
     // Failover routing — mutually exclusive choice between a SIP user
@@ -159,8 +189,11 @@ export default function UsersPage() {
     if (user.failover_destination_user_id) failoverType = "user";
     else if (user.failover_phone_number) failoverType = "phone";
     setEditForm({
-      full_name: user.full_name || "", email: user.email || "", extension: user.extension || "",
-      password: "", role: user.role || "agent",
+      full_name: user.full_name || "",
+      email: user.email || "",
+      extension: user.extension || "",
+      password: "",
+      role: user.role || "agent",
       routing_type: user.routing_type || "sip",
       routing_destination: user.routing_destination || "",
       phone_number: user.phone_number || "",
@@ -177,7 +210,10 @@ export default function UsersPage() {
     if (!editUser) return;
     // Coerce timeout to int and clamp to the same 5-120 range the API enforces,
     // so we surface a usable value even if the user typed something silly.
-    const timeoutInt = Math.max(5, Math.min(120, Number.parseInt(editForm.failover_timeout_seconds, 10) || 20));
+    const timeoutInt = Math.max(
+      5,
+      Math.min(120, Number.parseInt(editForm.failover_timeout_seconds, 10) || 20)
+    );
     // Compute the failover payload from the radio-toggle state. Server
     // rejects both-set with 400, so always send EXACTLY one of (user_id,
     // phone_number) — the other is forced null. 'none' clears both.
@@ -208,7 +244,9 @@ export default function UsersPage() {
     }
     try {
       await users.update(editUser.id, {
-        full_name: editForm.full_name, email: editForm.email, extension: editForm.extension,
+        full_name: editForm.full_name,
+        email: editForm.email,
+        extension: editForm.extension,
         role: editForm.role,
         outbound_did: editForm.outbound_did || null,
         failover_destination_user_id: failoverUserId,
@@ -224,7 +262,13 @@ export default function UsersPage() {
       });
       showToast("User updated — deploying config...", "success");
       setEditUser(null);
-      try { await pbxConfig.deploy(); await pbxConfig.reload(); showToast("Config deployed", "success"); } catch { showToast("Updated but deploy failed", "error"); }
+      try {
+        await pbxConfig.deploy();
+        await pbxConfig.reload();
+        showToast("Config deployed", "success");
+      } catch {
+        showToast("Updated but deploy failed", "error");
+      }
       await loadUsers();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to update", "error");
@@ -232,19 +276,29 @@ export default function UsersPage() {
   }
 
   const [form, setForm] = useState({
-    username: "", email: "", extension: "", full_name: "", password: "",
+    username: "",
+    email: "",
+    extension: "",
+    full_name: "",
+    password: "",
     role: "agent" as PbxUser["role"],
     routing_type: "sip" as "sip" | "ai_agent",
-    routing_destination: "", phone_number: "",
+    routing_destination: "",
+    phone_number: "",
     ring_target: "ext" as "ext" | "phone",
     outbound_did: "",
   });
 
-  useEffect(() => { loadUsers(); }, []);
+  useEffect(() => {
+    loadUsers();
+  }, []);
 
   const [orgDids, setOrgDids] = useState<PoolDid[]>([]);
   useEffect(() => {
-    didPool.my().then((r) => setOrgDids(r.assigned || [])).catch(() => {});
+    didPool
+      .my()
+      .then((r) => setOrgDids(r.assigned || []))
+      .catch(() => {});
   }, []);
 
   async function loadUsers() {
@@ -274,7 +328,9 @@ export default function UsersPage() {
           u.email || "",
           u.extension || "",
           u.phone_number || "",
-        ].join(" ").toLowerCase();
+        ]
+          .join(" ")
+          .toLowerCase();
         return haystack.includes(q);
       });
     }
@@ -300,15 +356,18 @@ export default function UsersPage() {
       }
       numeric.sort((a, b) => Number(a.extension) - Number(b.extension));
       nonNumeric.sort((a, b) => (a.extension || "").localeCompare(b.extension || ""));
-      result = sipSort === "asc"
-        ? [...numeric, ...nonNumeric]
-        : [...nonNumeric.reverse(), ...numeric.reverse()];
+      result =
+        sipSort === "asc"
+          ? [...numeric, ...nonNumeric]
+          : [...nonNumeric.reverse(), ...numeric.reverse()];
     }
     return result;
   }, [userList, searchQuery, sipSort]);
 
   // Reset to page 1 when the filter narrows the set (otherwise empty pages).
-  useEffect(() => { setPage(1); }, [searchQuery, sipSort]);
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, sipSort]);
 
   /**
    * Fetch registration state. Stable reference so it can be called from:
@@ -321,43 +380,52 @@ export default function UsersPage() {
    * is unreachable. Silent network failures (request<T> reject) still
    * leave the previous state intact — better than wiping the screen.
    */
-  const loadRegistrations = useMemo(() => async (opts: { force?: boolean } = {}) => {
-    try {
-      if (opts.force) {
-        setRegHealth((h) => ({ ...h, refreshing: true }));
-      }
-      const res = await users.registrations({ force: opts.force });
-      const next: Record<string, PbxUserRegistration> = {};
-      for (const r of res.registrations) next[r.user_id] = r;
-      setRegByUserId(next);
-      setRegHealth({
-        asteriskUnreachable: res.asterisk_unreachable,
-        fetchedAt: new Date(res.fetched_at).getTime(),
-        refreshing: false,
-        firstLoadDone: true,
-      });
-    } catch (err) {
-      // Network/HTTP failure. Distinct from asterisk_unreachable=true
-      // (which is a 200 response with a degraded body). Surface as the
-      // same degraded banner — operator action is the same: investigate.
-      console.warn("[users] registration poll failed:", err);
-      setRegHealth((h) => ({
-        ...h,
-        asteriskUnreachable: true,
-        refreshing: false,
-        firstLoadDone: true,
-      }));
-    }
-  }, []);
+  const loadRegistrations = useMemo(
+    () =>
+      async (opts: { force?: boolean } = {}) => {
+        try {
+          if (opts.force) {
+            setRegHealth((h) => ({ ...h, refreshing: true }));
+          }
+          const res = await users.registrations({ force: opts.force });
+          const next: Record<string, PbxUserRegistration> = {};
+          for (const r of res.registrations) next[r.user_id] = r;
+          setRegByUserId(next);
+          setRegHealth({
+            asteriskUnreachable: res.asterisk_unreachable,
+            fetchedAt: new Date(res.fetched_at).getTime(),
+            refreshing: false,
+            firstLoadDone: true,
+          });
+        } catch (err) {
+          // Network/HTTP failure. Distinct from asterisk_unreachable=true
+          // (which is a 200 response with a degraded body). Surface as the
+          // same degraded banner — operator action is the same: investigate.
+          console.warn("[users] registration poll failed:", err);
+          setRegHealth((h) => ({
+            ...h,
+            asteriskUnreachable: true,
+            refreshing: false,
+            firstLoadDone: true,
+          }));
+        }
+      },
+    []
+  );
 
   // Initial load + 30s polling. Server-side cache TTL matches the polling
   // interval so we never trigger an Asterisk shell call mid-cycle.
   useEffect(() => {
     let cancelled = false;
-    const wrapped = async () => { if (!cancelled) await loadRegistrations(); };
+    const wrapped = async () => {
+      if (!cancelled) await loadRegistrations();
+    };
     wrapped();
     const interval = setInterval(wrapped, 30_000);
-    return () => { cancelled = true; clearInterval(interval); };
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [loadRegistrations]);
 
   // Refetch on tab visibility regain — if the user returned to the tab
@@ -389,7 +457,7 @@ export default function UsersPage() {
    * and revert if anything fails.
    */
   async function toggleUserStatus(user: PbxUser, nextActive: boolean) {
-    if (statusToggling[user.id]) return;  // race guard
+    if (statusToggling[user.id]) return; // race guard
     const nextStatus: PbxUser["status"] = nextActive ? "active" : "inactive";
     setStatusToggling((m) => ({ ...m, [user.id]: true }));
     // Optimistic UI: flip the local row immediately
@@ -403,7 +471,9 @@ export default function UsersPage() {
       scheduleDeploy();
     } catch (e) {
       // Revert optimistic update
-      setUserList((prev) => prev.map((u) => (u.id === user.id ? { ...u, status: user.status } : u)));
+      setUserList((prev) =>
+        prev.map((u) => (u.id === user.id ? { ...u, status: user.status } : u))
+      );
       showToast(e instanceof Error ? e.message : "Failed to update status", "error");
     } finally {
       setStatusToggling((m) => {
@@ -417,8 +487,12 @@ export default function UsersPage() {
   async function handleCreate() {
     try {
       await users.create({
-        username: form.username, email: form.email, extension: form.extension,
-        full_name: form.full_name, password: form.password, role: form.role,
+        username: form.username,
+        email: form.email,
+        extension: form.extension,
+        full_name: form.full_name,
+        password: form.password,
+        role: form.role,
         routing_type: form.routing_type,
         routing_destination: form.routing_destination || undefined,
         phone_number: form.phone_number || undefined,
@@ -426,7 +500,19 @@ export default function UsersPage() {
       });
       showToast("User created — deploying config...", "success");
       setCreateOpen(false);
-      setForm({ username: "", email: "", extension: "", full_name: "", password: "", role: "agent", routing_type: "sip", routing_destination: "", phone_number: "", ring_target: "ext", outbound_did: "" });
+      setForm({
+        username: "",
+        email: "",
+        extension: "",
+        full_name: "",
+        password: "",
+        role: "agent",
+        routing_type: "sip",
+        routing_destination: "",
+        phone_number: "",
+        ring_target: "ext",
+        outbound_did: "",
+      });
       // Auto-deploy Asterisk config so the new extension is immediately usable
       try {
         await pbxConfig.deploy();
@@ -452,8 +538,16 @@ export default function UsersPage() {
     }
   }
 
-  const routingIcon = (u: PbxUser) => u.routing_type === "ai_agent" ? <Bot className="h-3.5 w-3.5" /> : u.ring_target === "phone" ? <Phone className="h-3.5 w-3.5" /> : <Wifi className="h-3.5 w-3.5" />;
-  const routingLabel = (u: PbxUser) => u.routing_type === "ai_agent" ? "AI Bot" : u.ring_target === "phone" ? "Phone" : "SIP";
+  const routingIcon = (u: PbxUser) =>
+    u.routing_type === "ai_agent" ? (
+      <Bot className="h-3.5 w-3.5" />
+    ) : u.ring_target === "phone" ? (
+      <Phone className="h-3.5 w-3.5" />
+    ) : (
+      <Wifi className="h-3.5 w-3.5" />
+    );
+  const routingLabel = (u: PbxUser) =>
+    u.routing_type === "ai_agent" ? "AI Bot" : u.ring_target === "phone" ? "Phone" : "SIP";
 
   /**
    * Render a relative time like "Updated 12s ago". Caps at a reasonable
@@ -487,7 +581,10 @@ export default function UsersPage() {
         </div>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
-            <Button size="sm"><Plus className="h-4 w-4 mr-1.5" />Add User</Button>
+            <Button size="sm">
+              <Plus className="h-4 w-4 mr-1.5" />
+              Add User
+            </Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
@@ -496,12 +593,41 @@ export default function UsersPage() {
             </DialogHeader>
             <div className="space-y-4 py-2">
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label>Full Name</Label><Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} placeholder="John Doe" /></div>
-                <div className="space-y-1.5"><Label>Extension</Label><Input value={form.extension} onChange={(e) => setForm({ ...form, extension: e.target.value })} placeholder="1001" /></div>
+                <div className="space-y-1.5">
+                  <Label>Full Name</Label>
+                  <Input
+                    value={form.full_name}
+                    onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                    placeholder="John Doe"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Extension</Label>
+                  <Input
+                    value={form.extension}
+                    onChange={(e) => setForm({ ...form, extension: e.target.value })}
+                    placeholder="1001"
+                  />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label>Username</Label><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="johndoe" /></div>
-                <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="john@example.com" /></div>
+                <div className="space-y-1.5">
+                  <Label>Username</Label>
+                  <Input
+                    value={form.username}
+                    onChange={(e) => setForm({ ...form, username: e.target.value })}
+                    placeholder="johndoe"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Email</Label>
+                  <Input
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    placeholder="john@example.com"
+                  />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
@@ -526,9 +652,15 @@ export default function UsersPage() {
                     </button>
                   </div>
                 </div>
-                <div className="space-y-1.5"><Label>Role</Label>
-                  <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as PbxUser["role"] })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                <div className="space-y-1.5">
+                  <Label>Role</Label>
+                  <Select
+                    value={form.role}
+                    onValueChange={(v) => setForm({ ...form, role: v as PbxUser["role"] })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="admin">Admin</SelectItem>
                       <SelectItem value="supervisor">Supervisor</SelectItem>
@@ -539,13 +671,27 @@ export default function UsersPage() {
                 </div>
               </div>
               <Separator />
-              <div className="space-y-1.5"><Label>Call Routing</Label>
-                <Select value={form.routing_type === "ai_agent" ? "ai_agent" : form.ring_target === "phone" ? "phone" : "sip"} onValueChange={(v) => {
-                  if (v === "ai_agent") setForm({ ...form, routing_type: "ai_agent", ring_target: "ext" });
-                  else if (v === "phone") setForm({ ...form, routing_type: "sip", ring_target: "phone" });
-                  else setForm({ ...form, routing_type: "sip", ring_target: "ext" });
-                }}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+              <div className="space-y-1.5">
+                <Label>Call Routing</Label>
+                <Select
+                  value={
+                    form.routing_type === "ai_agent"
+                      ? "ai_agent"
+                      : form.ring_target === "phone"
+                        ? "phone"
+                        : "sip"
+                  }
+                  onValueChange={(v) => {
+                    if (v === "ai_agent")
+                      setForm({ ...form, routing_type: "ai_agent", ring_target: "ext" });
+                    else if (v === "phone")
+                      setForm({ ...form, routing_type: "sip", ring_target: "phone" });
+                    else setForm({ ...form, routing_type: "sip", ring_target: "ext" });
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="sip">SIP / IP Phone</SelectItem>
                     <SelectItem value="ai_agent">AI Bot (WSS URL)</SelectItem>
@@ -554,14 +700,31 @@ export default function UsersPage() {
                 </Select>
               </div>
               {form.routing_type === "ai_agent" && (
-                <div className="space-y-1.5"><Label>WebSocket URL</Label><Input value={form.routing_destination} onChange={(e) => setForm({ ...form, routing_destination: e.target.value })} placeholder="ws://localhost:7860/ws/{org}/{bot}?key=..." className="font-mono text-xs" /></div>
+                <div className="space-y-1.5">
+                  <Label>WebSocket URL</Label>
+                  <Input
+                    value={form.routing_destination}
+                    onChange={(e) => setForm({ ...form, routing_destination: e.target.value })}
+                    placeholder="ws://localhost:7860/ws/{org}/{bot}?key=..."
+                    className="font-mono text-xs"
+                  />
+                </div>
               )}
               {form.ring_target === "phone" && form.routing_type !== "ai_agent" && (
-                <div className="space-y-1.5"><Label>Phone Number</Label><Input value={form.phone_number} onChange={(e) => setForm({ ...form, phone_number: e.target.value })} placeholder="+919876543210" /></div>
+                <div className="space-y-1.5">
+                  <Label>Phone Number</Label>
+                  <Input
+                    value={form.phone_number}
+                    onChange={(e) => setForm({ ...form, phone_number: e.target.value })}
+                    placeholder="+919876543210"
+                  />
+                </div>
               )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setCreateOpen(false)}>
+                Cancel
+              </Button>
               <Button onClick={handleCreate}>Create</Button>
             </DialogFooter>
           </DialogContent>
@@ -595,7 +758,10 @@ export default function UsersPage() {
             </span>
           )}
           {regHealth.firstLoadDone && regHealth.fetchedAt && !regHealth.asteriskUnreachable && (
-            <span className="text-muted-foreground" title={new Date(regHealth.fetchedAt).toLocaleString()}>
+            <span
+              className="text-muted-foreground"
+              title={new Date(regHealth.fetchedAt).toLocaleString()}
+            >
               Updated {formatAgo(regHealth.fetchedAt)}
             </span>
           )}
@@ -618,150 +784,190 @@ export default function UsersPage() {
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
               <TableRow className="border-b-border/50 hover:bg-transparent">
-              <TableHead className="w-24">
-                {/* Clickable Ext header — toggles sort asc → desc → unsorted.
+                <TableHead className="w-24">
+                  {/* Clickable Ext header — toggles sort asc → desc → unsorted.
                     SIP user identity in this list IS the extension, so this
                     is the sort the operator actually wants. */}
-                <button
-                  type="button"
-                  onClick={toggleSipSort}
-                  className="flex items-center gap-1 hover:text-foreground transition-colors"
-                  aria-label={`Sort by extension ${sipSort === "asc" ? "ascending" : sipSort === "desc" ? "descending" : "unsorted"}`}
-                >
-                  Ext
-                  {sipSort === "asc" && <ArrowUp className="h-3 w-3" />}
-                  {sipSort === "desc" && <ArrowDown className="h-3 w-3" />}
-                  {sipSort === null && <ArrowUpDown className="h-3 w-3 opacity-40" />}
-                </button>
-              </TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Routing</TableHead>
-              <TableHead className="w-44">Registered IP</TableHead>
-              <TableHead className="w-32">Status</TableHead>
-              <TableHead className="w-16"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableSkeleton cols={8} />
-            ) : visibleUsers.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                {searchQuery ? `No users match "${searchQuery}"` : "No users yet"}
-              </TableCell></TableRow>
-            ) : visibleUsers.slice((page - 1) * pageSize, page * pageSize).map((user) => {
-              const reg = regByUserId[user.id];
-              // Dot color reflects whether the phone is actually reachable:
-              //   green  = reachable (registered + qualify ok)
-              //   amber  = registered but qualify pending/failed (NAT issue)
-              //   red    = not in Asterisk's contact table at all
-              //   gray   = state unknown — either initial loading OR
-              //            Asterisk is unreachable (banner above explains)
-              const isUnknown = !reg || reg.status === "unknown";
-              const dotClass = isUnknown
-                ? "bg-gray-300"
-                : reg!.status === "reachable"
-                  ? "bg-green-500"
-                  : reg!.status === "nonqual"
-                    ? "bg-amber-500"
-                    : reg!.status === "unreachable"
-                      ? "bg-amber-500"
-                      : "bg-red-500";
-              const dotTitle = !reg
-                ? "Loading…"
-                : reg.status === "unknown"
-                  ? "State unknown — Asterisk unreachable"
-                  : reg.status === "reachable"
-                    ? `Reachable${reg.rtt_ms != null ? ` (RTT ${Math.round(reg.rtt_ms)}ms)` : ""}`
-                    : reg.status === "nonqual"
-                      ? "Registered but qualify pending (check NAT keep-alive)"
-                      : reg.status === "unreachable"
-                        ? "Registered but unreachable (qualify failed)"
-                        : "Not registered";
-              return (
-              <TableRow key={user.id}>
-                <TableCell className="font-mono text-sm">{user.extension}</TableCell>
-                <TableCell className="font-medium">{user.full_name || user.username}</TableCell>
-                <TableCell className="text-muted-foreground text-sm">{user.email}</TableCell>
-                <TableCell><Badge variant="outline" className="text-xs capitalize">{user.role}</Badge></TableCell>
-                <TableCell><div className="flex items-center gap-1.5 text-sm text-muted-foreground">{routingIcon(user)}{routingLabel(user)}</div></TableCell>
-                <TableCell className="text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      aria-hidden="true"
-                      title={dotTitle}
-                      className={`inline-block h-2 w-2 rounded-full ${dotClass}`}
-                    />
-                    {reg && reg.contact_ip ? (
-                      <span className="font-mono text-foreground" title={dotTitle}>
-                        {reg.contact_ip}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground" title={dotTitle}>
-                        {!reg
-                          ? "—"
-                          : reg.status === "unknown"
-                            ? "unknown"
-                            : "unregistered"}
-                      </span>
-                    )}
-                    <span className="sr-only">{dotTitle}</span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {/* Active/inactive toggle. Switching to inactive flags the
+                  <button
+                    type="button"
+                    onClick={toggleSipSort}
+                    className="flex items-center gap-1 hover:text-foreground transition-colors"
+                    aria-label={`Sort by extension ${sipSort === "asc" ? "ascending" : sipSort === "desc" ? "descending" : "unsorted"}`}
+                  >
+                    Ext
+                    {sipSort === "asc" && <ArrowUp className="h-3 w-3" />}
+                    {sipSort === "desc" && <ArrowDown className="h-3 w-3" />}
+                    {sipSort === null && <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                  </button>
+                </TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Routing</TableHead>
+                <TableHead className="w-44">Registered IP</TableHead>
+                <TableHead className="w-32">Status</TableHead>
+                <TableHead className="w-16"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableSkeleton cols={8} />
+              ) : visibleUsers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    {searchQuery ? `No users match "${searchQuery}"` : "No users yet"}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                visibleUsers.slice((page - 1) * pageSize, page * pageSize).map((user) => {
+                  const reg = regByUserId[user.id];
+                  // Dot color reflects whether the phone is actually reachable:
+                  //   green  = reachable (registered + qualify ok)
+                  //   amber  = registered but qualify pending/failed (NAT issue)
+                  //   red    = not in Asterisk's contact table at all
+                  //   gray   = state unknown — either initial loading OR
+                  //            Asterisk is unreachable (banner above explains)
+                  const isUnknown = !reg || reg.status === "unknown";
+                  const dotClass = isUnknown
+                    ? "bg-gray-300"
+                    : reg!.status === "reachable"
+                      ? "bg-green-500"
+                      : reg!.status === "nonqual"
+                        ? "bg-amber-500"
+                        : reg!.status === "unreachable"
+                          ? "bg-amber-500"
+                          : "bg-red-500";
+                  const dotTitle = !reg
+                    ? "Loading…"
+                    : reg.status === "unknown"
+                      ? "State unknown — Asterisk unreachable"
+                      : reg.status === "reachable"
+                        ? `Reachable${reg.rtt_ms != null ? ` (RTT ${Math.round(reg.rtt_ms)}ms)` : ""}`
+                        : reg.status === "nonqual"
+                          ? "Registered but qualify pending (check NAT keep-alive)"
+                          : reg.status === "unreachable"
+                            ? "Registered but unreachable (qualify failed)"
+                            : "Not registered";
+                  return (
+                    <TableRow key={user.id}>
+                      <TableCell className="font-mono text-sm">{user.extension}</TableCell>
+                      <TableCell className="font-medium">
+                        {user.full_name || user.username}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">{user.email}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {user.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                          {routingIcon(user)}
+                          {routingLabel(user)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            aria-hidden="true"
+                            title={dotTitle}
+                            className={`inline-block h-2 w-2 rounded-full ${dotClass}`}
+                          />
+                          {reg && reg.contact_ip ? (
+                            <span className="font-mono text-foreground" title={dotTitle}>
+                              {reg.contact_ip}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground" title={dotTitle}>
+                              {!reg ? "—" : reg.status === "unknown" ? "unknown" : "unregistered"}
+                            </span>
+                          )}
+                          <span className="sr-only">{dotTitle}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {/* Active/inactive toggle. Switching to inactive flags the
                       user as offline — combined with the upcoming failover
                       feature, calls to inactive users won't ring them.
                       Spinner shows during the PUT round-trip; the bulk
                       Asterisk reload is debounced separately. */}
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={user.status === "active"}
-                      disabled={!!statusToggling[user.id]}
-                      onCheckedChange={(checked) => toggleUserStatus(user, checked)}
-                      aria-label={`Toggle ${user.full_name || user.username} ${user.status === "active" ? "inactive" : "active"}`}
-                    />
-                    {statusToggling[user.id] ? (
-                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-label="saving" />
-                    ) : (
-                      <span className={`text-xs ${user.status === "active" ? "text-foreground" : "text-muted-foreground"}`}>
-                        {user.status}
-                      </span>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-7 w-7 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => openEdit(user)}><Pencil className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setQrUser(user)}><QrCode className="h-4 w-4 mr-2" />SIP QR Code</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(user.id)}>Delete</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={user.status === "active"}
+                            disabled={!!statusToggling[user.id]}
+                            onCheckedChange={(checked) => toggleUserStatus(user, checked)}
+                            aria-label={`Toggle ${user.full_name || user.username} ${user.status === "active" ? "inactive" : "active"}`}
+                          />
+                          {statusToggling[user.id] ? (
+                            <Loader2
+                              className="h-3 w-3 animate-spin text-muted-foreground"
+                              aria-label="saving"
+                            />
+                          ) : (
+                            <span
+                              className={`text-xs ${user.status === "active" ? "text-foreground" : "text-muted-foreground"}`}
+                            >
+                              {user.status}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => openEdit(user)}>
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setQrUser(user)}>
+                              <QrCode className="h-4 w-4 mr-2" />
+                              SIP QR Code
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleDelete(user.id)}
+                            >
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
         </div>
         {visibleUsers.length > 10 && (
           <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
             <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
-              Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, visibleUsers.length)} of {visibleUsers.length} entries
+              Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, visibleUsers.length)}{" "}
+              of {visibleUsers.length} entries
             </div>
             <div className="flex w-full items-center gap-8 lg:w-fit">
               <div className="hidden items-center gap-2 lg:flex">
                 <Label className="text-sm font-medium">Rows per page</Label>
-                <Select value={`${pageSize}`} onValueChange={(value) => { setPageSize(Number(value)); setPage(1); }}>
+                <Select
+                  value={`${pageSize}`}
+                  onValueChange={(value) => {
+                    setPageSize(Number(value));
+                    setPage(1);
+                  }}
+                >
                   <SelectTrigger className="w-20">
                     <SelectValue placeholder={pageSize} />
                   </SelectTrigger>
                   <SelectContent side="top">
                     {[10, 20, 30, 40, 50].map((size) => (
-                      <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
+                      <SelectItem key={size} value={`${size}`}>
+                        {size}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -770,19 +976,42 @@ export default function UsersPage() {
                 Page {page} of {Math.ceil(visibleUsers.length / pageSize) || 1}
               </div>
               <div className="ml-auto flex items-center gap-2 lg:ml-0">
-                <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => setPage(1)} disabled={page <= 1}>
+                <Button
+                  variant="outline"
+                  className="hidden h-8 w-8 p-0 lg:flex"
+                  onClick={() => setPage(1)}
+                  disabled={page <= 1}
+                >
                   <span className="sr-only">Go to first page</span>
                   <ChevronsLeft className="size-4" />
                 </Button>
-                <Button variant="outline" className="size-8" size="icon" onClick={() => setPage(p => p - 1)} disabled={page <= 1}>
+                <Button
+                  variant="outline"
+                  className="size-8"
+                  size="icon"
+                  onClick={() => setPage((p) => p - 1)}
+                  disabled={page <= 1}
+                >
                   <span className="sr-only">Go to previous page</span>
                   <ChevronLeft className="size-4" />
                 </Button>
-                <Button variant="outline" className="size-8" size="icon" onClick={() => setPage(p => p + 1)} disabled={page * pageSize >= visibleUsers.length}>
+                <Button
+                  variant="outline"
+                  className="size-8"
+                  size="icon"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page * pageSize >= visibleUsers.length}
+                >
                   <span className="sr-only">Go to next page</span>
                   <ChevronRight className="size-4" />
                 </Button>
-                <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => setPage(Math.ceil(visibleUsers.length / pageSize))} disabled={page * pageSize >= visibleUsers.length}>
+                <Button
+                  variant="outline"
+                  className="hidden size-8 lg:flex"
+                  size="icon"
+                  onClick={() => setPage(Math.ceil(visibleUsers.length / pageSize))}
+                  disabled={page * pageSize >= visibleUsers.length}
+                >
                   <span className="sr-only">Go to last page</span>
                   <ChevronsRight className="size-4" />
                 </Button>
@@ -794,7 +1023,12 @@ export default function UsersPage() {
 
       {qrUser && <SipQrDialog user={qrUser} onClose={() => setQrUser(null)} />}
 
-      <Dialog open={!!editUser} onOpenChange={(open) => { if (!open) setEditUser(null); }}>
+      <Dialog
+        open={!!editUser}
+        onOpenChange={(open) => {
+          if (!open) setEditUser(null);
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Edit User — {editUser?.extension}</DialogTitle>
@@ -802,14 +1036,39 @@ export default function UsersPage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label>Full Name</Label><Input value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} /></div>
-              <div className="space-y-1.5"><Label>Extension</Label><Input value={editForm.extension} onChange={(e) => setEditForm({ ...editForm, extension: e.target.value })} /></div>
+              <div className="space-y-1.5">
+                <Label>Full Name</Label>
+                <Input
+                  value={editForm.full_name}
+                  onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Extension</Label>
+                <Input
+                  value={editForm.extension}
+                  onChange={(e) => setEditForm({ ...editForm, extension: e.target.value })}
+                />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} /></div>
-              <div className="space-y-1.5"><Label>Role</Label>
-                <Select value={editForm.role} onValueChange={(v) => setEditForm({ ...editForm, role: v as PbxUser["role"] })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Role</Label>
+                <Select
+                  value={editForm.role}
+                  onValueChange={(v) => setEditForm({ ...editForm, role: v as PbxUser["role"] })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="admin">Admin</SelectItem>
                     <SelectItem value="supervisor">Supervisor</SelectItem>
@@ -819,15 +1078,38 @@ export default function UsersPage() {
                 </Select>
               </div>
             </div>
-            <div className="space-y-1.5"><Label>New Password (leave blank to keep)</Label><Input type="text" autoComplete="off" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} placeholder="Leave blank to keep current" /></div>
+            <div className="space-y-1.5">
+              <Label>New Password (leave blank to keep)</Label>
+              <Input
+                type="text"
+                autoComplete="off"
+                value={editForm.password}
+                onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+                placeholder="Leave blank to keep current"
+              />
+            </div>
             <Separator />
-            <div className="space-y-1.5"><Label>Call Routing</Label>
-              <Select value={editForm.routing_type === "ai_agent" ? "ai_agent" : editForm.ring_target === "phone" ? "phone" : "sip"} onValueChange={(v) => {
-                if (v === "ai_agent") setEditForm({ ...editForm, routing_type: "ai_agent", ring_target: "ext" });
-                else if (v === "phone") setEditForm({ ...editForm, routing_type: "sip", ring_target: "phone" });
-                else setEditForm({ ...editForm, routing_type: "sip", ring_target: "ext" });
-              }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+            <div className="space-y-1.5">
+              <Label>Call Routing</Label>
+              <Select
+                value={
+                  editForm.routing_type === "ai_agent"
+                    ? "ai_agent"
+                    : editForm.ring_target === "phone"
+                      ? "phone"
+                      : "sip"
+                }
+                onValueChange={(v) => {
+                  if (v === "ai_agent")
+                    setEditForm({ ...editForm, routing_type: "ai_agent", ring_target: "ext" });
+                  else if (v === "phone")
+                    setEditForm({ ...editForm, routing_type: "sip", ring_target: "phone" });
+                  else setEditForm({ ...editForm, routing_type: "sip", ring_target: "ext" });
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="sip">SIP / IP Phone</SelectItem>
                   <SelectItem value="ai_agent">AI Bot (WSS URL)</SelectItem>
@@ -836,26 +1118,54 @@ export default function UsersPage() {
               </Select>
             </div>
             {editForm.routing_type === "ai_agent" && (
-              <div className="space-y-1.5"><Label>WebSocket URL</Label><Input value={editForm.routing_destination} onChange={(e) => setEditForm({ ...editForm, routing_destination: e.target.value })} placeholder="ws://localhost:7860/ws/{org}/{bot}" className="font-mono text-xs" /></div>
+              <div className="space-y-1.5">
+                <Label>WebSocket URL</Label>
+                <Input
+                  value={editForm.routing_destination}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, routing_destination: e.target.value })
+                  }
+                  placeholder="ws://localhost:7860/ws/{org}/{bot}"
+                  className="font-mono text-xs"
+                />
+              </div>
             )}
             {editForm.ring_target === "phone" && editForm.routing_type !== "ai_agent" && (
-              <div className="space-y-1.5"><Label>Phone Number</Label><Input value={editForm.phone_number} onChange={(e) => setEditForm({ ...editForm, phone_number: e.target.value })} placeholder="+919876543210" /></div>
+              <div className="space-y-1.5">
+                <Label>Phone Number</Label>
+                <Input
+                  value={editForm.phone_number}
+                  onChange={(e) => setEditForm({ ...editForm, phone_number: e.target.value })}
+                  placeholder="+919876543210"
+                />
+              </div>
             )}
           </div>
-                      <div className="space-y-1.5">
-              <Label>Outbound Caller ID</Label>
-              <Select value={editForm.outbound_did || "default"} onValueChange={(v) => setEditForm({ ...editForm, outbound_did: v === "default" ? "" : v })}>
-                <SelectTrigger><SelectValue placeholder="Use org default" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="default">Use org default DID</SelectItem>
-                  {orgDids.map((d) => (
-                    <SelectItem key={d.id} value={d.number}>{d.number}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">DID this user presents on outbound calls.</p>
-            </div>
-            {/* Failover routing — single-hop. Hidden for AI-agent users
+          <div className="space-y-1.5">
+            <Label>Outbound Caller ID</Label>
+            <Select
+              value={editForm.outbound_did || "default"}
+              onValueChange={(v) =>
+                setEditForm({ ...editForm, outbound_did: v === "default" ? "" : v })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Use org default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Use org default DID</SelectItem>
+                {orgDids.map((d) => (
+                  <SelectItem key={d.id} value={d.number}>
+                    {d.number}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              DID this user presents on outbound calls.
+            </p>
+          </div>
+          {/* Failover routing — single-hop. Hidden for AI-agent users
                 because their dialplan branch ends with Goto(end), making
                 failover labels unreachable. Behaviour update (2026-05-13):
                 failover fires ONLY when the primary device is unreachable
@@ -867,111 +1177,129 @@ export default function UsersPage() {
                 external phone number; the radio toggle below is a
                 mutual-exclusion gate so the saved payload sets exactly
                 one field. */}
-            {editForm.routing_type !== "ai_agent" && (
-              <>
-                <Separator />
-                <div className="space-y-2">
-                  <Label>Failover Destination</Label>
-                  <div className="flex flex-col gap-1 text-sm">
-                    {(["none", "user", "phone"] as const).map((opt) => (
-                      <label key={opt} className="inline-flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="failover_type"
-                          checked={editForm.failover_type === opt}
-                          onChange={() => setEditForm({ ...editForm, failover_type: opt })}
-                        />
-                        <span>
-                          {opt === "none" && "No failover"}
-                          {opt === "user" && "Ring another SIP user"}
-                          {opt === "phone" && "Ring a phone number"}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Fires only when the primary device is <strong>unreachable</strong>
-                    (unregistered / network down) or the user is toggled inactive.
-                    Busy and "no pickup" don&apos;t trigger failover.
-                  </p>
+          {editForm.routing_type !== "ai_agent" && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <Label>Failover Destination</Label>
+                <div className="flex flex-col gap-1 text-sm">
+                  {(["none", "user", "phone"] as const).map((opt) => (
+                    <label key={opt} className="inline-flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="failover_type"
+                        checked={editForm.failover_type === opt}
+                        onChange={() => setEditForm({ ...editForm, failover_type: opt })}
+                      />
+                      <span>
+                        {opt === "none" && "No failover"}
+                        {opt === "user" && "Ring another SIP user"}
+                        {opt === "phone" && "Ring a phone number"}
+                      </span>
+                    </label>
+                  ))}
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Fires only when the primary device is <strong>unreachable</strong>
+                  (unregistered / network down) or the user is toggled inactive. Busy and "no
+                  pickup" don&apos;t trigger failover.
+                </p>
+              </div>
 
-                {/* SIP-user picker — shown only when "user" radio is chosen.
+              {/* SIP-user picker — shown only when "user" radio is chosen.
                     Same dropdown logic as before: active same-org users,
                     excludes the user being edited, pins a currently-selected
                     inactive user so its value isn't silently cleared. */}
-                {editForm.failover_type === "user" && (
-                  <div className="space-y-1.5">
-                    <Label>Failover SIP User</Label>
-                    <Select
-                      value={editForm.failover_destination_user_id || "none"}
-                      onValueChange={(v) => setEditForm({ ...editForm, failover_destination_user_id: v === "none" ? "" : v })}
-                    >
-                      <SelectTrigger><SelectValue placeholder="Pick a SIP user" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Pick a SIP user</SelectItem>
-                        {(() => {
-                          const currentId = editForm.failover_destination_user_id;
-                          const visible = userList.filter((u) => {
-                            if (u.id === editUser?.id) return false;
-                            if (u.status === "active") return true;
-                            return u.id === currentId;
-                          });
-                          return visible.map((u) => (
-                            <SelectItem key={u.id} value={u.id}>
-                              {u.extension} — {u.full_name || u.username}
-                              {u.status === "inactive" ? " (inactive)" : ""}
-                            </SelectItem>
-                          ));
-                        })()}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+              {editForm.failover_type === "user" && (
+                <div className="space-y-1.5">
+                  <Label>Failover SIP User</Label>
+                  <Select
+                    value={editForm.failover_destination_user_id || "none"}
+                    onValueChange={(v) =>
+                      setEditForm({
+                        ...editForm,
+                        failover_destination_user_id: v === "none" ? "" : v,
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Pick a SIP user" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Pick a SIP user</SelectItem>
+                      {(() => {
+                        const currentId = editForm.failover_destination_user_id;
+                        const visible = userList.filter((u) => {
+                          if (u.id === editUser?.id) return false;
+                          if (u.status === "active") return true;
+                          return u.id === currentId;
+                        });
+                        return visible.map((u) => (
+                          <SelectItem key={u.id} value={u.id}>
+                            {u.extension} — {u.full_name || u.username}
+                            {u.status === "inactive" ? " (inactive)" : ""}
+                          </SelectItem>
+                        ));
+                      })()}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
-                {/* Phone-number input — shown only when "phone" radio is chosen.
+              {/* Phone-number input — shown only when "phone" radio is chosen.
                     +91 prefix is shown as a fixed addon so operators know
                     we expect Indian numbers; the input accepts the local
                     10-digit form. */}
-                {editForm.failover_type === "phone" && (
-                  <div className="space-y-1.5">
-                    <Label>Failover Phone Number</Label>
-                    <div className="flex">
-                      <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-input bg-muted text-muted-foreground text-sm">+91</span>
-                      <Input
-                        className="rounded-l-none"
-                        inputMode="numeric"
-                        maxLength={13}
-                        value={editForm.failover_phone_number}
-                        onChange={(e) => {
-                          // Allow only digits and limit to 10 (last 10 wins)
-                          const digits = e.target.value.replace(/[^0-9]/g, "").slice(-10);
-                          setEditForm({ ...editForm, failover_phone_number: digits });
-                        }}
-                        placeholder="9876543210"
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">10-digit Indian mobile / landline number. The PBX dials this via the outbound trunk.</p>
-                  </div>
-                )}
-
-                {editForm.failover_type !== "none" && (
-                  <div className="space-y-1.5">
-                    <Label>Failover Ring Timeout (seconds)</Label>
+              {editForm.failover_type === "phone" && (
+                <div className="space-y-1.5">
+                  <Label>Failover Phone Number</Label>
+                  <div className="flex">
+                    <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-input bg-muted text-muted-foreground text-sm">
+                      +91
+                    </span>
                     <Input
-                      type="number"
-                      min={5}
-                      max={120}
-                      value={editForm.failover_timeout_seconds}
-                      onChange={(e) => setEditForm({ ...editForm, failover_timeout_seconds: e.target.value })}
+                      className="rounded-l-none"
+                      inputMode="numeric"
+                      maxLength={13}
+                      value={editForm.failover_phone_number}
+                      onChange={(e) => {
+                        // Allow only digits and limit to 10 (last 10 wins)
+                        const digits = e.target.value.replace(/[^0-9]/g, "").slice(-10);
+                        setEditForm({ ...editForm, failover_phone_number: digits });
+                      }}
+                      placeholder="9876543210"
                     />
-                    <p className="text-xs text-muted-foreground">How long the failover destination rings. Range 5-120s.</p>
                   </div>
-                )}
-              </>
-            )}
+                  <p className="text-xs text-muted-foreground">
+                    10-digit Indian mobile / landline number. The PBX dials this via the outbound
+                    trunk.
+                  </p>
+                </div>
+              )}
+
+              {editForm.failover_type !== "none" && (
+                <div className="space-y-1.5">
+                  <Label>Failover Ring Timeout (seconds)</Label>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={editForm.failover_timeout_seconds}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, failover_timeout_seconds: e.target.value })
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    How long the failover destination rings. Range 5-120s.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditUser(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setEditUser(null)}>
+              Cancel
+            </Button>
             <Button onClick={handleEdit}>Save Changes</Button>
           </DialogFooter>
         </DialogContent>

@@ -96,7 +96,15 @@ export function ImportProgress(props: ImportProgressProps): JSX.Element {
 
   if (!data) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: 24 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 12,
+          padding: 24,
+        }}
+      >
         <Loader2 size={24} className="animate-spin" />
         <span className="text-[13px] text-muted-foreground">Queued…</span>
       </div>
@@ -118,39 +126,40 @@ export function ImportProgress(props: ImportProgressProps): JSX.Element {
     </div>
   );
 
-  const errorsList = !hideErrorsList && hasErrors ? (
-    <div style={{ marginTop: 8 }}>
-      <button
-        type="button"
-        className="cmp-btn cmp-btn-ghost cmp-btn-sm"
-        onClick={() => setShowErrors((v) => !v)}
-        aria-expanded={showErrors}
-      >
-        {showErrors ? "Hide" : "View"} {numberFmt.format(data.errors!.length)} error
-        {data.errors!.length === 1 ? "" : "s"}
-      </button>
-      {showErrors && (
-        <ul
-          style={{
-            marginTop: 8,
-            maxHeight: 180,
-            overflowY: "auto",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            padding: "6px 12px",
-            listStyle: "none",
-            fontSize: 12,
-          }}
+  const errorsList =
+    !hideErrorsList && hasErrors ? (
+      <div style={{ marginTop: 8 }}>
+        <button
+          type="button"
+          className="cmp-btn cmp-btn-ghost cmp-btn-sm"
+          onClick={() => setShowErrors((v) => !v)}
+          aria-expanded={showErrors}
         >
-          {data.errors!.map((e, i) => (
-            <li key={`${e.row}-${i}`} className="text-[13px]" style={{ padding: "4px 0" }}>
-              <span className="cmp-mono text-muted-foreground">row {e.row}:</span> {e.message}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  ) : null;
+          {showErrors ? "Hide" : "View"} {numberFmt.format(data.errors!.length)} error
+          {data.errors!.length === 1 ? "" : "s"}
+        </button>
+        {showErrors && (
+          <ul
+            style={{
+              marginTop: 8,
+              maxHeight: 180,
+              overflowY: "auto",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "6px 12px",
+              listStyle: "none",
+              fontSize: 12,
+            }}
+          >
+            {data.errors!.map((e, i) => (
+              <li key={`${e.row}-${i}`} className="text-[13px]" style={{ padding: "4px 0" }}>
+                <span className="cmp-mono text-muted-foreground">row {e.row}:</span> {e.message}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    ) : null;
 
   const fileHeader = (
     <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 }}>
@@ -202,13 +211,26 @@ export function ImportProgress(props: ImportProgressProps): JSX.Element {
         {total != null ? (
           <>
             <div
-              style={{ width: "100%", height: 8, background: "var(--muted)", borderRadius: 4, overflow: "hidden" }}
+              style={{
+                width: "100%",
+                height: 8,
+                background: "var(--muted)",
+                borderRadius: 4,
+                overflow: "hidden",
+              }}
               role="progressbar"
               aria-valuenow={data.processed}
               aria-valuemin={0}
               aria-valuemax={total}
             >
-              <div style={{ width: `${pct}%`, height: 8, background: "var(--primary)", transition: "width 200ms linear" }} />
+              <div
+                style={{
+                  width: `${pct}%`,
+                  height: 8,
+                  background: "var(--primary)",
+                  transition: "width 200ms linear",
+                }}
+              />
             </div>
             <span className="text-[13px] text-muted-foreground">
               {numberFmt.format(data.processed)} / {numberFmt.format(total)} rows · {pct}%
@@ -231,8 +253,11 @@ export function ImportProgress(props: ImportProgressProps): JSX.Element {
           </span>
           <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
             <span className="font-medium text-[13px]">Import completed</span>
-            <span className="text-[13px] text-muted-foreground" title={filename}
-              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span
+              className="text-[13px] text-muted-foreground"
+              title={filename}
+              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
               {filename}
             </span>
           </div>
@@ -250,8 +275,11 @@ export function ImportProgress(props: ImportProgressProps): JSX.Element {
           <XCircle size={20} color="var(--destructive)" />
           <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
             <span className="font-medium text-[13px]">Import failed</span>
-            <span className="text-[13px] text-muted-foreground" title={filename}
-              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span
+              className="text-[13px] text-muted-foreground"
+              title={filename}
+              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
               {filename}
             </span>
           </div>
@@ -283,8 +311,11 @@ export function ImportProgress(props: ImportProgressProps): JSX.Element {
           <AlertTriangle size={20} color="var(--warning, #d97706)" />
           <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
             <span className="font-medium text-[13px]">Import cancelled</span>
-            <span className="text-[13px] text-muted-foreground" title={filename}
-              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span
+              className="text-[13px] text-muted-foreground"
+              title={filename}
+              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
               {filename}
             </span>
           </div>

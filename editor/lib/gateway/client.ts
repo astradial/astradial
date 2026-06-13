@@ -31,7 +31,10 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const base = adminKey ? GATEWAY_BASE : PROXY_BASE;
   // Admin key uses /api/gateway/admin/..., proxy uses /api/gateway-proxy/... (proxy adds /admin/ prefix)
   const fullPath = adminKey ? path : path.replace(/^\/admin/, "");
-  const res = await fetch(`${base}${fullPath}`, { ...opts, headers: adminKey ? headers() : { "Content-Type": "application/json" } });
+  const res = await fetch(`${base}${fullPath}`, {
+    ...opts,
+    headers: adminKey ? headers() : { "Content-Type": "application/json" },
+  });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`${res.status}: ${body}`);
@@ -78,7 +81,8 @@ export interface Bot {
 export const orgs = {
   list: () => request<Org[]>("/admin/orgs"),
   get: (id: string) => request<Org>(`/admin/orgs/${id}`),
-  getCredentials: (id: string) => request<{ api_key: string; api_secret: string }>(`/admin/orgs/${id}/credentials`),
+  getCredentials: (id: string) =>
+    request<{ api_key: string; api_secret: string }>(`/admin/orgs/${id}/credentials`),
 };
 
 // ─── Org Config (pipecat-owned settings) ───
@@ -114,14 +118,33 @@ export const keys = {
 
 export const bots = {
   list: (orgId: string) => request<Bot[]>(`/admin/orgs/${orgId}/bots`),
-  get: (orgId: string, botId: string) =>
-    request<Bot>(`/admin/orgs/${orgId}/bots/${botId}`),
-  create: (orgId: string, data: { name: string; flow_json?: Record<string, unknown>; module_path?: string; gemini_model?: string; gemini_voice_id?: string }) =>
+  get: (orgId: string, botId: string) => request<Bot>(`/admin/orgs/${orgId}/bots/${botId}`),
+  create: (
+    orgId: string,
+    data: {
+      name: string;
+      flow_json?: Record<string, unknown>;
+      module_path?: string;
+      gemini_model?: string;
+      gemini_voice_id?: string;
+    }
+  ) =>
     request<Bot>(`/admin/orgs/${orgId}/bots`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  update: (orgId: string, botId: string, data: Partial<{ name: string; flow_json: Record<string, unknown>; module_path: string; gemini_model: string; gemini_voice_id: string; is_active: boolean }>) =>
+  update: (
+    orgId: string,
+    botId: string,
+    data: Partial<{
+      name: string;
+      flow_json: Record<string, unknown>;
+      module_path: string;
+      gemini_model: string;
+      gemini_voice_id: string;
+      is_active: boolean;
+    }>
+  ) =>
     request<Bot>(`/admin/orgs/${orgId}/bots/${botId}`, {
       method: "PATCH",
       body: JSON.stringify(data),

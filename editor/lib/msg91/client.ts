@@ -1,4 +1,4 @@
-import { getOrgToken, getApiKey } from "@/lib/pbx/client";
+import { getApiKey, getOrgToken } from "@/lib/pbx/client";
 
 const PBX_BASE = "/api/pbx";
 
@@ -42,7 +42,9 @@ export const msg91 = {
 
   setConfig: async (authkey: string): Promise<Msg91Config> => {
     const res = await fetch(`${PBX_BASE}/settings/msg91`, {
-      method: "PUT", headers: pbxHeaders(), body: JSON.stringify({ authkey }),
+      method: "PUT",
+      headers: pbxHeaders(),
+      body: JSON.stringify({ authkey }),
     });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
@@ -69,7 +71,8 @@ export const msg91 = {
   // Send message (via server-side proxy)
   send: async (orgId: string, payload: unknown): Promise<unknown> => {
     const res = await fetch("/api/msg91/send", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ org_id: orgId, payload }),
     });
     return res.json();
@@ -78,7 +81,8 @@ export const msg91 = {
   // Logs (via server-side proxy)
   getLogs: async (orgId: string, startDate: string, endDate: string): Promise<unknown> => {
     const res = await fetch("/api/msg91/logs", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ org_id: orgId, startDate, endDate }),
     });
     return res.json();

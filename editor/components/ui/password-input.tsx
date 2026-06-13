@@ -1,20 +1,17 @@
 "use client";
 
-import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export function PasswordInput(props: React.ComponentProps<typeof Input>) {
   const [show, setShow] = useState(false);
 
   return (
     <div className="relative">
-      <Input
-        {...props}
-        type={show ? "text" : "password"}
-        className="pr-10"
-      />
+      <Input {...props} type={show ? "text" : "password"} className="pr-10" />
 
       <Button
         type="button"

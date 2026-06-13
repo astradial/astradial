@@ -8,7 +8,6 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Search } from "lucide-react";
 import { memo, useState } from "react";
 
-import { CampaignStatusPill } from "./CampaignStatusPill";
 import {
   Select,
   SelectContent,
@@ -20,6 +19,8 @@ import {
 } from "@/components/ui/select";
 import { leads as leadsApi, type OverviewLeadsResponse } from "@/lib/campaigns/client";
 import type { CampaignLead, LeadStatus, Paginated } from "@/lib/campaigns/types";
+
+import { CampaignStatusPill } from "./CampaignStatusPill";
 
 const numberFmt = new Intl.NumberFormat("en-US");
 
@@ -41,7 +42,7 @@ const DEFAULT_FIELDS = [
 
 interface Props {
   campaignId: string;
-  query: string;             // already-debounced search query
+  query: string; // already-debounced search query
   statusFilter: LeadStatus | "all";
   onOpenLead: (leadId: string, campaignId?: string) => void;
 }
@@ -51,16 +52,17 @@ export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: P
   const [pageSize, setPageSize] = useState(50);
   const [sort, setSort] = useState<SortState>({ key: "name", dir: "asc" });
 
-  const fields = campaignId === "overview"
-    ? [
-        { id: "name", label: "Name", sortable: true },
-        { id: "campaign", label: "Campaign", sortable: false },
-        { id: "phone", label: "Phone", sortable: false },
-        { id: "country", label: "Country", sortable: false },
-        { id: "status", label: "Status", sortable: true },
-        { id: "lastTouch", label: "Last activity", sortable: false },
-      ]
-    : DEFAULT_FIELDS;
+  const fields =
+    campaignId === "overview"
+      ? [
+          { id: "name", label: "Name", sortable: true },
+          { id: "campaign", label: "Campaign", sortable: false },
+          { id: "phone", label: "Phone", sortable: false },
+          { id: "country", label: "Country", sortable: false },
+          { id: "status", label: "Status", sortable: true },
+          { id: "lastTouch", label: "Last activity", sortable: false },
+        ]
+      : DEFAULT_FIELDS;
 
   // Reset to page 1 when filter/sort/pageSize change.
   const filterKey = `${query}|${statusFilter}|${sort.key}:${sort.dir}|${pageSize}`;
@@ -258,8 +260,7 @@ export function LeadsListView({ campaignId, query, statusFilter, onOpenLead }: P
               <ChevronLeft size={14} />
             </button>
             <span className="text-[13px] cmp-tabular" style={{ padding: "0 10px" }}>
-              Page <span className="font-medium">{page}</span> of{" "}
-              {numberFmt.format(totalPages)}
+              Page <span className="font-medium">{page}</span> of {numberFmt.format(totalPages)}
             </span>
             <button
               className="cmp-btn cmp-btn-outline cmp-btn-sm cmp-pagination-icon-btn"

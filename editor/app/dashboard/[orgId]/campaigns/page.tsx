@@ -31,9 +31,7 @@ export default function CampaignsListPage() {
   const [wizardOpen, setWizardOpen] = useState(false);
 
   useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-use-before-define
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function load() {

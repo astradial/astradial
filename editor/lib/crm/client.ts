@@ -18,8 +18,14 @@ function headers(): HeadersInit {
 
 async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { ...opts, headers: headers() });
-  if (res.status === 401) { handleUnauthorized("crm 401"); throw new Error("Session expired"); }
-  if (!res.ok) { const b = await res.text(); throw new Error(`${res.status}: ${b}`); }
+  if (res.status === 401) {
+    handleUnauthorized("crm 401");
+    throw new Error("Session expired");
+  }
+  if (!res.ok) {
+    const b = await res.text();
+    throw new Error(`${res.status}: ${b}`);
+  }
   if (res.status === 204) return undefined as unknown as T;
   return res.json();
 }
@@ -108,7 +114,16 @@ export interface CustomField {
   entity_type: "contact" | "company" | "deal";
   field_name: string;
   field_label: string;
-  field_type: "text" | "number" | "date" | "select" | "checkbox" | "email" | "phone" | "url" | "textarea";
+  field_type:
+    | "text"
+    | "number"
+    | "date"
+    | "select"
+    | "checkbox"
+    | "email"
+    | "phone"
+    | "url"
+    | "textarea";
   options: string[] | null;
   required: boolean;
   sort_order: number;
@@ -123,7 +138,12 @@ export interface CrmStats {
   won_value: number;
 }
 
-interface Paginated<T> { data: T[]; total: number; page: number; pages: number; }
+interface Paginated<T> {
+  data: T[];
+  total: number;
+  page: number;
+  pages: number;
+}
 
 function qs(params: Record<string, unknown>): string {
   const p = new URLSearchParams();
@@ -140,44 +160,87 @@ export const companies = {
   list: (params: { page?: number; limit?: number; search?: string; assigned_to?: string } = {}) =>
     req<Paginated<Company>>(`/companies${qs(params)}`),
   get: (id: string) => req<Company>(`/companies/${id}`),
-  create: (data: Partial<Company>) => req<Company>("/companies", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<Company>) => req<Company>(`/companies/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  create: (data: Partial<Company>) =>
+    req<Company>("/companies", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<Company>) =>
+    req<Company>(`/companies/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) => req(`/companies/${id}`, { method: "DELETE" }),
 };
 
 // ── Contacts ──
 
 export const contacts = {
-  list: (params: { page?: number; limit?: number; search?: string; lead_status?: string; company_id?: string; assigned_to?: string } = {}) =>
-    req<Paginated<Contact>>(`/contacts${qs(params)}`),
+  list: (
+    params: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      lead_status?: string;
+      company_id?: string;
+      assigned_to?: string;
+    } = {}
+  ) => req<Paginated<Contact>>(`/contacts${qs(params)}`),
   get: (id: string) => req<Contact>(`/contacts/${id}`),
-  create: (data: Partial<Contact>) => req<Contact>("/contacts", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<Contact>) => req<Contact>(`/contacts/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  updateStatus: (id: string, lead_status: string) => req<Contact>(`/contacts/${id}/status`, { method: "PUT", body: JSON.stringify({ lead_status }) }),
-  assign: (id: string, assigned_to: string | null) => req<Contact>(`/contacts/${id}/assign`, { method: "PUT", body: JSON.stringify({ assigned_to }) }),
+  create: (data: Partial<Contact>) =>
+    req<Contact>("/contacts", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<Contact>) =>
+    req<Contact>(`/contacts/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  updateStatus: (id: string, lead_status: string) =>
+    req<Contact>(`/contacts/${id}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ lead_status }),
+    }),
+  assign: (id: string, assigned_to: string | null) =>
+    req<Contact>(`/contacts/${id}/assign`, {
+      method: "PUT",
+      body: JSON.stringify({ assigned_to }),
+    }),
   delete: (id: string) => req(`/contacts/${id}`, { method: "DELETE" }),
 };
 
 // ── Deals ──
 
 export const deals = {
-  list: (params: { page?: number; limit?: number; search?: string; stage?: string; company_id?: string; contact_id?: string; assigned_to?: string } = {}) =>
-    req<Paginated<Deal>>(`/deals${qs(params)}`),
+  list: (
+    params: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      stage?: string;
+      company_id?: string;
+      contact_id?: string;
+      assigned_to?: string;
+    } = {}
+  ) => req<Paginated<Deal>>(`/deals${qs(params)}`),
   get: (id: string) => req<Deal>(`/deals/${id}`),
-  create: (data: Partial<Deal>) => req<Deal>("/deals", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<Deal>) => req<Deal>(`/deals/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  updateStage: (id: string, stage: string) => req<Deal>(`/deals/${id}/stage`, { method: "PUT", body: JSON.stringify({ stage }) }),
-  assign: (id: string, assigned_to: string | null) => req<Deal>(`/deals/${id}/assign`, { method: "PUT", body: JSON.stringify({ assigned_to }) }),
+  create: (data: Partial<Deal>) =>
+    req<Deal>("/deals", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<Deal>) =>
+    req<Deal>(`/deals/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  updateStage: (id: string, stage: string) =>
+    req<Deal>(`/deals/${id}/stage`, { method: "PUT", body: JSON.stringify({ stage }) }),
+  assign: (id: string, assigned_to: string | null) =>
+    req<Deal>(`/deals/${id}/assign`, { method: "PUT", body: JSON.stringify({ assigned_to }) }),
   delete: (id: string) => req(`/deals/${id}`, { method: "DELETE" }),
 };
 
 // ── Activities ──
 
 export const activities = {
-  list: (params: { page?: number; limit?: number; contact_id?: string; company_id?: string; deal_id?: string; type?: string } = {}) =>
-    req<Paginated<Activity>>(`/activities${qs(params)}`),
-  create: (data: Partial<Activity>) => req<Activity>("/activities", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<Activity>) => req<Activity>(`/activities/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  list: (
+    params: {
+      page?: number;
+      limit?: number;
+      contact_id?: string;
+      company_id?: string;
+      deal_id?: string;
+      type?: string;
+    } = {}
+  ) => req<Paginated<Activity>>(`/activities${qs(params)}`),
+  create: (data: Partial<Activity>) =>
+    req<Activity>("/activities", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<Activity>) =>
+    req<Activity>(`/activities/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) => req(`/activities/${id}`, { method: "DELETE" }),
 };
 
@@ -185,8 +248,10 @@ export const activities = {
 
 export const customFields = {
   list: (entity_type?: string) => req<CustomField[]>(`/custom-fields${qs({ entity_type })}`),
-  create: (data: Partial<CustomField>) => req<CustomField>("/custom-fields", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<CustomField>) => req<CustomField>(`/custom-fields/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  create: (data: Partial<CustomField>) =>
+    req<CustomField>("/custom-fields", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<CustomField>) =>
+    req<CustomField>(`/custom-fields/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) => req(`/custom-fields/${id}`, { method: "DELETE" }),
 };
 
@@ -208,7 +273,10 @@ export interface PipelineStage {
 export const pipelines = {
   get: (pipeline: "lead" | "deal") => req<PipelineStage[]>(`/pipelines/${pipeline}`),
   save: (pipeline: "lead" | "deal", stages: PipelineStage[]) =>
-    req<PipelineStage[]>(`/pipelines/${pipeline}`, { method: "PUT", body: JSON.stringify({ stages }) }),
+    req<PipelineStage[]>(`/pipelines/${pipeline}`, {
+      method: "PUT",
+      body: JSON.stringify({ stages }),
+    }),
 };
 
 // Defaults (used as fallback before API loads)

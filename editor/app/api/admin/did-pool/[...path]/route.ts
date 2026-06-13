@@ -39,7 +39,15 @@ async function forward(req: NextRequest, params: Promise<{ path: string[] }>) {
   }
 }
 
-export async function GET(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) { return forward(req, ctx.params); }
-export async function POST(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) { return forward(req, ctx.params); }
-export async function PUT(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) { return forward(req, ctx.params); }
-export async function DELETE(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) { return forward(req, ctx.params); }
+export async function GET(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  return forward(req, ctx.params);
+}
+export async function POST(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  return forward(req, ctx.params);
+}
+export async function PUT(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  return forward(req, ctx.params);
+}
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  return forward(req, ctx.params);
+}

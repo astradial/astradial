@@ -124,20 +124,15 @@ function ApprovalCard({ approval, now, onDecide, busy }: ApprovalCardProps) {
         <div className="cmp-approval-meta">
           <CampaignStatusPill status={approval.status} />
           <span style={{ fontSize: 13, fontWeight: 500 }}>{name}</span>
-          {business && (
-            <span className="text-[12px] text-muted-foreground">· {business}</span>
-          )}
+          {business && <span className="text-[12px] text-muted-foreground">· {business}</span>}
         </div>
-        <span
-          className={`cmp-sla-countdown${sla.urgent ? " cmp-sla-urgent" : ""}`}
-        >
+        <span className={`cmp-sla-countdown${sla.urgent ? " cmp-sla-urgent" : ""}`}>
           <Clock size={12} /> SLA {sla.label}
         </span>
       </div>
 
       <div className="text-[12px] text-muted-foreground">
-        {approval.channel === "whatsapp" ? "WhatsApp" : "Phone call"} ·{" "}
-        {nodeLabel(approval)}
+        {approval.channel === "whatsapp" ? "WhatsApp" : "Phone call"} · {nodeLabel(approval)}
       </div>
 
       {approval.draft && <div className="cmp-draft-bubble">{approval.draft}</div>}
@@ -213,13 +208,8 @@ export default function CampaignApprovalsPage() {
   });
 
   const decideMut = useMutation({
-    mutationFn: ({
-      id,
-      decision,
-    }: {
-      id: string;
-      decision: "approved" | "rejected";
-    }) => approvals.decide(id, decision),
+    mutationFn: ({ id, decision }: { id: string; decision: "approved" | "rejected" }) =>
+      approvals.decide(id, decision),
     onMutate: async ({ id }) => {
       const key = ["approvals", { status, page }] as const;
       await qc.cancelQueries({ queryKey: key });
@@ -240,10 +230,7 @@ export default function CampaignApprovalsPage() {
       showToast(err.message || "Failed to record decision", "error");
     },
     onSuccess: (_data, vars) => {
-      showToast(
-        vars.decision === "approved" ? "Approved" : "Rejected",
-        "success"
-      );
+      showToast(vars.decision === "approved" ? "Approved" : "Rejected", "success");
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["approvals"] });
@@ -271,18 +258,13 @@ export default function CampaignApprovalsPage() {
   return (
     <div className="cmp-page-pad">
       <div style={{ marginBottom: 8 }}>
-        <Link
-          href={`/dashboard/${orgId}/campaigns`}
-          className="cmp-btn cmp-btn-ghost cmp-btn-sm"
-        >
+        <Link href={`/dashboard/${orgId}/campaigns`} className="cmp-btn cmp-btn-ghost cmp-btn-sm">
           <ArrowLeft size={14} /> All campaigns
         </Link>
       </div>
 
       <h1 className="cmp-page-heading">Approvals</h1>
-      <p className="cmp-page-subheading">
-        {numberFmt.format(totalPending)} pending
-      </p>
+      <p className="cmp-page-subheading">{numberFmt.format(totalPending)} pending</p>
 
       <div className="cmp-tabs" style={{ marginTop: 16 }}>
         {TABS.map((t) => (
@@ -296,9 +278,7 @@ export default function CampaignApprovalsPage() {
             }}
           >
             {t.label}
-            <span className="cmp-tab-badge">
-              {numberFmt.format(tabCounts[t.id] ?? 0)}
-            </span>
+            <span className="cmp-tab-badge">{numberFmt.format(tabCounts[t.id] ?? 0)}</span>
           </button>
         ))}
       </div>
@@ -350,10 +330,7 @@ export default function CampaignApprovalsPage() {
           >
             Prev
           </button>
-          <span
-            className="text-[13px] text-muted-foreground"
-            style={{ alignSelf: "center" }}
-          >
+          <span className="text-[13px] text-muted-foreground" style={{ alignSelf: "center" }}>
             Page {page} of {totalPages}
           </span>
           <button

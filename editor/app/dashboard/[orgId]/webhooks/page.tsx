@@ -1,23 +1,43 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import { Plus, MoreHorizontal, Copy, Eye, EyeOff, Key } from "lucide-react";
 import { format } from "date-fns";
+import { Copy, Eye, EyeOff, Key, MoreHorizontal, Plus } from "lucide-react";
+import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showToast } from "@/components/ui/Toast";
-import { apiKeys, type ApiKey } from "@/lib/workflow/client";
+import { type ApiKey, apiKeys } from "@/lib/workflow/client";
 
 const PBX_BASE = "/api/pbx";
 
@@ -48,15 +68,60 @@ const ALL_PERMISSIONS = [
 const API_ENDPOINTS = [
   { method: "GET", path: "/calls", desc: "List call logs", perm: "calls.read" },
   { method: "GET", path: "/calls/live", desc: "Get live active calls", perm: "calls.live" },
-  { method: "GET", path: "/calls/count", desc: "Get call count and statistics", perm: "calls.read" },
-  { method: "GET", path: "/calls/channels", desc: "Get active channels with details", perm: "calls.live" },
-  { method: "GET", path: "/calls/{callId}/recording", desc: "Download call recording", perm: "calls.recording" },
-  { method: "POST", path: "/calls/click-to-call", desc: "Initiate click-to-call between two parties", perm: "calls.click_to_call" },
-  { method: "POST", path: "/calls/originate-to-ai", desc: "Originate call and connect to AI agent", perm: "calls.originate_ai" },
-  { method: "POST", path: "/calls/{channelId}/hangup", desc: "Hang up an active call", perm: "calls.hangup" },
-  { method: "POST", path: "/calls/{channelId}/hold", desc: "Put a call on hold", perm: "calls.hold" },
-  { method: "POST", path: "/calls/{channelId}/unhold", desc: "Resume a call from hold", perm: "calls.hold" },
-  { method: "POST", path: "/calls/{channelId}/transfer", desc: "Transfer an active call", perm: "calls.transfer" },
+  {
+    method: "GET",
+    path: "/calls/count",
+    desc: "Get call count and statistics",
+    perm: "calls.read",
+  },
+  {
+    method: "GET",
+    path: "/calls/channels",
+    desc: "Get active channels with details",
+    perm: "calls.live",
+  },
+  {
+    method: "GET",
+    path: "/calls/{callId}/recording",
+    desc: "Download call recording",
+    perm: "calls.recording",
+  },
+  {
+    method: "POST",
+    path: "/calls/click-to-call",
+    desc: "Initiate click-to-call between two parties",
+    perm: "calls.click_to_call",
+  },
+  {
+    method: "POST",
+    path: "/calls/originate-to-ai",
+    desc: "Originate call and connect to AI agent",
+    perm: "calls.originate_ai",
+  },
+  {
+    method: "POST",
+    path: "/calls/{channelId}/hangup",
+    desc: "Hang up an active call",
+    perm: "calls.hangup",
+  },
+  {
+    method: "POST",
+    path: "/calls/{channelId}/hold",
+    desc: "Put a call on hold",
+    perm: "calls.hold",
+  },
+  {
+    method: "POST",
+    path: "/calls/{channelId}/unhold",
+    desc: "Resume a call from hold",
+    perm: "calls.hold",
+  },
+  {
+    method: "POST",
+    path: "/calls/{channelId}/transfer",
+    desc: "Transfer an active call",
+    perm: "calls.transfer",
+  },
 ];
 
 export default function WebhooksPage() {
@@ -73,29 +138,49 @@ export default function WebhooksPage() {
   const [pbxLoading, setPbxLoading] = useState(true);
   const [pbxCreateOpen, setPbxCreateOpen] = useState(false);
   const [pbxKeyName, setPbxKeyName] = useState("");
-  const [pbxPerms, setPbxPerms] = useState<string[]>(ALL_PERMISSIONS.map(p => p.id));
+  const [pbxPerms, setPbxPerms] = useState<string[]>(ALL_PERMISSIONS.map((p) => p.id));
   const [newPbxSecret, setNewPbxSecret] = useState<string | null>(null);
 
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
 
-  useEffect(() => { loadWfKeys(); loadPbxKeys(); }, [orgId]);
+  useEffect(() => {
+    loadWfKeys();
+    loadPbxKeys();
+  }, [orgId]);
 
   // ── Workflow keys ──
   async function loadWfKeys() {
-    try { setWfLoading(true); setWfKeys(await apiKeys.list(orgId)); } catch {} finally { setWfLoading(false); }
+    try {
+      setWfLoading(true);
+      setWfKeys(await apiKeys.list(orgId));
+    } catch {
+    } finally {
+      setWfLoading(false);
+    }
   }
   async function handleWfCreate() {
     try {
       await apiKeys.create(orgId, wfKeyName || "Default");
       showToast("Workflow key created", "success");
-      setWfCreateOpen(false); setWfKeyName(""); loadWfKeys();
-    } catch (e) { showToast((e as Error).message, "error"); }
+      setWfCreateOpen(false);
+      setWfKeyName("");
+      loadWfKeys();
+    } catch (e) {
+      showToast((e as Error).message, "error");
+    }
   }
   async function handleWfToggle(k: ApiKey) {
-    try { await apiKeys.update(k.id, { is_active: !k.is_active }); loadWfKeys(); } catch {}
+    try {
+      await apiKeys.update(k.id, { is_active: !k.is_active });
+      loadWfKeys();
+    } catch {}
   }
   async function handleWfDelete(id: string) {
-    try { await apiKeys.delete(id); showToast("Deleted", "success"); loadWfKeys(); } catch {}
+    try {
+      await apiKeys.delete(id);
+      showToast("Deleted", "success");
+      loadWfKeys();
+    } catch {}
   }
 
   // ── PBX API keys ──
@@ -110,36 +195,61 @@ export default function WebhooksPage() {
     try {
       setPbxLoading(true);
       const res = await fetch(`${PBX_BASE}/api-keys`, { headers: pbxHeaders() });
-      if (res.ok) { const data = await res.json(); setPbxKeys(data.keys || []); }
-    } catch {} finally { setPbxLoading(false); }
+      if (res.ok) {
+        const data = await res.json();
+        setPbxKeys(data.keys || []);
+      }
+    } catch {
+    } finally {
+      setPbxLoading(false);
+    }
   }
 
   async function handlePbxCreate() {
     try {
       const res = await fetch(`${PBX_BASE}/api-keys`, {
-        method: "POST", headers: pbxHeaders(),
+        method: "POST",
+        headers: pbxHeaders(),
         body: JSON.stringify({ name: pbxKeyName || "Default", permissions: pbxPerms }),
       });
-      if (!res.ok) { const d = await res.json(); showToast(d.error, "error"); return; }
+      if (!res.ok) {
+        const d = await res.json();
+        showToast(d.error, "error");
+        return;
+      }
       const data = await res.json();
       setNewPbxSecret(data.api_secret);
       showToast("API key created — save the secret now!", "success");
-      setPbxCreateOpen(false); setPbxKeyName(""); loadPbxKeys();
-    } catch (e) { showToast((e as Error).message, "error"); }
+      setPbxCreateOpen(false);
+      setPbxKeyName("");
+      loadPbxKeys();
+    } catch (e) {
+      showToast((e as Error).message, "error");
+    }
   }
 
   async function handlePbxRevoke(id: string) {
     try {
       await fetch(`${PBX_BASE}/api-keys/${id}`, { method: "DELETE", headers: pbxHeaders() });
-      showToast("API key revoked", "success"); loadPbxKeys();
+      showToast("API key revoked", "success");
+      loadPbxKeys();
     } catch {}
   }
 
   function toggleReveal(id: string) {
-    setRevealedKeys(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setRevealedKeys((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
   }
-  function maskKey(key: string) { return key.slice(0, 8) + "••••••••" + key.slice(-4); }
-  function copyKey(key: string) { navigator.clipboard.writeText(key); showToast("Copied", "success"); }
+  function maskKey(key: string) {
+    return key.slice(0, 8) + "••••••••" + key.slice(-4);
+  }
+  function copyKey(key: string) {
+    navigator.clipboard.writeText(key);
+    showToast("Copied", "success");
+  }
 
   const methodColor: Record<string, string> = { GET: "secondary", POST: "default" };
 
@@ -160,73 +270,139 @@ export default function WebhooksPage() {
         {/* ── API Keys Tab ── */}
         <TabsContent value="api-keys" className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">API keys for call management, click-to-call, and AI origination</p>
-            <Button size="sm" onClick={() => setPbxCreateOpen(true)}><Plus className="h-4 w-4 mr-1" /> Create API Key</Button>
+            <p className="text-sm text-muted-foreground">
+              API keys for call management, click-to-call, and AI origination
+            </p>
+            <Button size="sm" onClick={() => setPbxCreateOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Create API Key
+            </Button>
           </div>
 
           {/* Show secret banner if just created */}
           {newPbxSecret && (
             <Card className="border-primary">
               <CardContent className="p-4 space-y-2">
-                <p className="text-sm font-medium">Save your API secret — it won't be shown again</p>
+                <p className="text-sm font-medium">
+                  Save your API secret — it won't be shown again
+                </p>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs font-mono bg-muted p-2 rounded break-all">{newPbxSecret}</code>
-                  <Button variant="outline" size="sm" onClick={() => { copyKey(newPbxSecret); }}><Copy className="h-4 w-4" /></Button>
+                  <code className="flex-1 text-xs font-mono bg-muted p-2 rounded break-all">
+                    {newPbxSecret}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      copyKey(newPbxSecret);
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => setNewPbxSecret(null)}>Dismiss</Button>
+                <Button variant="ghost" size="sm" onClick={() => setNewPbxSecret(null)}>
+                  Dismiss
+                </Button>
               </CardContent>
             </Card>
           )}
 
           <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
             <div className="overflow-auto flex-1 relative">
-            <Table>
-              <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
-                <TableRow className="border-b-border/50 hover:bg-transparent">
-                  <TableHead>Name</TableHead>
-                  <TableHead>API Key</TableHead>
-                  <TableHead>Permissions</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Last Used</TableHead>
-                  <TableHead className="w-16"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pbxLoading ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
-                ) : pbxKeys.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No API keys yet. Create one to start integrating.</TableCell></TableRow>
-                ) : pbxKeys.map(k => (
-                  <TableRow key={k.id}>
-                    <TableCell className="font-medium text-sm">{k.name}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <code className="text-xs font-mono text-muted-foreground">{revealedKeys.has(k.id) ? k.api_key : maskKey(k.api_key)}</code>
-                        <button onClick={() => toggleReveal(k.id)} className="text-muted-foreground hover:text-foreground"><Eye className="h-3.5 w-3.5" /></button>
-                        <button onClick={() => copyKey(k.api_key)} className="text-muted-foreground hover:text-foreground"><Copy className="h-3.5 w-3.5" /></button>
-                      </div>
-                    </TableCell>
-                    <TableCell><Badge variant="secondary" className="text-[10px]">{(k.permissions || []).length} perms</Badge></TableCell>
-                    <TableCell><Badge variant={k.status === "active" ? "default" : "secondary"} className="text-xs">{k.status}</Badge></TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{k.last_used_at ? format(new Date(k.last_used_at), "MMM d, h:mm a") : "Never"}</TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-7 w-7 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem className="text-destructive" onClick={() => handlePbxRevoke(k.id)}>Revoke</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                  <TableRow className="border-b-border/50 hover:bg-transparent">
+                    <TableHead>Name</TableHead>
+                    <TableHead>API Key</TableHead>
+                    <TableHead>Permissions</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Last Used</TableHead>
+                    <TableHead className="w-16"></TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {pbxLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        Loading...
+                      </TableCell>
+                    </TableRow>
+                  ) : pbxKeys.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No API keys yet. Create one to start integrating.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    pbxKeys.map((k) => (
+                      <TableRow key={k.id}>
+                        <TableCell className="font-medium text-sm">{k.name}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            <code className="text-xs font-mono text-muted-foreground">
+                              {revealedKeys.has(k.id) ? k.api_key : maskKey(k.api_key)}
+                            </code>
+                            <button
+                              onClick={() => toggleReveal(k.id)}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => copyKey(k.api_key)}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {(k.permissions || []).length} perms
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={k.status === "active" ? "default" : "secondary"}
+                            className="text-xs"
+                          >
+                            {k.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {k.last_used_at
+                            ? format(new Date(k.last_used_at), "MMM d, h:mm a")
+                            : "Never"}
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => handlePbxRevoke(k.id)}
+                              >
+                                Revoke
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
             </div>
           </div>
 
           {/* Usage examples */}
           <Card>
-            <CardHeader><CardTitle className="text-base">Usage</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-base">Usage</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <p className="text-sm font-medium">Click to Call</p>
@@ -253,7 +429,9 @@ export default function WebhooksPage() {
               </div>
               <Separator />
               <div className="space-y-2">
-                <p className="text-sm font-medium">Originate to AI Agent (external number + OpenAI)</p>
+                <p className="text-sm font-medium">
+                  Originate to AI Agent (external number + OpenAI)
+                </p>
                 <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST https://api.example.com/api/v1/calls/originate-to-ai \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ak_your_key_here" \\
@@ -290,14 +468,30 @@ export default function WebhooksPage() {
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">Keys for triggering workflows via HTTP</p>
             <Dialog open={wfCreateOpen} onOpenChange={setWfCreateOpen}>
-              <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Create Key</Button></DialogTrigger>
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <Plus className="h-4 w-4 mr-1" /> Create Key
+                </Button>
+              </DialogTrigger>
               <DialogContent className="max-w-sm">
-                <DialogHeader><DialogTitle>Create Workflow Key</DialogTitle><DialogDescription>Required to trigger workflows via HTTP</DialogDescription></DialogHeader>
+                <DialogHeader>
+                  <DialogTitle>Create Workflow Key</DialogTitle>
+                  <DialogDescription>Required to trigger workflows via HTTP</DialogDescription>
+                </DialogHeader>
                 <div className="space-y-3 py-2">
-                  <div className="space-y-1.5"><Label>Name</Label><Input value={wfKeyName} onChange={e => setWfKeyName(e.target.value)} placeholder="PMS Integration..." /></div>
+                  <div className="space-y-1.5">
+                    <Label>Name</Label>
+                    <Input
+                      value={wfKeyName}
+                      onChange={(e) => setWfKeyName(e.target.value)}
+                      placeholder="PMS Integration..."
+                    />
+                  </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setWfCreateOpen(false)}>Cancel</Button>
+                  <Button variant="outline" onClick={() => setWfCreateOpen(false)}>
+                    Cancel
+                  </Button>
                   <Button onClick={handleWfCreate}>Create</Button>
                 </DialogFooter>
               </DialogContent>
@@ -306,53 +500,103 @@ export default function WebhooksPage() {
 
           <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
             <div className="overflow-auto flex-1 relative">
-            <Table>
-              <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
-                <TableRow className="border-b-border/50 hover:bg-transparent">
-                  <TableHead>Name</TableHead>
-                  <TableHead>Key</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Last Used</TableHead>
-                  <TableHead className="w-16"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {wfLoading ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
-                ) : wfKeys.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No workflow keys</TableCell></TableRow>
-                ) : wfKeys.map(k => (
-                  <TableRow key={k.id}>
-                    <TableCell className="font-medium text-sm">{k.name}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <code className="text-xs font-mono text-muted-foreground">{revealedKeys.has(k.id) ? k.key : maskKey(k.key)}</code>
-                        <button onClick={() => toggleReveal(k.id)} className="text-muted-foreground hover:text-foreground">{revealedKeys.has(k.id) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}</button>
-                        <button onClick={() => copyKey(k.key)} className="text-muted-foreground hover:text-foreground"><Copy className="h-3.5 w-3.5" /></button>
-                      </div>
-                    </TableCell>
-                    <TableCell><Badge variant={k.is_active ? "default" : "secondary"} className="text-xs">{k.is_active ? "Active" : "Inactive"}</Badge></TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{k.last_used_at ? format(new Date(k.last_used_at), "MMM d, h:mm a") : "Never"}</TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-7 w-7 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleWfToggle(k)}>{k.is_active ? "Deactivate" : "Activate"}</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive" onClick={() => handleWfDelete(k.id)}>Delete</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                  <TableRow className="border-b-border/50 hover:bg-transparent">
+                    <TableHead>Name</TableHead>
+                    <TableHead>Key</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Last Used</TableHead>
+                    <TableHead className="w-16"></TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {wfLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        Loading...
+                      </TableCell>
+                    </TableRow>
+                  ) : wfKeys.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        No workflow keys
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    wfKeys.map((k) => (
+                      <TableRow key={k.id}>
+                        <TableCell className="font-medium text-sm">{k.name}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            <code className="text-xs font-mono text-muted-foreground">
+                              {revealedKeys.has(k.id) ? k.key : maskKey(k.key)}
+                            </code>
+                            <button
+                              onClick={() => toggleReveal(k.id)}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              {revealedKeys.has(k.id) ? (
+                                <EyeOff className="h-3.5 w-3.5" />
+                              ) : (
+                                <Eye className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => copyKey(k.key)}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={k.is_active ? "default" : "secondary"}
+                            className="text-xs"
+                          >
+                            {k.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {k.last_used_at
+                            ? format(new Date(k.last_used_at), "MMM d, h:mm a")
+                            : "Never"}
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleWfToggle(k)}>
+                                {k.is_active ? "Deactivate" : "Activate"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => handleWfDelete(k.id)}
+                              >
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
             </div>
           </div>
 
           <Card>
             <CardContent className="p-4 space-y-2">
               <p className="text-sm font-medium">Usage</p>
-              <p className="text-xs text-muted-foreground">Include the key when triggering workflows:</p>
+              <p className="text-xs text-muted-foreground">
+                Include the key when triggering workflows:
+              </p>
               <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto">{`curl -X POST https://gateway.example.com/trigger/{workflow_id} \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: wfk_your_key_here" \\
@@ -363,42 +607,65 @@ export default function WebhooksPage() {
 
         {/* ── API Reference Tab ── */}
         <TabsContent value="reference" className="space-y-4">
-          <p className="text-sm text-muted-foreground">All available API endpoints. Authenticate with <code className="text-xs bg-muted px-1 py-0.5 rounded">X-API-Key: ak_your_key</code></p>
+          <p className="text-sm text-muted-foreground">
+            All available API endpoints. Authenticate with{" "}
+            <code className="text-xs bg-muted px-1 py-0.5 rounded">X-API-Key: ak_your_key</code>
+          </p>
 
           <div className="mt-4">
             <h3 className="font-semibold text-lg mb-2">Call Management</h3>
             <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col">
               <div className="overflow-auto flex-1 relative">
-              <Table>
-                <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
-                  <TableRow className="border-b-border/50 hover:bg-transparent">
-                    <TableHead className="w-20">Method</TableHead>
-                    <TableHead>Endpoint</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="w-32">Permission</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {API_ENDPOINTS.map((ep, i) => (
-                    <TableRow key={i}>
-                      <TableCell><Badge variant={methodColor[ep.method] as "default" | "secondary" || "default"} className="text-xs font-mono">{ep.method}</Badge></TableCell>
-                      <TableCell className="font-mono text-xs">/api/v1{ep.path}</TableCell>
-                      <TableCell className="text-sm">{ep.desc}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-[10px]">{ep.perm}</Badge></TableCell>
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                    <TableRow className="border-b-border/50 hover:bg-transparent">
+                      <TableHead className="w-20">Method</TableHead>
+                      <TableHead>Endpoint</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead className="w-32">Permission</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {API_ENDPOINTS.map((ep, i) => (
+                      <TableRow key={i}>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              (methodColor[ep.method] as "default" | "secondary") || "default"
+                            }
+                            className="text-xs font-mono"
+                          >
+                            {ep.method}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">/api/v1{ep.path}</TableCell>
+                        <TableCell className="text-sm">{ep.desc}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-[10px]">
+                            {ep.perm}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             </div>
           </div>
 
           <Card>
-            <CardHeader><CardTitle className="text-base">Authentication</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-base">Authentication</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">All requests require an API key in the header:</p>
+              <p className="text-sm text-muted-foreground">
+                All requests require an API key in the header:
+              </p>
               <pre className="text-xs font-mono bg-muted rounded-lg p-3">{`X-API-Key: ak_your_api_key_here`}</pre>
-              <p className="text-sm text-muted-foreground">API keys are scoped to your organisation. You can only access your own DIDs, calls, and recordings.</p>
+              <p className="text-sm text-muted-foreground">
+                API keys are scoped to your organisation. You can only access your own DIDs, calls,
+                and recordings.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>
@@ -407,28 +674,45 @@ export default function WebhooksPage() {
       {/* PBX Create Key Dialog */}
       <Dialog open={pbxCreateOpen} onOpenChange={setPbxCreateOpen}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Create API Key</DialogTitle><DialogDescription>Generate a key for call management integrations</DialogDescription></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Create API Key</DialogTitle>
+            <DialogDescription>Generate a key for call management integrations</DialogDescription>
+          </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label>Key Name</Label>
-              <Input value={pbxKeyName} onChange={e => setPbxKeyName(e.target.value)} placeholder="CRM Integration, IVR System..." />
+              <Input
+                value={pbxKeyName}
+                onChange={(e) => setPbxKeyName(e.target.value)}
+                placeholder="CRM Integration, IVR System..."
+              />
             </div>
             <div className="space-y-2">
               <Label>Permissions</Label>
               <div className="grid grid-cols-2 gap-2">
-                {ALL_PERMISSIONS.map(p => (
+                {ALL_PERMISSIONS.map((p) => (
                   <div key={p.id} className="flex items-center gap-2">
-                    <Checkbox checked={pbxPerms.includes(p.id)} onCheckedChange={c => {
-                      setPbxPerms(prev => c ? [...prev, p.id] : prev.filter(x => x !== p.id));
-                    }} id={p.id} />
-                    <Label htmlFor={p.id} className="text-xs">{p.label}</Label>
+                    <Checkbox
+                      checked={pbxPerms.includes(p.id)}
+                      onCheckedChange={(c) => {
+                        setPbxPerms((prev) =>
+                          c ? [...prev, p.id] : prev.filter((x) => x !== p.id)
+                        );
+                      }}
+                      id={p.id}
+                    />
+                    <Label htmlFor={p.id} className="text-xs">
+                      {p.label}
+                    </Label>
                   </div>
                 ))}
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPbxCreateOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setPbxCreateOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handlePbxCreate}>Create Key</Button>
           </DialogFooter>
         </DialogContent>

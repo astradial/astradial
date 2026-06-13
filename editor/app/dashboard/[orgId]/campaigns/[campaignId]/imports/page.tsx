@@ -150,8 +150,8 @@ export default function CampaignImportsPage() {
 
       {!listQ.isLoading && rows.length === 0 && (
         <div className="text-[13px] text-muted-foreground p-6 border rounded-lg text-center">
-          <Upload size={20} /> No imports yet. Use the &ldquo;Create campaign&rdquo; wizard
-          or the import action on this page to upload a CSV.
+          <Upload size={20} /> No imports yet. Use the &ldquo;Create campaign&rdquo; wizard or the
+          import action on this page to upload a CSV.
         </div>
       )}
 

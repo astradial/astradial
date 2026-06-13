@@ -7,9 +7,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, RotateCw, WifiOff } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { lazy, Suspense, useEffect, useDeferredValue, useState, useTransition } from "react";
+import { lazy, Suspense, useDeferredValue, useEffect, useState, useTransition } from "react";
 
-import { FunnelView, FunnelLiveTag } from "@/components/campaigns/FunnelView";
+import { FunnelLiveTag, FunnelView } from "@/components/campaigns/FunnelView";
 import { LeadsToolbar } from "@/components/campaigns/LeadsToolbar";
 import { leads as leadsApi } from "@/lib/campaigns/client";
 import type { LeadStatus } from "@/lib/campaigns/types";

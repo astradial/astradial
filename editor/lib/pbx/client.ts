@@ -1,4 +1,4 @@
-import { handleUnauthorized, getJwtExpiryMs } from "@/lib/auth/authStore";
+import { getJwtExpiryMs, handleUnauthorized } from "@/lib/auth/authStore";
 
 const BASE = "/api/pbx";
 
@@ -140,7 +140,12 @@ export interface QueueMember {
   penalty: number;
   paused: boolean;
   ring_timeout_seconds: number;
-  user?: { id: string; full_name: string; extension: string; status?: "active" | "inactive" | "invited" | "suspended" };
+  user?: {
+    id: string;
+    full_name: string;
+    extension: string;
+    status?: "active" | "inactive" | "invited" | "suspended";
+  };
 }
 
 export interface PbxQueue {
@@ -235,8 +240,7 @@ export const orgs = {
     request<PbxOrg>("/organizations", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<PbxOrg>) =>
     request<PbxOrg>(`/organizations/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    request(`/organizations/${id}`, { method: "DELETE" }),
+  delete: (id: string) => request(`/organizations/${id}`, { method: "DELETE" }),
 };
 
 // ─── Users ───
@@ -290,17 +294,21 @@ export const users = {
   list: () => request<PbxUser[]>("/users"),
   get: (id: string) => request<PbxUser>(`/users/${id}`),
   registrations: (opts: { force?: boolean } = {}) =>
-    request<PbxUserRegistrationsResponse>(
-      `/users/registrations${opts.force ? "?force=1" : ""}`,
-    ),
+    request<PbxUserRegistrationsResponse>(`/users/registrations${opts.force ? "?force=1" : ""}`),
   create: (data: Partial<PbxUser> & { password: string }) =>
     request<PbxUser>("/users", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<PbxUser>) =>
     request<PbxUser>(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  updateRouting: (id: string, data: { routing_type: string; routing_destination?: string; ring_target?: string; phone_number?: string }) =>
-    request<PbxUser>(`/users/${id}/routing`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    request(`/users/${id}`, { method: "DELETE" }),
+  updateRouting: (
+    id: string,
+    data: {
+      routing_type: string;
+      routing_destination?: string;
+      ring_target?: string;
+      phone_number?: string;
+    }
+  ) => request<PbxUser>(`/users/${id}/routing`, { method: "PUT", body: JSON.stringify(data) }),
+  delete: (id: string) => request(`/users/${id}`, { method: "DELETE" }),
 };
 
 // ─── DIDs ───
@@ -314,8 +322,7 @@ export const dids = {
     request<PbxDid>(`/dids/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   updateRouting: (id: string, data: { routing_type: string; routing_destination: string }) =>
     request<PbxDid>(`/dids/${id}/routing`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    request(`/dids/${id}`, { method: "DELETE" }),
+  delete: (id: string) => request(`/dids/${id}`, { method: "DELETE" }),
 };
 
 // ─── Trunks ───
@@ -327,8 +334,7 @@ export const trunks = {
     request<PbxTrunk>("/trunks", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<PbxTrunk>) =>
     request<PbxTrunk>(`/trunks/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    request(`/trunks/${id}`, { method: "DELETE" }),
+  delete: (id: string) => request(`/trunks/${id}`, { method: "DELETE" }),
 };
 
 // ─── Customer Tunnels (WireGuard) ───
@@ -409,21 +415,33 @@ export interface PbxApplyResult {
 export const customerTunnels = {
   list: () => request<{ tunnels: PbxCustomerTunnel[]; count: number }>("/customer-tunnels"),
   get: (id: string) => request<{ tunnel: PbxCustomerTunnel }>(`/customer-tunnels/${id}`),
-  create: (data: { name: string; customer_pubkey: string; customer_lan_cidr?: string; notes?: string }) =>
-    request<{ tunnel: PbxCustomerTunnel; apply: PbxApplyResult; warnings?: string[] }>("/customer-tunnels", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
+  create: (data: {
+    name: string;
+    customer_pubkey: string;
+    customer_lan_cidr?: string;
+    notes?: string;
+  }) =>
+    request<{ tunnel: PbxCustomerTunnel; apply: PbxApplyResult; warnings?: string[] }>(
+      "/customer-tunnels",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    ),
   update: (
     id: string,
-    data: { status?: PbxCustomerTunnel["status"]; notes?: string; customer_lan_cidr?: string | null },
+    data: {
+      status?: PbxCustomerTunnel["status"];
+      notes?: string;
+      customer_lan_cidr?: string | null;
+    }
   ) =>
     request<{ tunnel: PbxCustomerTunnel; apply: PbxApplyResult | null; warnings?: string[] }>(
       `/customer-tunnels/${id}`,
       {
         method: "PATCH",
         body: JSON.stringify(data),
-      },
+      }
     ),
   revoke: (id: string) =>
     request<{
@@ -437,7 +455,9 @@ export const customerTunnels = {
   customerConfig: (id: string) =>
     request<PbxCustomerTunnelConfig>(`/customer-tunnels/${id}/customer-config`),
   status: (id: string) =>
-    request<{ tunnel_id: string; status: PbxCustomerTunnelStatus }>(`/customer-tunnels/${id}/status`),
+    request<{ tunnel_id: string; status: PbxCustomerTunnelStatus }>(
+      `/customer-tunnels/${id}/status`
+    ),
   metrics: (id: string, opts: { from?: string; to?: string } = {}) => {
     const qs = new URLSearchParams();
     if (opts.from) qs.set("from", opts.from);
@@ -456,8 +476,7 @@ export const queues = {
     request<PbxQueue>("/queues", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<PbxQueue>) =>
     request<PbxQueue>(`/queues/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    request(`/queues/${id}`, { method: "DELETE" }),
+  delete: (id: string) => request(`/queues/${id}`, { method: "DELETE" }),
   // Add a single member to a queue. The API takes one user_id at a time
   // (it returns the created member row so the UI can react to penalty /
   // ring_timeout). ring_timeout_seconds is optional — server defaults to 20.
@@ -506,9 +525,15 @@ export const moh = {
   delete: (className: string, filename: string) =>
     request(`/moh/${className}/${filename}`, { method: "DELETE" }),
   assignToQueue: (queueId: string, className: string) =>
-    request(`/queues/${queueId}/moh`, { method: "PUT", body: JSON.stringify({ music_on_hold: className }) }),
+    request(`/queues/${queueId}/moh`, {
+      method: "PUT",
+      body: JSON.stringify({ music_on_hold: className }),
+    }),
   importSystemFile: (filename: string) =>
-    request<{ moh_class_name: string; filename: string }>("/moh/import-system-file", { method: "POST", body: JSON.stringify({ filename }) }),
+    request<{ moh_class_name: string; filename: string }>("/moh/import-system-file", {
+      method: "POST",
+      body: JSON.stringify({ filename }),
+    }),
 };
 
 // ─── Ticket WhatsApp Config ───
@@ -532,18 +557,28 @@ export interface TicketWhatsAppConfig {
 }
 
 const defaultTicketWAConfig: TicketWhatsAppConfig = {
-  enabled: false, sender_number: "",
+  enabled: false,
+  sender_number: "",
   statuses: {
     open: { enabled: false, template_name: "", template_language: "en", variable_mapping: {} },
-    in_progress: { enabled: false, template_name: "", template_language: "en", variable_mapping: {} },
+    in_progress: {
+      enabled: false,
+      template_name: "",
+      template_language: "en",
+      variable_mapping: {},
+    },
     closed: { enabled: false, template_name: "", template_language: "en", variable_mapping: {} },
   },
 };
 
 export const ticketWhatsapp = {
-  getConfig: () => request<TicketWhatsAppConfig>("/settings/ticket-whatsapp").catch(() => defaultTicketWAConfig),
+  getConfig: () =>
+    request<TicketWhatsAppConfig>("/settings/ticket-whatsapp").catch(() => defaultTicketWAConfig),
   setConfig: (data: TicketWhatsAppConfig) =>
-    request<TicketWhatsAppConfig>("/settings/ticket-whatsapp", { method: "PUT", body: JSON.stringify(data) }),
+    request<TicketWhatsAppConfig>("/settings/ticket-whatsapp", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
 };
 
 // ─── Ticket Alerts (daily WhatsApp missed-call summary) ───
@@ -566,8 +601,7 @@ export interface TicketAlertsView {
 }
 
 export const ticketAlerts = {
-  get: (orgId: string) =>
-    request<TicketAlertsView>(`/orgs/${orgId}/ticket-alerts`),
+  get: (orgId: string) => request<TicketAlertsView>(`/orgs/${orgId}/ticket-alerts`),
   setEnabled: (orgId: string, enabled: boolean) =>
     request<{ enabled: boolean }>(`/orgs/${orgId}/ticket-alerts`, {
       method: "PATCH",
@@ -630,14 +664,26 @@ async function adminRequest<T>(editorPath: string, opts: RequestInit = {}): Prom
 
 export const adminWhatsapp = {
   getConfig: () => adminRequest<AdminWhatsappConfig>("/api/admin/whatsapp"),
-  setConfig: (patch: Partial<Pick<AdminWhatsappConfig, "integrated_number" | "namespace" | "selected_template_name" | "template_language">>) =>
+  setConfig: (
+    patch: Partial<
+      Pick<
+        AdminWhatsappConfig,
+        "integrated_number" | "namespace" | "selected_template_name" | "template_language"
+      >
+    >
+  ) =>
     adminRequest<AdminWhatsappConfig>("/api/admin/whatsapp", {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
   listTemplates: () =>
     adminRequest<{ count: number; templates: Msg91Template[] }>("/api/admin/whatsapp/templates"),
-  testSend: (body: { phone: string; sample_subscriber_name?: string; sample_count?: number; sample_org_name?: string }) =>
+  testSend: (body: {
+    phone: string;
+    sample_subscriber_name?: string;
+    sample_count?: number;
+    sample_org_name?: string;
+  }) =>
     adminRequest<{ ok: boolean; msg91_response: unknown }>("/api/admin/whatsapp/test-send", {
       method: "POST",
       body: JSON.stringify(body),
@@ -651,10 +697,11 @@ export const greetingsApi = {
   get: (id: string) => request<Greeting>(`/greetings/${id}`),
   create: (data: { name: string; text: string; language?: string; voice?: string }) =>
     request<Greeting>("/greetings", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<{ name: string; text: string; language: string; voice: string; status: string }>) =>
-    request<Greeting>(`/greetings/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    request(`/greetings/${id}`, { method: "DELETE" }),
+  update: (
+    id: string,
+    data: Partial<{ name: string; text: string; language: string; voice: string; status: string }>
+  ) => request<Greeting>(`/greetings/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  delete: (id: string) => request(`/greetings/${id}`, { method: "DELETE" }),
 };
 
 // ─── TTS voices (Google Cloud languages + voices) ───
@@ -670,8 +717,8 @@ export interface TtsVoiceGroup {
 // gate the style-instructions textarea, and filter the voice list
 // for the selected (model, language) combo.
 export interface TtsModel {
-  id: string;             // 'chirp3-hd' | 'gemini-flash' | 'gemini-pro'
-  label: string;          // Operator-facing label
+  id: string; // 'chirp3-hd' | 'gemini-flash' | 'gemini-pro'
+  label: string; // Operator-facing label
   description: string;
   supportsStyleInstructions: boolean;
   // language code → voice names supported under this model
@@ -806,8 +853,17 @@ export const ivrs = {
 // ─── Calls ───
 
 export const clickToCall = {
-  initiate: (data: { from: string; from_type?: string; to: string; to_type?: string; caller_id?: string }) =>
-    request<{ status: string; call_id?: string }>("/calls/click-to-call", { method: "POST", body: JSON.stringify(data) }),
+  initiate: (data: {
+    from: string;
+    from_type?: string;
+    to: string;
+    to_type?: string;
+    caller_id?: string;
+  }) =>
+    request<{ status: string; call_id?: string }>("/calls/click-to-call", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };
 
 // Lookup payload for resolving raw numbers to contact names in call
@@ -886,7 +942,13 @@ export interface CallHistoryItem {
 }
 
 /** UI-derived effective status, computed from CDR disposition + talk_time + answered_type. */
-export type EffectiveCallStatus = "completed" | "missed" | "abandoned" | "ai_handled" | "busy" | "failed";
+export type EffectiveCallStatus =
+  | "completed"
+  | "missed"
+  | "abandoned"
+  | "ai_handled"
+  | "busy"
+  | "failed";
 
 /** Compute a human-friendly outcome for the Call Logs table. Raw CDR disposition
  * ("ANSWERED") is misleading for calls that entered a queue but no agent picked
@@ -900,7 +962,10 @@ export type EffectiveCallStatus = "completed" | "missed" | "abandoned" | "ai_han
  * "AI Handled" call. Default true preserves existing call-site
  * behavior for callers that haven't yet been updated. */
 export function effectiveCallStatus(
-  c: Pick<CallHistoryItem, "disposition" | "talk_time" | "answered_type" | "direction" | "dcontext">,
+  c: Pick<
+    CallHistoryItem,
+    "disposition" | "talk_time" | "answered_type" | "direction" | "dcontext"
+  >,
   opts: { orgHasAiAgent?: boolean } = {}
 ): EffectiveCallStatus {
   const orgHasAiAgent = opts.orgHasAiAgent !== false;
@@ -921,7 +986,13 @@ export function effectiveCallStatus(
   // case and is handled below: the dialplan answered the channel
   // briefly to play a system message, but nobody actually picked up,
   // so semantically it's a missed call.
-  if (orgHasAiAgent && (c.answered_type === "prompt" || c.dcontext === "ai-outbound" || c.direction === "outbound" && c.answered_type === "queue" && (c.talk_time || 0) === 0)) return "ai_handled";
+  if (
+    orgHasAiAgent &&
+    (c.answered_type === "prompt" ||
+      c.dcontext === "ai-outbound" ||
+      (c.direction === "outbound" && c.answered_type === "queue" && (c.talk_time || 0) === 0))
+  )
+    return "ai_handled";
   if (status === "NO ANSWER") return "missed";
   // ANSWERED + human talk time > 0 → truly completed
   if (status === "ANSWERED") {
@@ -944,7 +1015,18 @@ export interface CallJourney {
   status: string;
   total_duration: number;
   answered_by: string | null;
-  steps: { time: string; action: string; from: string; to: string; extension: string; duration: number; billsec: number; status: string; channel: string; recording: string | null }[];
+  steps: {
+    time: string;
+    action: string;
+    from: string;
+    to: string;
+    extension: string;
+    duration: number;
+    billsec: number;
+    status: string;
+    channel: string;
+    recording: string | null;
+  }[];
 }
 
 export const calls = {
@@ -952,27 +1034,40 @@ export const calls = {
     const res = await request<{ count: number; calls: Record<string, unknown>[] }>("/calls/live");
     return res.calls || [];
   },
-  history: async (params: {
-    direction?: string;
-    disposition?: string;
-    from?: string;
-    to?: string;
-    date_from?: string;
-    date_to?: string;
-    search?: string;
-    page?: number;
-    limit?: number;
-  } = {}) => {
+  history: async (
+    params: {
+      direction?: string;
+      disposition?: string;
+      from?: string;
+      to?: string;
+      date_from?: string;
+      date_to?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    } = {}
+  ) => {
     const limit = params.limit ?? 20;
     const page = params.page ?? 1;
     const qs = new URLSearchParams();
     qs.set("limit", String(limit));
     qs.set("offset", String((page - 1) * limit));
-    for (const k of ["direction", "disposition", "from", "to", "date_from", "date_to", "search"] as const) {
+    for (const k of [
+      "direction",
+      "disposition",
+      "from",
+      "to",
+      "date_from",
+      "date_to",
+      "search",
+    ] as const) {
       const v = (params as Record<string, string | undefined>)[k];
       if (v) qs.set(k, v);
     }
-    const res = await request<{ data: CallHistoryItem[]; pagination: { total: number; limit: number; offset: number; has_more: boolean } }>(`/calls?${qs.toString()}`);
+    const res = await request<{
+      data: CallHistoryItem[];
+      pagination: { total: number; limit: number; offset: number; has_more: boolean };
+    }>(`/calls?${qs.toString()}`);
     const total = res.pagination?.total ?? 0;
     const pages = Math.max(1, Math.ceil(total / limit));
     return {
@@ -993,15 +1088,27 @@ export const calls = {
     const res = await request<{ count: number } | number>("/calls/count");
     return typeof res === "number" ? { count: res } : res;
   },
-  stats: () => request<{
-    weekly: { date: string; inbound: number; outbound: number }[];
-    totals: { total_calls: number; inbound: number; outbound: number; answered: number; missed: number; avg_duration: number };
-  }>("/calls/stats"),
+  stats: () =>
+    request<{
+      weekly: { date: string; inbound: number; outbound: number }[];
+      totals: {
+        total_calls: number;
+        inbound: number;
+        outbound: number;
+        answered: number;
+        missed: number;
+        avg_duration: number;
+      };
+    }>("/calls/stats"),
   // Call actions via PBX API
   transfer: (channelId: string, destination: string, destinationType = "extension") =>
     request(`/calls/transfer`, {
       method: "POST",
-      body: JSON.stringify({ channel_id: channelId, destination, destination_type: destinationType }),
+      body: JSON.stringify({
+        channel_id: channelId,
+        destination,
+        destination_type: destinationType,
+      }),
     }),
   hangup: (channelId: string) =>
     request(`/calls/hangup-channel`, {
@@ -1013,14 +1120,23 @@ export const calls = {
   unhold: (channelId: string) =>
     request(`/calls/${encodeURIComponent(channelId)}/unhold`, { method: "POST" }),
   // Monitoring via gateway proxy
-  monitor: (channelId: string, supervisorExtension: string, type: "spy" | "whisper" | "barge" = "spy") => {
+  monitor: (
+    channelId: string,
+    supervisorExtension: string,
+    type: "spy" | "whisper" | "barge" = "spy"
+  ) => {
     const gwHeaders: HeadersInit = { "Content-Type": "application/json" };
-    const adminKey = typeof window !== "undefined" ? localStorage.getItem("gateway_admin_key") || "" : "";
+    const adminKey =
+      typeof window !== "undefined" ? localStorage.getItem("gateway_admin_key") || "" : "";
     if (adminKey) gwHeaders["Authorization"] = `Bearer ${adminKey}`;
     return fetch(`/api/gateway/admin/calls/monitor`, {
       method: "POST",
       headers: gwHeaders,
-      body: JSON.stringify({ channel_id: channelId, supervisor_extension: supervisorExtension, type }),
+      body: JSON.stringify({
+        channel_id: channelId,
+        supervisor_extension: supervisorExtension,
+        type,
+      }),
     }).then(async (r) => {
       if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
       return r.json();
@@ -1028,7 +1144,8 @@ export const calls = {
   },
   stopMonitor: (channelId: string) => {
     const gwHeaders: HeadersInit = { "Content-Type": "application/json" };
-    const adminKey = typeof window !== "undefined" ? localStorage.getItem("gateway_admin_key") || "" : "";
+    const adminKey =
+      typeof window !== "undefined" ? localStorage.getItem("gateway_admin_key") || "" : "";
     if (adminKey) gwHeaders["Authorization"] = `Bearer ${adminKey}`;
     return fetch(`/api/gateway/admin/calls/monitor_stop`, {
       method: "POST",

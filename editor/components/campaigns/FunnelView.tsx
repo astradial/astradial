@@ -49,10 +49,34 @@ export function FunnelView({ data }: { data: FunnelData }) {
   const total = data.total || 1;
   const steps: StepProps[] = [
     { label: "Total", value: data.total, sub: "in campaign", pctValue: 100, showPct: false },
-    { label: "Contacted", value: data.contacted, sub: "first touch sent", pctValue: pct(data.contacted, total), showPct: true },
-    { label: "Engaged", value: data.engaged, sub: "replied or answered", pctValue: pct(data.engaged, total), showPct: true },
-    { label: "Interested", value: data.interested, sub: "matches some rules", pctValue: pct(data.interested, total), showPct: true },
-    { label: "Qualified", value: data.qualified, sub: "marked for handoff", pctValue: pct(data.qualified, total), showPct: true },
+    {
+      label: "Contacted",
+      value: data.contacted,
+      sub: "first touch sent",
+      pctValue: pct(data.contacted, total),
+      showPct: true,
+    },
+    {
+      label: "Engaged",
+      value: data.engaged,
+      sub: "replied or answered",
+      pctValue: pct(data.engaged, total),
+      showPct: true,
+    },
+    {
+      label: "Interested",
+      value: data.interested,
+      sub: "matches some rules",
+      pctValue: pct(data.interested, total),
+      showPct: true,
+    },
+    {
+      label: "Qualified",
+      value: data.qualified,
+      sub: "marked for handoff",
+      pctValue: pct(data.qualified, total),
+      showPct: true,
+    },
   ];
   return (
     <div className="cmp-funnel">

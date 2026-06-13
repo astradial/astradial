@@ -19,14 +19,7 @@ const LABELS: Record<string, string> = {
   published: "Published",
 };
 
-const DOT_STATUSES = new Set([
-  "contacted",
-  "engaged",
-  "interested",
-  "qualified",
-  "dnc",
-  "running",
-]);
+const DOT_STATUSES = new Set(["contacted", "engaged", "interested", "qualified", "dnc", "running"]);
 
 export function CampaignStatusPill({ status }: { status: string }) {
   return (

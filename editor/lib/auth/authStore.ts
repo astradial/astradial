@@ -1,7 +1,8 @@
-import { create } from "zustand";
 import { signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase/config";
+import { create } from "zustand";
+
 import { auth as authProvider, USE_FIREBASE } from "@/lib/auth";
+import { auth } from "@/lib/firebase/config";
 
 // Unified signOut: prefers the auth abstraction so it works in both
 // Firebase and local (api-key) modes. Falls back to the Firebase
@@ -45,7 +46,8 @@ export function markAdminSessionStart() {
  */
 export function getAdminSessionExpiryMs(): number | null {
   if (typeof window === "undefined") return null;
-  const hasAdminKey = !!localStorage.getItem("gateway_admin_key") || !!localStorage.getItem("admin_key");
+  const hasAdminKey =
+    !!localStorage.getItem("gateway_admin_key") || !!localStorage.getItem("admin_key");
   if (!hasAdminKey) return null;
   const startStr = localStorage.getItem("admin_session_start");
   if (!startStr) return null;
@@ -85,7 +87,8 @@ export function getJwtExpiryMs(token: string | null | undefined): number | null 
  */
 export function isImpersonatingAdmin(): boolean {
   if (typeof window === "undefined") return false;
-  const hasAdminKey = !!localStorage.getItem("gateway_admin_key") || !!localStorage.getItem("admin_key");
+  const hasAdminKey =
+    !!localStorage.getItem("gateway_admin_key") || !!localStorage.getItem("admin_key");
   if (!hasAdminKey) return false;
   const raw = localStorage.getItem("org_access");
   if (!raw) return false;
@@ -122,7 +125,8 @@ export function handleUnauthorized(reason: string = "401") {
   if (typeof window === "undefined") return;
   if (_unauthorizedHandling) return;
 
-  const hasAdminKey = !!localStorage.getItem("gateway_admin_key") || !!localStorage.getItem("admin_key");
+  const hasAdminKey =
+    !!localStorage.getItem("gateway_admin_key") || !!localStorage.getItem("admin_key");
   const hasJwt = !!localStorage.getItem("pbx_org_token") || !!localStorage.getItem("org_token");
 
   // Case 2: admin impersonating — clear impersonation state only, keep the
@@ -137,10 +141,14 @@ export function handleUnauthorized(reason: string = "401") {
       localStorage.removeItem("user_role");
       localStorage.removeItem("user_permissions");
     } catch {}
-    console.warn("[auth] Impersonation session expired (" + reason + "), returning to admin dashboard");
+    console.warn(
+      "[auth] Impersonation session expired (" + reason + "), returning to admin dashboard"
+    );
     const path = window.location.pathname;
     if (path === "/dashboard" || path === "/dashboard/") {
-      setTimeout(() => { _unauthorizedHandling = false; }, 100);
+      setTimeout(() => {
+        _unauthorizedHandling = false;
+      }, 100);
     } else {
       window.location.href = "/dashboard";
     }
@@ -172,7 +180,9 @@ export function handleUnauthorized(reason: string = "401") {
     console.warn("[auth] Session expired (" + reason + "), redirecting to login");
     window.location.href = "/dashboard";
   } else {
-    setTimeout(() => { _unauthorizedHandling = false; }, 100);
+    setTimeout(() => {
+      _unauthorizedHandling = false;
+    }, 100);
   }
 }
 

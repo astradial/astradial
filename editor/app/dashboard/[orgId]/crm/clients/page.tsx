@@ -1,25 +1,75 @@
 "use client";
 
+import { format } from "date-fns";
+import {
+  Building2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  UserPlus,
+} from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { format } from "date-fns";
-import { Plus, Search, Building2, MoreHorizontal, Pencil, Trash2, UserPlus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { showToast } from "@/components/ui/Toast";
-import { Separator } from "@/components/ui/separator";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { companies, type Company, activities, type Activity, stats as crmStats, type CrmStats } from "@/lib/crm/client";
-import { users as pbxUsers, type PbxUser } from "@/lib/pbx/client";
+import {
+  activities,
+  type Activity,
+  companies,
+  type Company,
+  type CrmStats,
+  stats as crmStats,
+} from "@/lib/crm/client";
+import { type PbxUser, users as pbxUsers } from "@/lib/pbx/client";
 
 const SIZES = ["1-10", "11-50", "51-200", "201-500", "500+"];
 
@@ -36,7 +86,16 @@ export default function ClientsPage() {
   // Form state
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Company | null>(null);
-  const [form, setForm] = useState({ name: "", industry: "", size: "", phone: "", email: "", website: "", address: "", notes: "" });
+  const [form, setForm] = useState({
+    name: "",
+    industry: "",
+    size: "",
+    phone: "",
+    email: "",
+    website: "",
+    address: "",
+    notes: "",
+  });
   const [saving, setSaving] = useState(false);
 
   // Detail sheet
@@ -49,7 +108,11 @@ export default function ClientsPage() {
   const [assignTarget, setAssignTarget] = useState<Company | null>(null);
   const [assignTo, setAssignTo] = useState("");
 
-  useEffect(() => { load(); loadStats(); loadUsers(); }, [orgId, page, pageSize, search]);
+  useEffect(() => {
+    load();
+    loadStats();
+    loadUsers();
+  }, [orgId, page, pageSize, search]);
 
   async function load() {
     setLoading(true);
@@ -57,32 +120,59 @@ export default function ClientsPage() {
       const res = await companies.list({ page, limit: pageSize, search: search || undefined });
       setData(res.data);
       setTotal(res.total);
-    } catch (e: unknown) { showToast((e as Error).message, "error"); }
+    } catch (e: unknown) {
+      showToast((e as Error).message, "error");
+    }
     setLoading(false);
   }
 
   async function loadStats() {
-    try { setStatData(await crmStats.get()); } catch {}
+    try {
+      setStatData(await crmStats.get());
+    } catch {}
   }
 
   async function loadUsers() {
-    try { setOrgUsers(await pbxUsers.list()); } catch {}
+    try {
+      setOrgUsers(await pbxUsers.list());
+    } catch {}
   }
 
   function openCreate() {
     setEditing(null);
-    setForm({ name: "", industry: "", size: "", phone: "", email: "", website: "", address: "", notes: "" });
+    setForm({
+      name: "",
+      industry: "",
+      size: "",
+      phone: "",
+      email: "",
+      website: "",
+      address: "",
+      notes: "",
+    });
     setFormOpen(true);
   }
 
   function openEdit(c: Company) {
     setEditing(c);
-    setForm({ name: c.name, industry: c.industry || "", size: c.size || "", phone: c.phone || "", email: c.email || "", website: c.website || "", address: c.address || "", notes: c.notes || "" });
+    setForm({
+      name: c.name,
+      industry: c.industry || "",
+      size: c.size || "",
+      phone: c.phone || "",
+      email: c.email || "",
+      website: c.website || "",
+      address: c.address || "",
+      notes: c.notes || "",
+    });
     setFormOpen(true);
   }
 
   async function handleSave() {
-    if (!form.name.trim()) { showToast("Name is required", "error"); return; }
+    if (!form.name.trim()) {
+      showToast("Name is required", "error");
+      return;
+    }
     setSaving(true);
     try {
       if (editing) {
@@ -95,7 +185,9 @@ export default function ClientsPage() {
       setFormOpen(false);
       load();
       loadStats();
-    } catch (e: unknown) { showToast((e as Error).message, "error"); }
+    } catch (e: unknown) {
+      showToast((e as Error).message, "error");
+    }
     setSaving(false);
   }
 
@@ -105,7 +197,9 @@ export default function ClientsPage() {
       showToast("Company deleted", "success");
       load();
       loadStats();
-    } catch (e: unknown) { showToast((e as Error).message, "error"); }
+    } catch (e: unknown) {
+      showToast((e as Error).message, "error");
+    }
   }
 
   async function openDetail(c: Company) {
@@ -114,23 +208,29 @@ export default function ClientsPage() {
       setSelected(full);
       const acts = await activities.list({ company_id: c.id, limit: 20 });
       setCompanyActivities(acts.data);
-    } catch (e: unknown) { showToast((e as Error).message, "error"); }
+    } catch (e: unknown) {
+      showToast((e as Error).message, "error");
+    }
   }
 
   async function handleAssign() {
     if (!assignTarget) return;
     try {
-      await companies.update(assignTarget.id, { assigned_to: assignTo || null } as Partial<Company>);
+      await companies.update(assignTarget.id, {
+        assigned_to: assignTo || null,
+      } as Partial<Company>);
       showToast("Assigned", "success");
       setAssignOpen(false);
       load();
-    } catch (e: unknown) { showToast((e as Error).message, "error"); }
+    } catch (e: unknown) {
+      showToast((e as Error).message, "error");
+    }
   }
 
   function getUserName(id: string | null) {
     if (!id) return "Unassigned";
-    const u = orgUsers.find(u => u.id === id);
-    return u ? (u.full_name || u.username) : id.slice(0, 8);
+    const u = orgUsers.find((u) => u.id === id);
+    return u ? u.full_name || u.username : id.slice(0, 8);
   }
 
   return (
@@ -140,16 +240,53 @@ export default function ClientsPage() {
           <h1 className="text-2xl font-semibold">Clients</h1>
           <p className="text-sm text-muted-foreground">Manage companies and accounts</p>
         </div>
-        <Button onClick={openCreate}><Plus className="h-4 w-4 mr-1" /> Add Company</Button>
+        <Button onClick={openCreate}>
+          <Plus className="h-4 w-4 mr-1" /> Add Company
+        </Button>
       </div>
 
       {/* Stats */}
       {statData && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Companies</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{statData.companies}</p></CardContent></Card>
-          <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Contacts</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{statData.contacts}</p></CardContent></Card>
-          <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Open Deals</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{statData.open_deals}</p></CardContent></Card>
-          <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Pipeline Value</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{"\u20B9"}{(statData.pipeline_value || 0).toLocaleString()}</p></CardContent></Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Companies</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{statData.companies}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Contacts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{statData.contacts}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Open Deals
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{statData.open_deals}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Pipeline Value
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">
+                {"\u20B9"}
+                {(statData.pipeline_value || 0).toLocaleString()}
+              </p>
+            </CardContent>
+          </Card>
         </div>
       )}
 
@@ -157,7 +294,15 @@ export default function ClientsPage() {
       <div className="flex items-center gap-2">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search companies..." className="pl-8" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+          <Input
+            placeholder="Search companies..."
+            className="pl-8"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+          />
         </div>
       </div>
 
@@ -167,98 +312,163 @@ export default function ClientsPage() {
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
               <TableRow className="border-b-border/50 hover:bg-transparent">
-              <TableHead>Company</TableHead>
-              <TableHead>Industry</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Assigned To</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="w-10"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Loading...</TableCell></TableRow>
-            ) : data.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No companies found</TableCell></TableRow>
-            ) : data.map(c => (
-              <TableRow key={c.id} className="cursor-pointer" onClick={() => openDetail(c)}>
-                <TableCell className="font-medium">
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center justify-center h-8 w-8 rounded-md bg-accent text-accent-foreground text-xs font-semibold">
-                      {c.name.charAt(0).toUpperCase()}
-                    </div>
-                    {c.name}
-                  </div>
-                </TableCell>
-                <TableCell>{c.industry || "—"}</TableCell>
-                <TableCell>{c.size ? <Badge variant="secondary">{c.size}</Badge> : "—"}</TableCell>
-                <TableCell>{c.phone || "—"}</TableCell>
-                <TableCell>{c.email || "—"}</TableCell>
-                <TableCell>
-                  <Badge variant="outline">{getUserName(c.assigned_to)}</Badge>
-                </TableCell>
-                <TableCell className="text-muted-foreground text-xs">{format(new Date(c.createdAt), "dd MMM yyyy")}</TableCell>
-                <TableCell onClick={e => e.stopPropagation()}>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => openEdit(c)}><Pencil className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setAssignTarget(c); setAssignTo(c.assigned_to || ""); setAssignOpen(true); }}><UserPlus className="h-4 w-4 mr-2" /> Assign</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(c.id)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
+                <TableHead>Company</TableHead>
+                <TableHead>Industry</TableHead>
+                <TableHead>Size</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Assigned To</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead className="w-10"></TableHead>
               </TableRow>
-            ))}
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                    Loading...
+                  </TableCell>
+                </TableRow>
+              ) : data.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                    No companies found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                data.map((c) => (
+                  <TableRow key={c.id} className="cursor-pointer" onClick={() => openDetail(c)}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-center h-8 w-8 rounded-md bg-accent text-accent-foreground text-xs font-semibold">
+                          {c.name.charAt(0).toUpperCase()}
+                        </div>
+                        {c.name}
+                      </div>
+                    </TableCell>
+                    <TableCell>{c.industry || "—"}</TableCell>
+                    <TableCell>
+                      {c.size ? <Badge variant="secondary">{c.size}</Badge> : "—"}
+                    </TableCell>
+                    <TableCell>{c.phone || "—"}</TableCell>
+                    <TableCell>{c.email || "—"}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{getUserName(c.assigned_to)}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-xs">
+                      {format(new Date(c.createdAt), "dd MMM yyyy")}
+                    </TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openEdit(c)}>
+                            <Pencil className="h-4 w-4 mr-2" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setAssignTarget(c);
+                              setAssignTo(c.assigned_to || "");
+                              setAssignOpen(true);
+                            }}
+                          >
+                            <UserPlus className="h-4 w-4 mr-2" /> Assign
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => handleDelete(c.id)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
-          </div>
-          {total > 10 && (
-            <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
-              <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
-                Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total} entries
+        </div>
+        {total > 10 && (
+          <div className="border-t border-border/50 bg-muted/30 px-4 py-3 sticky bottom-0 z-10 flex items-center justify-between">
+            <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+              Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}{" "}
+              entries
+            </div>
+            <div className="flex w-full items-center gap-8 lg:w-fit">
+              <div className="hidden items-center gap-2 lg:flex">
+                <Label className="text-sm font-medium">Rows per page</Label>
+                <Select
+                  value={`${pageSize}`}
+                  onValueChange={(value) => {
+                    setPageSize(Number(value));
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-20">
+                    <SelectValue placeholder={pageSize} />
+                  </SelectTrigger>
+                  <SelectContent side="top">
+                    {[10, 20, 30, 40, 50].map((size) => (
+                      <SelectItem key={size} value={`${size}`}>
+                        {size}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="flex w-full items-center gap-8 lg:w-fit">
-                <div className="hidden items-center gap-2 lg:flex">
-                  <Label className="text-sm font-medium">Rows per page</Label>
-                  <Select value={`${pageSize}`} onValueChange={(value) => { setPageSize(Number(value)); setPage(1); }}>
-                    <SelectTrigger className="w-20">
-                      <SelectValue placeholder={pageSize} />
-                    </SelectTrigger>
-                    <SelectContent side="top">
-                      {[10, 20, 30, 40, 50].map((size) => (
-                        <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex w-fit items-center justify-center text-sm font-medium">
-                  Page {page} of {Math.ceil(total / pageSize) || 1}
-                </div>
-                <div className="ml-auto flex items-center gap-2 lg:ml-0">
-                  <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => setPage(1)} disabled={page <= 1}>
-                    <span className="sr-only">Go to first page</span>
-                    <ChevronsLeft className="size-4" />
-                  </Button>
-                  <Button variant="outline" className="size-8" size="icon" onClick={() => setPage(p => p - 1)} disabled={page <= 1}>
-                    <span className="sr-only">Go to previous page</span>
-                    <ChevronLeft className="size-4" />
-                  </Button>
-                  <Button variant="outline" className="size-8" size="icon" onClick={() => setPage(p => p + 1)} disabled={page * pageSize >= total}>
-                    <span className="sr-only">Go to next page</span>
-                    <ChevronRight className="size-4" />
-                  </Button>
-                  <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => setPage(Math.ceil(total / pageSize))} disabled={page * pageSize >= total}>
-                    <span className="sr-only">Go to last page</span>
-                    <ChevronsRight className="size-4" />
-                  </Button>
-                </div>
+              <div className="flex w-fit items-center justify-center text-sm font-medium">
+                Page {page} of {Math.ceil(total / pageSize) || 1}
+              </div>
+              <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                <Button
+                  variant="outline"
+                  className="hidden h-8 w-8 p-0 lg:flex"
+                  onClick={() => setPage(1)}
+                  disabled={page <= 1}
+                >
+                  <span className="sr-only">Go to first page</span>
+                  <ChevronsLeft className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="size-8"
+                  size="icon"
+                  onClick={() => setPage((p) => p - 1)}
+                  disabled={page <= 1}
+                >
+                  <span className="sr-only">Go to previous page</span>
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="size-8"
+                  size="icon"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page * pageSize >= total}
+                >
+                  <span className="sr-only">Go to next page</span>
+                  <ChevronRight className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="hidden size-8 lg:flex"
+                  size="icon"
+                  onClick={() => setPage(Math.ceil(total / pageSize))}
+                  disabled={page * pageSize >= total}
+                >
+                  <span className="sr-only">Go to last page</span>
+                  <ChevronsRight className="size-4" />
+                </Button>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+      </div>
 
       {/* Create/Edit Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
@@ -270,47 +480,85 @@ export default function ClientsPage() {
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">
               <Label>Company Name *</Label>
-              <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              <Input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Industry</Label>
-                <Input value={form.industry} onChange={e => setForm({ ...form, industry: e.target.value })} placeholder="e.g. Healthcare" />
+                <Input
+                  value={form.industry}
+                  onChange={(e) => setForm({ ...form, industry: e.target.value })}
+                  placeholder="e.g. Healthcare"
+                />
               </div>
               <div className="grid gap-2">
                 <Label>Size</Label>
-                <Select value={form.size} onValueChange={v => setForm({ ...form, size: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select size" /></SelectTrigger>
-                  <SelectContent>{SIZES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                <Select value={form.size} onValueChange={(v) => setForm({ ...form, size: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SIZES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Phone</Label>
-                <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
+                <Input
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                />
               </div>
               <div className="grid gap-2">
                 <Label>Email</Label>
-                <Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
               </div>
             </div>
             <div className="grid gap-2">
               <Label>Website</Label>
-              <Input value={form.website} onChange={e => setForm({ ...form, website: e.target.value })} placeholder="https://" />
+              <Input
+                value={form.website}
+                onChange={(e) => setForm({ ...form, website: e.target.value })}
+                placeholder="https://"
+              />
             </div>
             <div className="grid gap-2">
               <Label>Address</Label>
-              <Textarea rows={2} value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} />
+              <Textarea
+                rows={2}
+                value={form.address}
+                onChange={(e) => setForm({ ...form, address: e.target.value })}
+              />
             </div>
             <div className="grid gap-2">
               <Label>Notes</Label>
-              <Textarea rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+              <Textarea
+                rows={2}
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving}>{saving ? "Saving..." : editing ? "Update" : "Create"}</Button>
+            <Button variant="outline" onClick={() => setFormOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "Saving..." : editing ? "Update" : "Create"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -318,19 +566,30 @@ export default function ClientsPage() {
       {/* Assign Dialog */}
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Assign Company</DialogTitle><DialogDescription>Select a team member to assign.</DialogDescription></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Assign Company</DialogTitle>
+            <DialogDescription>Select a team member to assign.</DialogDescription>
+          </DialogHeader>
           <div className="grid gap-2 py-2">
             <Label>Assign to</Label>
             <Select value={assignTo} onValueChange={setAssignTo}>
-              <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Select user" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Unassigned</SelectItem>
-                {orgUsers.map(u => <SelectItem key={u.id} value={u.id}>{u.full_name || u.username} ({u.extension})</SelectItem>)}
+                {orgUsers.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.full_name || u.username} ({u.extension})
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setAssignOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleAssign}>Assign</Button>
           </DialogFooter>
         </DialogContent>
@@ -349,40 +608,89 @@ export default function ClientsPage() {
               </SheetHeader>
               <div className="mt-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div><p className="text-muted-foreground">Industry</p><p>{selected.industry || "—"}</p></div>
-                  <div><p className="text-muted-foreground">Size</p><p>{selected.size || "—"}</p></div>
-                  <div><p className="text-muted-foreground">Phone</p><p>{selected.phone || "—"}</p></div>
-                  <div><p className="text-muted-foreground">Email</p><p>{selected.email || "—"}</p></div>
-                  <div className="col-span-2"><p className="text-muted-foreground">Website</p><p>{selected.website || "—"}</p></div>
-                  <div className="col-span-2"><p className="text-muted-foreground">Address</p><p>{selected.address || "—"}</p></div>
+                  <div>
+                    <p className="text-muted-foreground">Industry</p>
+                    <p>{selected.industry || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Size</p>
+                    <p>{selected.size || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Phone</p>
+                    <p>{selected.phone || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Email</p>
+                    <p>{selected.email || "—"}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-muted-foreground">Website</p>
+                    <p>{selected.website || "—"}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-muted-foreground">Address</p>
+                    <p>{selected.address || "—"}</p>
+                  </div>
                 </div>
-                {selected.notes && (<><Separator /><div><p className="text-sm text-muted-foreground mb-1">Notes</p><p className="text-sm">{selected.notes}</p></div></>)}
+                {selected.notes && (
+                  <>
+                    <Separator />
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Notes</p>
+                      <p className="text-sm">{selected.notes}</p>
+                    </div>
+                  </>
+                )}
                 <Separator />
                 <div>
-                  <p className="text-sm font-medium mb-2">Contacts ({(selected.contacts || []).length})</p>
-                  {(selected.contacts || []).length === 0 ? <p className="text-sm text-muted-foreground">No contacts linked</p> : (
-                    <div className="space-y-1">{(selected.contacts as { id: string; first_name: string; last_name?: string; email?: string }[]).map(ct => (
-                      <div key={ct.id} className="flex items-center justify-between text-sm py-1">
-                        <span>{ct.first_name} {ct.last_name || ""}</span>
-                        <span className="text-muted-foreground">{ct.email || ""}</span>
-                      </div>
-                    ))}</div>
+                  <p className="text-sm font-medium mb-2">
+                    Contacts ({(selected.contacts || []).length})
+                  </p>
+                  {(selected.contacts || []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No contacts linked</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {(
+                        selected.contacts as {
+                          id: string;
+                          first_name: string;
+                          last_name?: string;
+                          email?: string;
+                        }[]
+                      ).map((ct) => (
+                        <div key={ct.id} className="flex items-center justify-between text-sm py-1">
+                          <span>
+                            {ct.first_name} {ct.last_name || ""}
+                          </span>
+                          <span className="text-muted-foreground">{ct.email || ""}</span>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
                 <Separator />
                 <div>
                   <p className="text-sm font-medium mb-2">Recent Activity</p>
-                  {companyActivities.length === 0 ? <p className="text-sm text-muted-foreground">No activity yet</p> : (
-                    <div className="space-y-2">{companyActivities.map(a => (
-                      <div key={a.id} className="flex items-start gap-2 text-sm">
-                        <Badge variant="outline" className="text-[10px] shrink-0">{a.type}</Badge>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{a.subject || a.type}</p>
-                          {a.body && <p className="text-muted-foreground truncate">{a.body}</p>}
+                  {companyActivities.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No activity yet</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {companyActivities.map((a) => (
+                        <div key={a.id} className="flex items-start gap-2 text-sm">
+                          <Badge variant="outline" className="text-[10px] shrink-0">
+                            {a.type}
+                          </Badge>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{a.subject || a.type}</p>
+                            {a.body && <p className="text-muted-foreground truncate">{a.body}</p>}
+                          </div>
+                          <span className="text-[11px] text-muted-foreground shrink-0">
+                            {format(new Date(a.createdAt), "dd MMM")}
+                          </span>
                         </div>
-                        <span className="text-[11px] text-muted-foreground shrink-0">{format(new Date(a.createdAt), "dd MMM")}</span>
-                      </div>
-                    ))}</div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>

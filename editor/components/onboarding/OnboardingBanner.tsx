@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Check, ChevronRight, Phone, PhoneCall, Users, Zap } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { Check, ChevronRight, Phone, Users, PhoneCall, Zap } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { users as pbxUsers } from "@/lib/pbx/client";
 import { didPool } from "@/lib/did-pool/client";
+import { users as pbxUsers } from "@/lib/pbx/client";
 
 interface Step {
   id: string;
@@ -34,7 +34,12 @@ export function OnboardingBanner() {
       icon: Users,
       href: `/dashboard/${orgId}/users`,
       check: async () => {
-        try { const u = await pbxUsers.list(); return u.length > 1; } catch { return false; }
+        try {
+          const u = await pbxUsers.list();
+          return u.length > 1;
+        } catch {
+          return false;
+        }
       },
     },
     {
@@ -44,7 +49,12 @@ export function OnboardingBanner() {
       icon: Phone,
       href: `/dashboard/${orgId}/dids`,
       check: async () => {
-        try { const my = await didPool.my(); return my.assigned.length > 0 || my.pending.length > 0; } catch { return false; }
+        try {
+          const my = await didPool.my();
+          return my.assigned.length > 0 || my.pending.length > 0;
+        } catch {
+          return false;
+        }
       },
     },
     {
@@ -56,8 +66,10 @@ export function OnboardingBanner() {
       check: async () => {
         try {
           const my = await didPool.my();
-          return my.assigned.some(d => d.routing_type && d.routing_destination);
-        } catch { return false; }
+          return my.assigned.some((d) => d.routing_type && d.routing_destination);
+        } catch {
+          return false;
+        }
       },
     },
     {
@@ -69,8 +81,12 @@ export function OnboardingBanner() {
       check: async () => {
         try {
           const my = await didPool.my();
-          return my.assigned.some(d => d.routing_type && d.routing_destination && d.status === "active");
-        } catch { return false; }
+          return my.assigned.some(
+            (d) => d.routing_type && d.routing_destination && d.status === "active"
+          );
+        } catch {
+          return false;
+        }
       },
     },
   ];
@@ -88,9 +104,7 @@ export function OnboardingBanner() {
 
   async function checkSteps() {
     setLoading(true);
-    const results = await Promise.all(
-      stepDefs.map(async (s) => ({ ...s, done: await s.check() }))
-    );
+    const results = await Promise.all(stepDefs.map(async (s) => ({ ...s, done: await s.check() })));
     setSteps(results);
     setLoading(false);
   }
@@ -103,7 +117,7 @@ export function OnboardingBanner() {
 
   if (loading || dismissed) return null;
 
-  const completedCount = steps.filter(s => s.done).length;
+  const completedCount = steps.filter((s) => s.done).length;
   const allDone = completedCount === steps.length;
 
   // Don't show if all steps complete
@@ -115,9 +129,18 @@ export function OnboardingBanner() {
         <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-sm font-medium">Get started with Astradial</p>
-            <p className="text-xs text-muted-foreground">{completedCount} of {steps.length} steps complete</p>
+            <p className="text-xs text-muted-foreground">
+              {completedCount} of {steps.length} steps complete
+            </p>
           </div>
-          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={handleDismiss}>Dismiss</Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground"
+            onClick={handleDismiss}
+          >
+            Dismiss
+          </Button>
         </div>
         <div className="grid grid-cols-4 gap-3">
           {steps.map((step, i) => (
@@ -127,7 +150,9 @@ export function OnboardingBanner() {
               className={`flex flex-col items-start gap-1.5 rounded-lg border p-3 text-left transition-colors hover:bg-accent/50 ${step.done ? "border-primary/30 bg-primary/5" : ""}`}
             >
               <div className="flex items-center gap-2 w-full">
-                <div className={`flex items-center justify-center h-6 w-6 rounded-full text-xs ${step.done ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                <div
+                  className={`flex items-center justify-center h-6 w-6 rounded-full text-xs ${step.done ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
+                >
                   {step.done ? <Check className="h-3 w-3" /> : i + 1}
                 </div>
                 <span className="text-sm font-medium flex-1">{step.label}</span>

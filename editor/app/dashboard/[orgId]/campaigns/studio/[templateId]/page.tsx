@@ -24,7 +24,6 @@ import { useParams, useRouter } from "next/navigation";
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { showToast } from "@/components/ui/Toast";
 import {
   Select,
   SelectContent,
@@ -34,8 +33,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { templates, whatsappTemplates, type WhatsAppTemplateMeta } from "@/lib/campaigns/client";
-import { msg91 } from "@/lib/msg91/client";
+import { showToast } from "@/components/ui/Toast";
+import {
+  type CampaignBot,
+  campaignBots,
+  templates,
+  type WhatsAppTemplateMeta,
+  whatsappTemplates,
+} from "@/lib/campaigns/client";
 import type {
   ActionType,
   CampaignTemplate,
@@ -43,6 +48,7 @@ import type {
   WorkflowAction,
   WorkflowDay,
 } from "@/lib/campaigns/types";
+import { msg91 } from "@/lib/msg91/client";
 
 // ── Action-type accent palette (verbatim from app/data.jsx) ──────
 const ACTION_TYPES = {
@@ -50,7 +56,7 @@ const ACTION_TYPES = {
     short: "WhatsApp",
     label: "WhatsApp message",
     sub: "Template-based",
-    accent: "oklch(0.55 0.16 150)",      // green
+    accent: "oklch(0.55 0.16 150)", // green
     accentSoft: "oklch(0.94 0.06 150)",
     cssVar: "--accent-wa",
   },
@@ -58,7 +64,7 @@ const ACTION_TYPES = {
     short: "Phone call",
     label: "Phone call",
     sub: "Voice + caller ID",
-    accent: "oklch(0.5 0.22 264)",       // primary blue
+    accent: "oklch(0.5 0.22 264)", // primary blue
     accentSoft: "oklch(0.95 0.05 264)",
     cssVar: "--accent-call",
   },
@@ -229,9 +235,7 @@ export default function StudioEditorPage() {
   const commitWorkflow = useCallback((updater: React.SetStateAction<Workflow>) => {
     const current = workflowRef.current;
     const next =
-      typeof updater === "function"
-        ? (updater as (value: Workflow) => Workflow)(current)
-        : updater;
+      typeof updater === "function" ? (updater as (value: Workflow) => Workflow)(current) : updater;
 
     if (workflowEquals(current, next)) return;
 
@@ -278,53 +282,65 @@ export default function StudioEditorPage() {
   }, []);
 
   // ── Mutators (UI.md §9.15) ──────────────────────────────────────
-  const addActionToDay = useCallback((dayId: string, type: ActionType) => {
-    const action = makeAction(type);
-    commitWorkflow((w) => ({
-      ...w,
-      days: w.days.map((d) => (d.id === dayId ? { ...d, actions: [...d.actions, action] } : d)),
-    }));
-    setSelection({ dayId, actionId: action.id });
-  }, [commitWorkflow]);
+  const addActionToDay = useCallback(
+    (dayId: string, type: ActionType) => {
+      const action = makeAction(type);
+      commitWorkflow((w) => ({
+        ...w,
+        days: w.days.map((d) => (d.id === dayId ? { ...d, actions: [...d.actions, action] } : d)),
+      }));
+      setSelection({ dayId, actionId: action.id });
+    },
+    [commitWorkflow]
+  );
 
-  const insertDayAt = useCallback((index: number, type: ActionType) => {
-    const action = makeAction(type);
-    const day = makeDay(action, index === 0 ? 0 : 2);
-    commitWorkflow((w) => {
-      const days = [...w.days];
-      days.splice(index, 0, day);
-      if (days[0]) days[0] = { ...days[0], gap: 0 };
-      return { ...w, days };
-    });
-    setSelection({ dayId: day.id, actionId: action.id });
-  }, [commitWorkflow]);
+  const insertDayAt = useCallback(
+    (index: number, type: ActionType) => {
+      const action = makeAction(type);
+      const day = makeDay(action, index === 0 ? 0 : 2);
+      commitWorkflow((w) => {
+        const days = [...w.days];
+        days.splice(index, 0, day);
+        if (days[0]) days[0] = { ...days[0], gap: 0 };
+        return { ...w, days };
+      });
+      setSelection({ dayId: day.id, actionId: action.id });
+    },
+    [commitWorkflow]
+  );
 
-  const moveDay = useCallback((fromIdx: number, toIdx: number) => {
-    if (fromIdx === toIdx || fromIdx === toIdx - 1) return;
-    commitWorkflow((w) => {
-      const days = [...w.days];
-      const [moved] = days.splice(fromIdx, 1);
-      const adjustedTo = fromIdx < toIdx ? toIdx - 1 : toIdx;
-      days.splice(adjustedTo, 0, moved);
-      if (days[0]) days[0] = { ...days[0], gap: 0 };
-      return { ...w, days };
-    });
-  }, [commitWorkflow]);
-
-  const moveActionWithinDay = useCallback((dayId: string, fromIdx: number, toIdx: number) => {
-    if (fromIdx === toIdx || fromIdx === toIdx - 1) return;
-    commitWorkflow((w) => ({
-      ...w,
-      days: w.days.map((d) => {
-        if (d.id !== dayId) return d;
-        const actions = [...d.actions];
-        const [moved] = actions.splice(fromIdx, 1);
+  const moveDay = useCallback(
+    (fromIdx: number, toIdx: number) => {
+      if (fromIdx === toIdx || fromIdx === toIdx - 1) return;
+      commitWorkflow((w) => {
+        const days = [...w.days];
+        const [moved] = days.splice(fromIdx, 1);
         const adjustedTo = fromIdx < toIdx ? toIdx - 1 : toIdx;
-        actions.splice(adjustedTo, 0, moved);
-        return { ...d, actions };
-      }),
-    }));
-  }, [commitWorkflow]);
+        days.splice(adjustedTo, 0, moved);
+        if (days[0]) days[0] = { ...days[0], gap: 0 };
+        return { ...w, days };
+      });
+    },
+    [commitWorkflow]
+  );
+
+  const moveActionWithinDay = useCallback(
+    (dayId: string, fromIdx: number, toIdx: number) => {
+      if (fromIdx === toIdx || fromIdx === toIdx - 1) return;
+      commitWorkflow((w) => ({
+        ...w,
+        days: w.days.map((d) => {
+          if (d.id !== dayId) return d;
+          const actions = [...d.actions];
+          const [moved] = actions.splice(fromIdx, 1);
+          const adjustedTo = fromIdx < toIdx ? toIdx - 1 : toIdx;
+          actions.splice(adjustedTo, 0, moved);
+          return { ...d, actions };
+        }),
+      }));
+    },
+    [commitWorkflow]
+  );
 
   const updateAction = useCallback(
     (dayId: string, actionId: string, patch: Partial<WorkflowAction>) => {
@@ -343,29 +359,40 @@ export default function StudioEditorPage() {
     [commitWorkflow]
   );
 
-  const updateGap = useCallback((dayId: string, gap: number) => {
-    commitWorkflow((w) => ({
-      ...w,
-      days: w.days.map((d) => (d.id === dayId ? { ...d, gap: Math.max(1, Number(gap) || 1) } : d)),
-    }));
-  }, [commitWorkflow]);
+  const updateGap = useCallback(
+    (dayId: string, gap: number) => {
+      commitWorkflow((w) => ({
+        ...w,
+        days: w.days.map((d) =>
+          d.id === dayId ? { ...d, gap: Math.max(1, Number(gap) || 1) } : d
+        ),
+      }));
+    },
+    [commitWorkflow]
+  );
 
-  const deleteAction = useCallback((dayId: string, actionId: string) => {
-    commitWorkflow((w) => ({
-      ...w,
-      days: w.days
-        .map((d) =>
-          d.id !== dayId ? d : { ...d, actions: d.actions.filter((a) => a.id !== actionId) }
-        )
-        .filter((d) => d.actions.length > 0),
-    }));
-    setSelection(null);
-  }, [commitWorkflow]);
+  const deleteAction = useCallback(
+    (dayId: string, actionId: string) => {
+      commitWorkflow((w) => ({
+        ...w,
+        days: w.days
+          .map((d) =>
+            d.id !== dayId ? d : { ...d, actions: d.actions.filter((a) => a.id !== actionId) }
+          )
+          .filter((d) => d.actions.length > 0),
+      }));
+      setSelection(null);
+    },
+    [commitWorkflow]
+  );
 
-  const deleteDay = useCallback((dayId: string) => {
-    commitWorkflow((w) => ({ ...w, days: w.days.filter((d) => d.id !== dayId) }));
-    setSelection(null);
-  }, [commitWorkflow]);
+  const deleteDay = useCallback(
+    (dayId: string) => {
+      commitWorkflow((w) => ({ ...w, days: w.days.filter((d) => d.id !== dayId) }));
+      setSelection(null);
+    },
+    [commitWorkflow]
+  );
 
   // ── Drag plumbing ───────────────────────────────────────────────
   const onDragStart = useCallback(
@@ -1242,6 +1269,9 @@ function Inspector({
   const [waTemplates, setWaTemplates] = useState<any[]>([]);
   const [waLoading, setWaLoading] = useState(false);
   const [waConfigured, setWaConfigured] = useState(true);
+  const [voiceBots, setVoiceBots] = useState<CampaignBot[]>([]);
+  const [voiceBotsLoading, setVoiceBotsLoading] = useState(false);
+  const [voiceBotsError, setVoiceBotsError] = useState("");
 
   useEffect(() => {
     if (!selection) return;
@@ -1285,7 +1315,39 @@ function Inspector({
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
+  }, [selection, workflow.days, orgId]);
+
+  useEffect(() => {
+    if (!selection) return;
+    const d = workflow.days.find((dd) => dd.id === selection.dayId);
+    const a = d?.actions.find((aa) => aa.id === selection.actionId);
+    if (a?.type !== "call") return;
+
+    let cancelled = false;
+    setVoiceBotsLoading(true);
+    setVoiceBotsError("");
+
+    campaignBots
+      .list(orgId)
+      .then((res) => {
+        if (cancelled) return;
+        setVoiceBots(res.data || []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setVoiceBotsError(err instanceof Error ? err.message : "Failed to load bots");
+        setVoiceBots([]);
+      })
+      .finally(() => {
+        if (!cancelled) setVoiceBotsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [selection, workflow.days, orgId]);
 
   if (!selection) return null;
@@ -1331,7 +1393,8 @@ function Inspector({
                       const langCode = t.language || t.languages?.[0]?.language || "";
                       return (
                         <SelectItem key={t.name} value={t.name}>
-                          {t.name}{langCode ? ` (${langCode})` : ""}
+                          {t.name}
+                          {langCode ? ` (${langCode})` : ""}
                         </SelectItem>
                       );
                     })}
@@ -1370,103 +1433,109 @@ function Inspector({
             />
             <div className="cmp-field-hint">MSG91 template namespace. Required for sending.</div>
           </div>
-          {action.template && (() => {
-            const selectedTemplate = waTemplates.find(
-              (template) => template.name === action.template
-            );
+          {action.template &&
+            (() => {
+              const selectedTemplate = waTemplates.find(
+                (template) => template.name === action.template
+              );
 
-            const selectedLanguageValue =
-              (action as any).template_language || (action as any).language || selectedTemplate?.language;
+              const selectedLanguageValue =
+                (action as any).template_language ||
+                (action as any).language ||
+                selectedTemplate?.language;
 
-            const selectedLanguage =
-              selectedTemplate?.languages?.find(
-                (language: any) => language.language === selectedLanguageValue
-              ) ?? selectedTemplate?.languages?.[0];
+              const selectedLanguage =
+                selectedTemplate?.languages?.find(
+                  (language: any) => language.language === selectedLanguageValue
+                ) ?? selectedTemplate?.languages?.[0];
 
-            const previewComponents =
-              selectedLanguage?.code ?? selectedLanguage?.components ?? [];
+              const previewComponents =
+                selectedLanguage?.code ?? selectedLanguage?.components ?? [];
 
-            return (
-              <div className="cmp-field">
-                <label className="cmp-field-label">Message Preview</label>
-                {!selectedTemplate ? (
-                  <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground bg-muted/20">
-                    Preview unavailable for this template.
-                  </div>
-                ) : previewComponents.length === 0 ? (
-                  <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground bg-muted/20">
-                    Preview unavailable for this template.
-                  </div>
-                ) : (() => {
-                  const headerComp = previewComponents.find((c: any) => c.type === "HEADER");
-                  const bodyComp = previewComponents.find((c: any) => c.type === "BODY");
-                  const footerComp = previewComponents.find((c: any) => c.type === "FOOTER");
-                  const buttonsComp = previewComponents.find((c: any) => c.type === "BUTTONS");
+              return (
+                <div className="cmp-field">
+                  <label className="cmp-field-label">Message Preview</label>
+                  {!selectedTemplate ? (
+                    <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground bg-muted/20">
+                      Preview unavailable for this template.
+                    </div>
+                  ) : previewComponents.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground bg-muted/20">
+                      Preview unavailable for this template.
+                    </div>
+                  ) : (
+                    (() => {
+                      const headerComp = previewComponents.find((c: any) => c.type === "HEADER");
+                      const bodyComp = previewComponents.find((c: any) => c.type === "BODY");
+                      const footerComp = previewComponents.find((c: any) => c.type === "FOOTER");
+                      const buttonsComp = previewComponents.find((c: any) => c.type === "BUTTONS");
 
-                  return (
-                    <div 
-                      className="rounded-lg border p-3 flex flex-col justify-end relative shadow-inner overflow-hidden"
-                      style={{
-                        backgroundColor: "#efeae2",
-                        backgroundImage: "url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')",
-                        backgroundSize: "cover",
-                        backgroundBlendMode: "overlay"
-                      }}
-                    >
-                      {/* Chat speech bubble */}
-                      <div className="bg-white dark:bg-zinc-800 text-black dark:text-white rounded-lg p-2.5 shadow-sm max-w-[90%] self-start relative text-xs space-y-1 leading-relaxed">
-                        {headerComp && (
-                          <div className="font-bold text-[10px] border-b border-zinc-100 dark:border-zinc-700 pb-0.5 mb-1 text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
-                            {headerComp.format === "TEXT" ? (
-                              <span>{cleanOuterQuotes(headerComp.text || "")}</span>
-                            ) : (
-                              <span className="flex items-center gap-1 text-[9px] text-zinc-500">
-                                <FileText className="h-3 w-3" /> {headerComp.format} Header
-                              </span>
+                      return (
+                        <div
+                          className="rounded-lg border p-3 flex flex-col justify-end relative shadow-inner overflow-hidden"
+                          style={{
+                            backgroundColor: "#efeae2",
+                            backgroundImage:
+                              "url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')",
+                            backgroundSize: "cover",
+                            backgroundBlendMode: "overlay",
+                          }}
+                        >
+                          {/* Chat speech bubble */}
+                          <div className="bg-white dark:bg-zinc-800 text-black dark:text-white rounded-lg p-2.5 shadow-sm max-w-[90%] self-start relative text-xs space-y-1 leading-relaxed">
+                            {headerComp && (
+                              <div className="font-bold text-[10px] border-b border-zinc-100 dark:border-zinc-700 pb-0.5 mb-1 text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
+                                {headerComp.format === "TEXT" ? (
+                                  <span>{cleanOuterQuotes(headerComp.text || "")}</span>
+                                ) : (
+                                  <span className="flex items-center gap-1 text-[9px] text-zinc-500">
+                                    <FileText className="h-3 w-3" /> {headerComp.format} Header
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {bodyComp && (
+                              <div className="whitespace-pre-wrap break-words">
+                                {cleanOuterQuotes(bodyComp.text || "")}
+                              </div>
+                            )}
+
+                            {footerComp && (
+                              <div className="text-[9px] text-zinc-400 dark:text-zinc-500 pt-0.5">
+                                {cleanOuterQuotes(footerComp.text || "")}
+                              </div>
                             )}
                           </div>
-                        )}
 
-                        {bodyComp && (
-                          <div className="whitespace-pre-wrap break-words">
-                            {cleanOuterQuotes(bodyComp.text || "")}
-                          </div>
-                        )}
-
-                        {footerComp && (
-                          <div className="text-[9px] text-zinc-400 dark:text-zinc-500 pt-0.5">
-                            {cleanOuterQuotes(footerComp.text || "")}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Render Buttons below speech bubble */}
-                      {buttonsComp && Array.isArray(buttonsComp.buttons) && (
-                        <div className="mt-1 space-y-1 max-w-[90%] self-start w-full">
-                          {buttonsComp.buttons.map((btn: any, idx: number) => {
-                            let label = btn.text || "Button";
-                            if (btn.type === "PHONE_NUMBER") {
-                              label = `📞 ${label}`;
-                            } else if (btn.type === "URL") {
-                              label = `🔗 ${label}`;
-                            }
-                            return (
-                              <div 
-                                key={idx} 
-                                className="bg-white dark:bg-zinc-800 text-[#00a884] dark:text-emerald-400 text-[10px] font-semibold py-1.5 px-2.5 rounded-lg text-center shadow-sm border border-zinc-200/50 dark:border-zinc-700/50 hover:bg-zinc-50 dark:hover:bg-zinc-750 transition-colors cursor-pointer"
-                              >
-                                {label}
-                              </div>
-                            );
-                          })}
+                          {/* Render Buttons below speech bubble */}
+                          {buttonsComp && Array.isArray(buttonsComp.buttons) && (
+                            <div className="mt-1 space-y-1 max-w-[90%] self-start w-full">
+                              {buttonsComp.buttons.map((btn: any, idx: number) => {
+                                let label = btn.text || "Button";
+                                if (btn.type === "PHONE_NUMBER") {
+                                  label = `📞 ${label}`;
+                                } else if (btn.type === "URL") {
+                                  label = `🔗 ${label}`;
+                                }
+                                return (
+                                  <div
+                                    key={idx}
+                                    className="bg-white dark:bg-zinc-800 text-[#00a884] dark:text-emerald-400 text-[10px] font-semibold py-1.5 px-2.5 rounded-lg text-center shadow-sm border border-zinc-200/50 dark:border-zinc-700/50 hover:bg-zinc-50 dark:hover:bg-zinc-750 transition-colors cursor-pointer"
+                                  >
+                                    {label}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-            );
-          })()}
+                      );
+                    })()
+                  )}
+                </div>
+              );
+            })()}
           <div className="cmp-field">
             <label className="cmp-field-label">
               Interest keywords <span className="cmp-field-optional">(optional)</span>
@@ -1515,24 +1584,48 @@ function Inspector({
               />
             </div>
             <div className="cmp-field-hint">
-              If a lead replies with any of these words, they are marked{" "}
-              <strong>interested</strong> and outreach stops. Without keywords, any reply
-              marks them <strong>engaged</strong> (outreach continues).
+              If a lead replies with any of these words, they are marked <strong>interested</strong>{" "}
+              and outreach stops. Without keywords, any reply marks them <strong>engaged</strong>{" "}
+              (outreach continues).
             </div>
           </div>
         </>
       ) : (
         <>
           <div className="cmp-field">
-            <label className="cmp-field-label">Voice script</label>
-            <input
-              className="cmp-input"
-              value={action.script || ""}
-              placeholder="e.g. sales_jaipur_v1"
-              onChange={(e) => updateAction(day.id, action.id, { script: e.target.value })}
-            />
+            <label className="cmp-field-label">Phone bot</label>
+            <Select
+              value={action.script || "__none"}
+              onValueChange={(value) => {
+                updateAction(day.id, action.id, { script: value === "__none" ? "" : value });
+              }}
+              disabled={voiceBotsLoading || voiceBots.length === 0}
+            >
+              <SelectTrigger className="h-9 w-full text-[13.5px]">
+                <SelectValue placeholder="Select a bot…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Phone bot</SelectLabel>
+                  <SelectItem value="__none">Select a bot…</SelectItem>
+                  {voiceBots.map((bot) => (
+                    <SelectItem key={bot.id} value={bot.id}>
+                      {bot.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
             <div className="cmp-field-hint">
-              Pipecat bot ID. Configure scripts in the Bots section.
+              {voiceBotsLoading
+                ? "Loading bots…"
+                : voiceBotsError
+                  ? voiceBotsError
+                  : voiceBots.length === 0
+                    ? "Create Astralite bots in the Bots section."
+                    : action.script
+                      ? `Saved bot id: ${action.script}`
+                      : "Campaign Bot ID is saved with the workflow."}
             </div>
           </div>
           <div className="cmp-field">
@@ -1593,8 +1686,8 @@ function Inspector({
             </div>
             <div className="cmp-field-hint">
               If the AI detects any of these words in the conversation, the lead is marked{" "}
-              <strong>interested</strong> and outreach stops. Without keywords, any completed
-              call marks them <strong>interested</strong> (outreach stops).
+              <strong>interested</strong> and outreach stops. Without keywords, any completed call
+              marks them <strong>interested</strong> (outreach stops).
             </div>
           </div>
         </>

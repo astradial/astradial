@@ -266,18 +266,11 @@ export interface OverviewLeadsResponse {
 }
 
 export const leads = {
-  list: (
-    campaignId: string,
-    params: LeadsListParams = {},
-    opts: { signal?: AbortSignal } = {}
-  ) =>
+  list: (campaignId: string, params: LeadsListParams = {}, opts: { signal?: AbortSignal } = {}) =>
     req<Paginated<CampaignLead>>(`/${campaignId}/leads${qs(params)}`, {
       signal: opts.signal,
     }),
-  overview: (
-    params: OverviewLeadsParams = {},
-    opts: { signal?: AbortSignal } = {}
-  ) =>
+  overview: (params: OverviewLeadsParams = {}, opts: { signal?: AbortSignal } = {}) =>
     req<OverviewLeadsResponse>(`/leads${qs(params)}`, {
       signal: opts.signal,
     }),
@@ -286,11 +279,17 @@ export const leads = {
   update: (
     campaignId: string,
     leadId: string,
-    data: Partial<Pick<CampaignLead, "name" | "country" | "business" | "status" | "intent_score" | "custom_fields">>
-  ) => req<CampaignLead>(`/${campaignId}/leads/${leadId}`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-  }),
+    data: Partial<
+      Pick<
+        CampaignLead,
+        "name" | "country" | "business" | "status" | "intent_score" | "custom_fields"
+      >
+    >
+  ) =>
+    req<CampaignLead>(`/${campaignId}/leads/${leadId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
   delete: (campaignId: string, leadId: string) =>
     req<void>(`/${campaignId}/leads/${leadId}`, { method: "DELETE" }),
   // PR 4: lead-drawer timeline + transcript modal
@@ -300,20 +299,18 @@ export const leads = {
     params: { limit?: number } = {},
     opts: { signal?: AbortSignal } = {}
   ) =>
-    req<{ data: CampaignEvent[] }>(
-      `/${campaignId}/leads/${leadId}/timeline${qs(params)}`,
-      { signal: opts.signal }
-    ),
+    req<{ data: CampaignEvent[] }>(`/${campaignId}/leads/${leadId}/timeline${qs(params)}`, {
+      signal: opts.signal,
+    }),
   transcript: (
     campaignId: string,
     leadId: string,
     eventId: string,
     opts: { signal?: AbortSignal } = {}
   ) =>
-    req<TranscriptPayload>(
-      `/${campaignId}/leads/${leadId}/transcript/${eventId}`,
-      { signal: opts.signal }
-    ),
+    req<TranscriptPayload>(`/${campaignId}/leads/${leadId}/transcript/${eventId}`, {
+      signal: opts.signal,
+    }),
 };
 
 // ── PR 4: per-campaign dashboard summary ──
@@ -340,8 +337,9 @@ export const events = {
 // ── Approvals (org-scoped queue, not per-campaign) ──
 
 export const approvals = {
-  list: (params: { page?: number; limit?: number; status?: ApprovalStatus; campaign_id?: string } = {}) =>
-    req<Paginated<CampaignApproval>>(`/approvals${qs(params)}`),
+  list: (
+    params: { page?: number; limit?: number; status?: ApprovalStatus; campaign_id?: string } = {}
+  ) => req<Paginated<CampaignApproval>>(`/approvals${qs(params)}`),
   get: (id: string) => req<CampaignApproval>(`/approvals/${id}`),
   decide: (id: string, decision: "approved" | "rejected", editedDraft?: string) =>
     req<CampaignApproval>(`/approvals/${id}/decide`, {
@@ -362,22 +360,34 @@ export function subscribeToApprovalsCount(
     let cancelled = false;
     const tick = () => {
       if (cancelled) return;
-      approvals.count().then((r) => !cancelled && onCount(r.count)).catch((e) => onError?.(e));
+      approvals
+        .count()
+        .then((r) => !cancelled && onCount(r.count))
+        .catch((e) => onError?.(e));
     };
     tick();
     const id = window.setInterval(tick, 15_000);
-    return () => { cancelled = true; window.clearInterval(id); };
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }
   const tok = getToken();
   const key = localStorage.getItem("pbx_api_key") || "";
-  const auth = tok ? `token=${encodeURIComponent(tok)}` : key ? `apiKey=${encodeURIComponent(key)}` : "";
+  const auth = tok
+    ? `token=${encodeURIComponent(tok)}`
+    : key
+      ? `apiKey=${encodeURIComponent(key)}`
+      : "";
   const url = `${BASE}/approvals/stream${auth ? `?${auth}` : ""}`;
   const es = new EventSource(url, { withCredentials: false });
   es.onmessage = (ev) => {
     try {
       const data = JSON.parse(ev.data);
       if (typeof data.count === "number") onCount(data.count);
-    } catch { /* ignore malformed payloads */ }
+    } catch {
+      /* ignore malformed payloads */
+    }
   };
   es.onerror = (e) => onError?.(e);
   return () => es.close();
@@ -402,8 +412,11 @@ export const leadFields = {
     req<CampaignLeadField>(`/lead-fields`, { method: "POST", body: JSON.stringify(data) }),
   update: (
     id: string,
-    data: Partial<Pick<CampaignLeadField, "label" | "description" | "options" | "required" | "sort_order">>
-  ) => req<CampaignLeadField>(`/lead-fields/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+    data: Partial<
+      Pick<CampaignLeadField, "label" | "description" | "options" | "required" | "sort_order">
+    >
+  ) =>
+    req<CampaignLeadField>(`/lead-fields/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   delete: (id: string) => req<void>(`/lead-fields/${id}`, { method: "DELETE" }),
   reorder: (ids: string[]) =>
     req<{ ok: true; count: number }>(`/lead-fields/reorder`, {
@@ -424,15 +437,10 @@ export interface ImportsListParams {
 }
 
 export const imports = {
-  list: (
-    campaignId: string,
-    params: ImportsListParams = {},
-    opts: { signal?: AbortSignal } = {}
-  ) =>
-    req<Paginated<CampaignImportJob>>(
-      `/${campaignId}/imports${qs(params)}`,
-      { signal: opts.signal }
-    ),
+  list: (campaignId: string, params: ImportsListParams = {}, opts: { signal?: AbortSignal } = {}) =>
+    req<Paginated<CampaignImportJob>>(`/${campaignId}/imports${qs(params)}`, {
+      signal: opts.signal,
+    }),
 
   get: (campaignId: string, jobId: string, opts: { signal?: AbortSignal } = {}) =>
     req<CampaignImportJob>(`/${campaignId}/imports/${jobId}`, {
@@ -451,10 +459,7 @@ export const imports = {
     const fd = new FormData();
     fd.append("leads_csv", file);
     fd.append("column_mapping", JSON.stringify(columnMapping));
-    return reqMultipart<CreateImportResponse>(
-      `/${campaignId}/leads/import-async?mode=${mode}`,
-      fd
-    );
+    return reqMultipart<CreateImportResponse>(`/${campaignId}/leads/import-async?mode=${mode}`, fd);
   },
 
   // Signals cancellation — the worker re-reads CampaignImportJob.status
@@ -479,7 +484,6 @@ export const orgSettings = {
   update: (data: Partial<CampaignOrgSettings>) =>
     req<CampaignOrgSettings>("/org-settings", { method: "PATCH", body: JSON.stringify(data) }),
 };
-
 
 // ── WhatsApp template picker (Studio inspector) ──
 

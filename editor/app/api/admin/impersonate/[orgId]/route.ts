@@ -24,7 +24,10 @@ async function getAdminJwt(): Promise<string> {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
   if (!ADMIN_PASSWORD) {
-    return NextResponse.json({ error: "Admin credentials not configured on server" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Admin credentials not configured on server" },
+      { status: 500 }
+    );
   }
   try {
     const adminJwt = await getAdminJwt();

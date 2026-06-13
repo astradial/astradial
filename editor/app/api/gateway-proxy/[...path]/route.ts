@@ -19,7 +19,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pa
   return proxy(req, await params);
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> }
+) {
   return proxy(req, await params);
 }
 
@@ -32,7 +35,7 @@ async function proxy(req: NextRequest, params: { path: string[] }) {
   const url = `${GATEWAY_URL}/admin/${path}`;
 
   const headers: Record<string, string> = {
-    "Authorization": `Bearer ${GATEWAY_ADMIN_KEY}`,
+    Authorization: `Bearer ${GATEWAY_ADMIN_KEY}`,
     "Content-Type": "application/json",
   };
 

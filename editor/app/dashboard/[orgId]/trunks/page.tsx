@@ -1,29 +1,63 @@
 "use client";
 
+import { Copy, Eye, EyeOff, MoreHorizontal, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, MoreHorizontal, Eye, EyeOff, Copy } from "lucide-react";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { showToast } from "@/components/ui/Toast";
 import { canManageOrgInfrastructure } from "@/lib/auth/permissions";
 import {
-  trunks,
   customerTunnels,
-  type PbxTrunk,
   type PbxCustomerTunnel,
-  type PbxCustomerTunnelStatus,
   type PbxCustomerTunnelConfig,
   type PbxCustomerTunnelMetric,
+  type PbxCustomerTunnelStatus,
+  type PbxTrunk,
+  trunks,
 } from "@/lib/pbx/client";
 
 // Live trunk status from Asterisk (`pjsip show contacts` / `show registrations`),
@@ -104,27 +138,56 @@ export default function TrunksPage() {
   const [showPwInForm, setShowPwInForm] = useState(false);
   const [showPwInCreds, setShowPwInCreds] = useState(false);
   const isAdmin = canManageOrgInfrastructure();
-  const [form, setForm] = useState({ name: "", host: "", port: "5060", username: "", password: "", transport: "udp", trunk_type: "outbound", max_channels: "10" });
-  const [editForm, setEditForm] = useState({ name: "", host: "", port: "5060", transport: "udp", trunk_type: "outbound", max_channels: "10", status: "active" });
+  const [form, setForm] = useState({
+    name: "",
+    host: "",
+    port: "5060",
+    username: "",
+    password: "",
+    transport: "udp",
+    trunk_type: "outbound",
+    max_channels: "10",
+  });
+  const [editForm, setEditForm] = useState({
+    name: "",
+    host: "",
+    port: "5060",
+    transport: "udp",
+    trunk_type: "outbound",
+    max_channels: "10",
+    status: "active",
+  });
 
-  useEffect(() => { loadTrunks(); }, []);
+  useEffect(() => {
+    loadTrunks();
+  }, []);
 
   async function loadTrunks() {
-    try { setLoading(true); setTrunkList(await trunks.list()); }
-    catch (e) { showToast(e instanceof Error ? e.message : "Failed to load", "error"); }
-    finally { setLoading(false); }
+    try {
+      setLoading(true);
+      setTrunkList(await trunks.list());
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to load", "error");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function generatePassword() {
     const bytes = new Uint8Array(16);
     (typeof window !== "undefined" ? window.crypto : crypto).getRandomValues(bytes);
-    const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const hex = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
     setForm((f) => ({ ...f, password: hex }));
     setShowPwInForm(true);
   }
 
   async function handleCreate() {
-    if ((form.trunk_type === "inbound" || form.trunk_type === "outbound") && (!form.username || !form.password)) {
+    if (
+      (form.trunk_type === "inbound" || form.trunk_type === "outbound") &&
+      (!form.username || !form.password)
+    ) {
       showToast("Username and password are required for inbound and outbound trunks", "error");
       return;
     }
@@ -140,14 +203,25 @@ export default function TrunksPage() {
         max_channels: parseInt(form.max_channels),
       });
       setCreateOpen(false);
-      setForm({ name: "", host: "", port: "5060", username: "", password: "", transport: "udp", trunk_type: "outbound", max_channels: "10" });
+      setForm({
+        name: "",
+        host: "",
+        port: "5060",
+        username: "",
+        password: "",
+        transport: "udp",
+        trunk_type: "outbound",
+        max_channels: "10",
+      });
       setShowPwInForm(false);
       await loadTrunks();
       setCredsTrunk(created);
       setShowPwInCreds(false);
       setCredsOpen(true);
       showToast("Trunk created", "success");
-    } catch (e) { showToast(e instanceof Error ? e.message : "Failed to create", "error"); }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to create", "error");
+    }
   }
 
   async function viewCredentials(t: PbxTrunk) {
@@ -156,61 +230,378 @@ export default function TrunksPage() {
       setCredsTrunk(full);
       setShowPwInCreds(false);
       setCredsOpen(true);
-    } catch (e) { showToast(e instanceof Error ? e.message : "Failed to load credentials", "error"); }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to load credentials", "error");
+    }
   }
 
   function copyToClipboard(text: string, label: string) {
     navigator.clipboard.writeText(text).then(
       () => showToast(`${label} copied`, "success"),
-      () => showToast(`Failed to copy ${label.toLowerCase()}`, "error"),
+      () => showToast(`Failed to copy ${label.toLowerCase()}`, "error")
     );
   }
 
   function openEdit(t: PbxTrunk) {
     setEditingTrunk(t);
-    setEditForm({ name: t.name, host: t.host, port: String(t.port), transport: t.transport, trunk_type: t.trunk_type, max_channels: String(t.max_channels), status: t.status });
+    setEditForm({
+      name: t.name,
+      host: t.host,
+      port: String(t.port),
+      transport: t.transport,
+      trunk_type: t.trunk_type,
+      max_channels: String(t.max_channels),
+      status: t.status,
+    });
     setEditOpen(true);
   }
 
   async function handleEdit() {
     if (!editingTrunk) return;
     try {
-      await trunks.update(editingTrunk.id, { name: editForm.name, host: editForm.host, port: parseInt(editForm.port), transport: editForm.transport as PbxTrunk["transport"], trunk_type: editForm.trunk_type as PbxTrunk["trunk_type"], max_channels: parseInt(editForm.max_channels), status: editForm.status as PbxTrunk["status"] });
+      await trunks.update(editingTrunk.id, {
+        name: editForm.name,
+        host: editForm.host,
+        port: parseInt(editForm.port),
+        transport: editForm.transport as PbxTrunk["transport"],
+        trunk_type: editForm.trunk_type as PbxTrunk["trunk_type"],
+        max_channels: parseInt(editForm.max_channels),
+        status: editForm.status as PbxTrunk["status"],
+      });
       showToast("Trunk updated", "success");
       setEditOpen(false);
       await loadTrunks();
-    } catch (e) { showToast(e instanceof Error ? e.message : "Failed", "error"); }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed", "error");
+    }
   }
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this trunk?")) return;
-    try { await trunks.delete(id); showToast("Trunk deleted", "success"); await loadTrunks(); }
-    catch (e) { showToast(e instanceof Error ? e.message : "Failed to delete", "error"); }
+    try {
+      await trunks.delete(id);
+      showToast("Trunk deleted", "success");
+      await loadTrunks();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to delete", "error");
+    }
   }
 
   return (
     <div className="p-3 md:p-6 space-y-10">
       {/* ─── SIP Trunks Section ─── */}
       <section className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">SIP Trunks</h1>
-          <p className="text-sm text-muted-foreground">Manage SIP trunk connections to carriers</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">SIP Trunks</h1>
+            <p className="text-sm text-muted-foreground">
+              Manage SIP trunk connections to carriers
+            </p>
+          </div>
+          {isAdmin && (
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <Plus className="h-4 w-4 mr-1.5" />
+                  Add Trunk
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Create Trunk</DialogTitle>
+                  <DialogDescription>Connect a SIP carrier</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Name</Label>
+                      <Input
+                        value={form.name}
+                        onChange={(e) => setForm({ ...form, name: e.target.value })}
+                        placeholder="Tata SIP"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Host</Label>
+                      <Input
+                        value={form.host}
+                        onChange={(e) => setForm({ ...form, host: e.target.value })}
+                        placeholder="sip.provider.com"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Port</Label>
+                      <Input
+                        value={form.port}
+                        onChange={(e) => setForm({ ...form, port: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Transport</Label>
+                      <Select
+                        value={form.transport}
+                        onValueChange={(v) => setForm({ ...form, transport: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="udp">UDP</SelectItem>
+                          <SelectItem value="tcp">TCP</SelectItem>
+                          <SelectItem value="tls">TLS</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Type</Label>
+                      <Select
+                        value={form.trunk_type}
+                        onValueChange={(v) => setForm({ ...form, trunk_type: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="inbound">Inbound</SelectItem>
+                          <SelectItem value="outbound">Outbound</SelectItem>
+                          <SelectItem value="peer2peer">Peer-to-Peer</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>
+                        Username
+                        {form.trunk_type !== "peer2peer" && (
+                          <span className="text-destructive ml-0.5">*</span>
+                        )}
+                      </Label>
+                      <Input
+                        value={form.username}
+                        onChange={(e) => setForm({ ...form, username: e.target.value })}
+                        placeholder={form.trunk_type === "peer2peer" ? "Optional" : "Required"}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Max Channels</Label>
+                      <Input
+                        type="number"
+                        value={form.max_channels}
+                        onChange={(e) => setForm({ ...form, max_channels: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  {form.trunk_type !== "peer2peer" && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label>
+                          Password<span className="text-destructive ml-0.5">*</span>
+                        </Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={generatePassword}
+                        >
+                          Generate
+                        </Button>
+                      </div>
+                      <div className="relative">
+                        <Input
+                          type={showPwInForm ? "text" : "password"}
+                          value={form.password}
+                          onChange={(e) => setForm({ ...form, password: e.target.value })}
+                          placeholder="Required for inbound/outbound"
+                          className="pr-9 font-mono"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                          onClick={() => setShowPwInForm((v) => !v)}
+                          aria-label={showPwInForm ? "Hide password" : "Show password"}
+                        >
+                          {showPwInForm ? (
+                            <EyeOff className="h-3.5 w-3.5" />
+                          ) : (
+                            <Eye className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        {form.trunk_type === "inbound"
+                          ? "Remote PBX uses these credentials to register to our cloud."
+                          : "We use these credentials to register to the carrier."}{" "}
+                        You will see this password again from the row menu &rarr; View credentials.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setCreateOpen(false);
+                      setShowPwInForm(false);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={handleCreate}>Create</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
-        {isAdmin && <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1.5" />Add Trunk</Button></DialogTrigger>
+
+        <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
+          <div className="overflow-auto flex-1 relative">
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
+                <TableRow className="border-b-border/50 hover:bg-transparent">
+                  <TableHead>Name</TableHead>
+                  <TableHead>Host</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Transport</TableHead>
+                  <TableHead>Channels</TableHead>
+                  <TableHead>Registration</TableHead>
+                  <TableHead>Status</TableHead>
+                  {isAdmin && <TableHead className="w-16"></TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableSkeleton cols={8} />
+                ) : trunkList.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      No trunks configured
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  trunkList.map((t) => (
+                    <TableRow key={t.id}>
+                      <TableCell className="font-medium">{t.name}</TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {t.host}:{t.port}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {t.trunk_type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm uppercase">{t.transport}</TableCell>
+                      <TableCell className="text-sm">{t.max_channels}</TableCell>
+                      <TableCell>
+                        {(() => {
+                          // Prefer live status from Asterisk; fall back to persisted column.
+                          const live = (
+                            t as PbxTrunk & {
+                              live_status?: { status: string; rtt_ms: number | null };
+                            }
+                          ).live_status;
+                          const key = live?.status || t.registration_status || "unknown";
+                          const label =
+                            liveStatusLabel[key] || (key === "unknown" ? "Unknown" : key);
+                          const variant = liveStatusVariant[key] || "secondary";
+                          return (
+                            <Badge
+                              variant={variant}
+                              className="text-xs"
+                              title={live?.rtt_ms != null ? `RTT ${live.rtt_ms} ms` : undefined}
+                            >
+                              {label}
+                            </Badge>
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={t.status === "active" ? "default" : "secondary"}
+                          className="text-xs"
+                        >
+                          {t.status}
+                        </Badge>
+                      </TableCell>
+                      {isAdmin && (
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEdit(t)}>Edit</DropdownMenuItem>
+                              {t.trunk_type !== "peer2peer" && (
+                                <DropdownMenuItem onClick={() => viewCredentials(t)}>
+                                  View credentials
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => handleDelete(t.id)}
+                              >
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+
+        {/* Edit Trunk Dialog — admin only */}
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
           <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Create Trunk</DialogTitle><DialogDescription>Connect a SIP carrier</DialogDescription></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>Edit Trunk — {editingTrunk?.name}</DialogTitle>
+              <DialogDescription>Update trunk configuration and channel limits</DialogDescription>
+            </DialogHeader>
             <div className="space-y-4 py-2">
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Tata SIP" /></div>
-                <div className="space-y-1.5"><Label>Host</Label><Input value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} placeholder="sip.provider.com" /></div>
+                <div className="space-y-1.5">
+                  <Label>Name</Label>
+                  <Input
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Host</Label>
+                  <Input
+                    value={editForm.host}
+                    onChange={(e) => setEditForm({ ...editForm, host: e.target.value })}
+                  />
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1.5"><Label>Port</Label><Input value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} /></div>
-                <div className="space-y-1.5"><Label>Transport</Label>
-                  <Select value={form.transport} onValueChange={(v) => setForm({ ...form, transport: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                <div className="space-y-1.5">
+                  <Label>Port</Label>
+                  <Input
+                    value={editForm.port}
+                    onChange={(e) => setEditForm({ ...editForm, port: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Transport</Label>
+                  <Select
+                    value={editForm.transport}
+                    onValueChange={(v) => setEditForm({ ...editForm, transport: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="udp">UDP</SelectItem>
                       <SelectItem value="tcp">TCP</SelectItem>
@@ -218,9 +609,15 @@ export default function TrunksPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1.5"><Label>Type</Label>
-                  <Select value={form.trunk_type} onValueChange={(v) => setForm({ ...form, trunk_type: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                <div className="space-y-1.5">
+                  <Label>Type</Label>
+                  <Select
+                    value={editForm.trunk_type}
+                    onValueChange={(v) => setEditForm({ ...editForm, trunk_type: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="inbound">Inbound</SelectItem>
                       <SelectItem value="outbound">Outbound</SelectItem>
@@ -231,228 +628,138 @@ export default function TrunksPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Username{form.trunk_type !== "peer2peer" && <span className="text-destructive ml-0.5">*</span>}</Label>
-                  <Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder={form.trunk_type === "peer2peer" ? "Optional" : "Required"} />
-                </div>
-                <div className="space-y-1.5"><Label>Max Channels</Label><Input type="number" value={form.max_channels} onChange={(e) => setForm({ ...form, max_channels: e.target.value })} /></div>
-              </div>
-              {form.trunk_type !== "peer2peer" && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label>Password<span className="text-destructive ml-0.5">*</span></Label>
-                    <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={generatePassword}>Generate</Button>
-                  </div>
-                  <div className="relative">
-                    <Input
-                      type={showPwInForm ? "text" : "password"}
-                      value={form.password}
-                      onChange={(e) => setForm({ ...form, password: e.target.value })}
-                      placeholder="Required for inbound/outbound"
-                      className="pr-9 font-mono"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
-                      onClick={() => setShowPwInForm((v) => !v)}
-                      aria-label={showPwInForm ? "Hide password" : "Show password"}
-                    >
-                      {showPwInForm ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    </Button>
-                  </div>
+                  <Label>Max Channels (concurrent calls)</Label>
+                  <Input
+                    type="number"
+                    value={editForm.max_channels}
+                    onChange={(e) => setEditForm({ ...editForm, max_channels: e.target.value })}
+                  />
                   <p className="text-[10px] text-muted-foreground">
-                    {form.trunk_type === "inbound"
-                      ? "Remote PBX uses these credentials to register to our cloud."
-                      : "We use these credentials to register to the carrier."}
-                    {" "}You will see this password again from the row menu &rarr; View credentials.
+                    Limits simultaneous calls on this trunk
                   </p>
                 </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => { setCreateOpen(false); setShowPwInForm(false); }}>Cancel</Button>
-              <Button onClick={handleCreate}>Create</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>}
-      </div>
-
-      <div className="border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col mt-2">
-        <div className="overflow-auto flex-1 relative">
-          <Table>
-            <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md border-b">
-              <TableRow className="border-b-border/50 hover:bg-transparent">
-                <TableHead>Name</TableHead>
-                <TableHead>Host</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Transport</TableHead>
-                <TableHead>Channels</TableHead>
-                <TableHead>Registration</TableHead>
-                <TableHead>Status</TableHead>
-                {isAdmin && <TableHead className="w-16"></TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-            {loading ? (
-              <TableSkeleton cols={8} />
-            ) : trunkList.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No trunks configured</TableCell></TableRow>
-            ) : trunkList.map((t) => (
-              <TableRow key={t.id}>
-                <TableCell className="font-medium">{t.name}</TableCell>
-                <TableCell className="font-mono text-sm">{t.host}:{t.port}</TableCell>
-                <TableCell><Badge variant="outline" className="text-xs capitalize">{t.trunk_type}</Badge></TableCell>
-                <TableCell className="text-sm uppercase">{t.transport}</TableCell>
-                <TableCell className="text-sm">{t.max_channels}</TableCell>
-                <TableCell>
-                  {(() => {
-                    // Prefer live status from Asterisk; fall back to persisted column.
-                    const live = (t as PbxTrunk & { live_status?: { status: string; rtt_ms: number | null } }).live_status;
-                    const key = live?.status || t.registration_status || "unknown";
-                    const label = liveStatusLabel[key] || (key === "unknown" ? "Unknown" : key);
-                    const variant = liveStatusVariant[key] || "secondary";
-                    return (
-                      <Badge
-                        variant={variant}
-                        className="text-xs"
-                        title={live?.rtt_ms != null ? `RTT ${live.rtt_ms} ms` : undefined}
-                      >
-                        {label}
-                      </Badge>
-                    );
-                  })()}
-                </TableCell>
-                <TableCell><Badge variant={t.status === "active" ? "default" : "secondary"} className="text-xs">{t.status}</Badge></TableCell>
-                {isAdmin && <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-7 w-7 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => openEdit(t)}>Edit</DropdownMenuItem>
-                      {t.trunk_type !== "peer2peer" && (
-                        <DropdownMenuItem onClick={() => viewCredentials(t)}>View credentials</DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(t.id)}>Delete</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        </div>
-      </div>
-
-      {/* Edit Trunk Dialog — admin only */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Trunk — {editingTrunk?.name}</DialogTitle>
-            <DialogDescription>Update trunk configuration and channel limits</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label>Name</Label><Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} /></div>
-              <div className="space-y-1.5"><Label>Host</Label><Input value={editForm.host} onChange={(e) => setEditForm({ ...editForm, host: e.target.value })} /></div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5"><Label>Port</Label><Input value={editForm.port} onChange={(e) => setEditForm({ ...editForm, port: e.target.value })} /></div>
-              <div className="space-y-1.5"><Label>Transport</Label>
-                <Select value={editForm.transport} onValueChange={(v) => setEditForm({ ...editForm, transport: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="udp">UDP</SelectItem>
-                    <SelectItem value="tcp">TCP</SelectItem>
-                    <SelectItem value="tls">TLS</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5"><Label>Type</Label>
-                <Select value={editForm.trunk_type} onValueChange={(v) => setEditForm({ ...editForm, trunk_type: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="inbound">Inbound</SelectItem>
-                    <SelectItem value="outbound">Outbound</SelectItem>
-                    <SelectItem value="peer2peer">Peer-to-Peer</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Max Channels (concurrent calls)</Label>
-                <Input type="number" value={editForm.max_channels} onChange={(e) => setEditForm({ ...editForm, max_channels: e.target.value })} />
-                <p className="text-[10px] text-muted-foreground">Limits simultaneous calls on this trunk</p>
-              </div>
-              <div className="space-y-1.5"><Label>Status</Label>
-                <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button onClick={handleEdit}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Trunk Credentials Dialog — show after create or via row menu */}
-      <Dialog open={credsOpen} onOpenChange={setCredsOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Trunk credentials — {credsTrunk?.name}</DialogTitle>
-            <DialogDescription>
-              Paste these into your remote PBX (e.g. Grandstream UCM, FreePBX) to register against this trunk.
-            </DialogDescription>
-          </DialogHeader>
-          {credsTrunk && (
-            <div className="space-y-3 py-2 text-sm">
-              <div className="grid grid-cols-[110px_1fr_auto] items-center gap-2">
-                <span className="text-muted-foreground">Server</span>
-                <code className="font-mono break-all">{credsTrunk.host || "sip.example.com"}</code>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyToClipboard(credsTrunk.host || "sip.example.com", "Server")}><Copy className="h-3.5 w-3.5" /></Button>
-
-                <span className="text-muted-foreground">Port</span>
-                <code className="font-mono">{credsTrunk.port}</code>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyToClipboard(String(credsTrunk.port), "Port")}><Copy className="h-3.5 w-3.5" /></Button>
-
-                <span className="text-muted-foreground">Transport</span>
-                <code className="font-mono uppercase">{credsTrunk.transport}</code>
-                <span />
-
-                <span className="text-muted-foreground">Username</span>
-                <code className="font-mono break-all">{credsTrunk.username}</code>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyToClipboard(credsTrunk.username, "Username")}><Copy className="h-3.5 w-3.5" /></Button>
-
-                <span className="text-muted-foreground">Password</span>
-                <code className="font-mono break-all">
-                  {showPwInCreds ? (credsTrunk.password ?? "—") : "•".repeat(Math.min(credsTrunk.password?.length ?? 12, 24))}
-                </code>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowPwInCreds((v) => !v)} aria-label={showPwInCreds ? "Hide password" : "Show password"}>
-                    {showPwInCreds ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={!credsTrunk.password} onClick={() => credsTrunk.password && copyToClipboard(credsTrunk.password, "Password")}>
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
+                <div className="space-y-1.5">
+                  <Label>Status</Label>
+                  <Select
+                    value={editForm.status}
+                    onValueChange={(v) => setEditForm({ ...editForm, status: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Treat the password like any other secret. It is stored on the cloud Asterisk so the registering PBX can authenticate.
-              </p>
             </div>
-          )}
-          <DialogFooter>
-            <Button onClick={() => setCredsOpen(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleEdit}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Trunk Credentials Dialog — show after create or via row menu */}
+        <Dialog open={credsOpen} onOpenChange={setCredsOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Trunk credentials — {credsTrunk?.name}</DialogTitle>
+              <DialogDescription>
+                Paste these into your remote PBX (e.g. Grandstream UCM, FreePBX) to register against
+                this trunk.
+              </DialogDescription>
+            </DialogHeader>
+            {credsTrunk && (
+              <div className="space-y-3 py-2 text-sm">
+                <div className="grid grid-cols-[110px_1fr_auto] items-center gap-2">
+                  <span className="text-muted-foreground">Server</span>
+                  <code className="font-mono break-all">
+                    {credsTrunk.host || "sip.example.com"}
+                  </code>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    onClick={() => copyToClipboard(credsTrunk.host || "sip.example.com", "Server")}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <span className="text-muted-foreground">Port</span>
+                  <code className="font-mono">{credsTrunk.port}</code>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    onClick={() => copyToClipboard(String(credsTrunk.port), "Port")}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <span className="text-muted-foreground">Transport</span>
+                  <code className="font-mono uppercase">{credsTrunk.transport}</code>
+                  <span />
+
+                  <span className="text-muted-foreground">Username</span>
+                  <code className="font-mono break-all">{credsTrunk.username}</code>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    onClick={() => copyToClipboard(credsTrunk.username, "Username")}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <span className="text-muted-foreground">Password</span>
+                  <code className="font-mono break-all">
+                    {showPwInCreds
+                      ? (credsTrunk.password ?? "—")
+                      : "•".repeat(Math.min(credsTrunk.password?.length ?? 12, 24))}
+                  </code>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => setShowPwInCreds((v) => !v)}
+                      aria-label={showPwInCreds ? "Hide password" : "Show password"}
+                    >
+                      {showPwInCreds ? (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      disabled={!credsTrunk.password}
+                      onClick={() =>
+                        credsTrunk.password && copyToClipboard(credsTrunk.password, "Password")
+                      }
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Treat the password like any other secret. It is stored on the cloud Asterisk so
+                  the registering PBX can authenticate.
+                </p>
+              </div>
+            )}
+            <DialogFooter>
+              <Button onClick={() => setCredsOpen(false)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </section>
 
       {/* ─── Network Tunnels Section ─── */}
@@ -465,7 +772,10 @@ export default function TrunksPage() {
 // Network Tunnels (WireGuard)
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface FieldError { field: string; message: string }
+interface FieldError {
+  field: string;
+  message: string;
+}
 
 function NetworkTunnelsSection({
   isAdmin,
@@ -480,7 +790,12 @@ function NetworkTunnelsSection({
 
   // Create dialog
   const [createOpen, setCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState({ name: "", customer_pubkey: "", customer_lan_cidr: "", notes: "" });
+  const [createForm, setCreateForm] = useState({
+    name: "",
+    customer_pubkey: "",
+    customer_lan_cidr: "",
+    notes: "",
+  });
   const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
 
@@ -548,9 +863,7 @@ function NetworkTunnelsSection({
     let cancelled = false;
     async function pollAll() {
       try {
-        const results = await Promise.allSettled(
-          tunnelIds.map((id) => customerTunnels.status(id)),
-        );
+        const results = await Promise.allSettled(tunnelIds.map((id) => customerTunnels.status(id)));
         if (cancelled || unmountedRef.current) return;
         setStatusById((prev) => {
           const next = { ...prev };
@@ -574,7 +887,9 @@ function NetworkTunnelsSection({
   }, [idsKey]);
 
   useEffect(() => {
-    return () => { unmountedRef.current = true; };
+    return () => {
+      unmountedRef.current = true;
+    };
   }, []);
 
   // ─── Actions ───
@@ -595,11 +910,17 @@ function NetworkTunnelsSection({
     }
     setCreating(true);
     try {
-      const body: { name: string; customer_pubkey: string; customer_lan_cidr?: string; notes?: string } = {
+      const body: {
+        name: string;
+        customer_pubkey: string;
+        customer_lan_cidr?: string;
+        notes?: string;
+      } = {
         name: createForm.name.trim(),
         customer_pubkey: createForm.customer_pubkey.trim(),
       };
-      if (createForm.customer_lan_cidr.trim()) body.customer_lan_cidr = createForm.customer_lan_cidr.trim();
+      if (createForm.customer_lan_cidr.trim())
+        body.customer_lan_cidr = createForm.customer_lan_cidr.trim();
       if (createForm.notes.trim()) body.notes = createForm.notes.trim();
       const res = await customerTunnels.create(body);
       setCreateOpen(false);
@@ -678,7 +999,8 @@ function NetworkTunnelsSection({
   async function toggleDisable(t: PbxCustomerTunnel) {
     const goingActive = t.status !== "active";
     if (!goingActive) {
-      if (!confirm("Disable this tunnel? The customer's tunnel will go offline until re-enabled.")) return;
+      if (!confirm("Disable this tunnel? The customer's tunnel will go offline until re-enabled."))
+        return;
     }
     try {
       await customerTunnels.update(t.id, { status: goingActive ? "active" : "disabled" });
@@ -755,7 +1077,12 @@ function NetworkTunnelsSection({
   }
 
   async function revokeTunnel(t: PbxCustomerTunnel) {
-    if (!confirm("Revoke this tunnel permanently? This cannot be undone. The /30 subnet stays reserved for 30 days before it can be recycled.")) return;
+    if (
+      !confirm(
+        "Revoke this tunnel permanently? This cannot be undone. The /30 subnet stays reserved for 30 days before it can be recycled."
+      )
+    )
+      return;
     try {
       const res = await customerTunnels.revoke(t.id);
       if (res.warnings && res.warnings.length > 0) {
@@ -805,7 +1132,8 @@ function NetworkTunnelsSection({
               <DialogHeader>
                 <DialogTitle>Create Network Tunnel</DialogTitle>
                 <DialogDescription>
-                  Allocate a /30 subnet and add the customer&apos;s WireGuard peer to the cloud server.
+                  Allocate a /30 subnet and add the customer&apos;s WireGuard peer to the cloud
+                  server.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-2">
@@ -818,14 +1146,18 @@ function NetworkTunnelsSection({
                     placeholder="v7-tirupathur-ucm"
                     aria-invalid={!!createErrors.name}
                   />
-                  {createErrors.name && <p className="text-xs text-destructive">{createErrors.name}</p>}
+                  {createErrors.name && (
+                    <p className="text-xs text-destructive">{createErrors.name}</p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="tun-pubkey">Customer WireGuard Public Key</Label>
                   <Textarea
                     id="tun-pubkey"
                     value={createForm.customer_pubkey}
-                    onChange={(e) => setCreateForm({ ...createForm, customer_pubkey: e.target.value })}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, customer_pubkey: e.target.value })
+                    }
                     placeholder="44-character base64 public key"
                     className="font-mono text-xs min-h-[64px]"
                     aria-invalid={!!createErrors.customer_pubkey}
@@ -843,18 +1175,19 @@ function NetworkTunnelsSection({
                   <Input
                     id="tun-lan-cidr"
                     value={createForm.customer_lan_cidr}
-                    onChange={(e) => setCreateForm({ ...createForm, customer_lan_cidr: e.target.value })}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, customer_lan_cidr: e.target.value })
+                    }
                     placeholder="e.g., 192.168.0.0/24"
                     className="font-mono text-xs"
                     aria-invalid={!!createErrors.customer_lan_cidr}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    The customer&apos;s internal LAN subnet. Required if devices on
-                    the customer LAN (phones, PBX) need to reach Astradial through
-                    the tunnel directly — without this, their source IP won&apos;t
-                    pass WireGuard&apos;s cryptokey routing on the cloud side.
-                    Must be RFC 1918 private space, /16-/30, no overlap with
-                    reserved infra or other customers.
+                    The customer&apos;s internal LAN subnet. Required if devices on the customer LAN
+                    (phones, PBX) need to reach Astradial through the tunnel directly — without
+                    this, their source IP won&apos;t pass WireGuard&apos;s cryptokey routing on the
+                    cloud side. Must be RFC 1918 private space, /16-/30, no overlap with reserved
+                    infra or other customers.
                   </p>
                   {createErrors.customer_lan_cidr && (
                     <p className="text-xs text-destructive">{createErrors.customer_lan_cidr}</p>
@@ -865,17 +1198,28 @@ function NetworkTunnelsSection({
                   <Textarea
                     id="tun-notes"
                     value={createForm.notes}
-                    onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value.slice(0, 4000) })}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, notes: e.target.value.slice(0, 4000) })
+                    }
                     placeholder="Internal notes for this tunnel"
                     maxLength={4000}
                     className="min-h-[60px]"
                     aria-invalid={!!createErrors.notes}
                   />
-                  {createErrors.notes && <p className="text-xs text-destructive">{createErrors.notes}</p>}
+                  {createErrors.notes && (
+                    <p className="text-xs text-destructive">{createErrors.notes}</p>
+                  )}
                 </div>
               </div>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => { setCreateOpen(false); resetCreateForm(); }}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setCreateOpen(false);
+                    resetCreateForm();
+                  }}
+                >
                   Cancel
                 </Button>
                 <Button onClick={handleCreate} disabled={creating}>
@@ -958,7 +1302,9 @@ function NetworkTunnelsSection({
                           ? `${formatBytes(status.bytes_received)} / ${formatBytes(status.bytes_sent)}`
                           : "— / —"}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{formatAgo(t.created_at)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatAgo(t.created_at)}
+                      </TableCell>
                       <TableCell>
                         {isAdmin && (
                           <DropdownMenu>
@@ -985,7 +1331,10 @@ function NetworkTunnelsSection({
                                 </DropdownMenuItem>
                               )}
                               {t.status !== "revoked" && (
-                                <DropdownMenuItem className="text-destructive" onClick={() => revokeTunnel(t)}>
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() => revokeTunnel(t)}
+                                >
                                   Revoke
                                 </DropdownMenuItem>
                               )}
@@ -1016,8 +1365,8 @@ function NetworkTunnelsSection({
           ) : (
             <div className="space-y-4 py-2 text-sm">
               <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
-                Pre-shared key is a credential. Share only over secure channels. Anyone with this key
-                plus the customer&apos;s WireGuard private key can impersonate the customer.
+                Pre-shared key is a credential. Share only over secure channels. Anyone with this
+                key plus the customer&apos;s WireGuard private key can impersonate the customer.
               </div>
 
               {(() => {
@@ -1038,7 +1387,11 @@ function NetworkTunnelsSection({
                         onClick={() => setShowPsk((v) => !v)}
                         aria-label={showPsk ? "Hide pre-shared key" : "Show pre-shared key"}
                       >
-                        {showPsk ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        {showPsk ? (
+                          <EyeOff className="h-3.5 w-3.5" />
+                        ) : (
+                          <Eye className="h-3.5 w-3.5" />
+                        )}
                       </Button>
                       <Button
                         type="button"
@@ -1117,7 +1470,9 @@ function NetworkTunnelsSection({
                   variant="ghost"
                   size="sm"
                   className="h-7 w-7 p-0"
-                  onClick={() => copyToClipboard(configData.customer_tunnel_ip, "Customer tunnel IP")}
+                  onClick={() =>
+                    copyToClipboard(configData.customer_tunnel_ip, "Customer tunnel IP")
+                  }
                 >
                   <Copy className="h-3.5 w-3.5" />
                 </Button>
@@ -1125,7 +1480,9 @@ function NetworkTunnelsSection({
             </div>
           )}
           <DialogFooter>
-            <Button type="button" onClick={() => setConfigOpen(false)}>Close</Button>
+            <Button type="button" onClick={() => setConfigOpen(false)}>
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1136,7 +1493,8 @@ function NetworkTunnelsSection({
           <DialogHeader>
             <DialogTitle>{metricsTunnelName} — last 24 hours</DialogTitle>
             <DialogDescription>
-              Handshake recency and per-snapshot byte deltas. Snapshots are captured every 60 seconds.
+              Handshake recency and per-snapshot byte deltas. Snapshots are captured every 60
+              seconds.
             </DialogDescription>
           </DialogHeader>
           {metricsLoading ? (
@@ -1149,7 +1507,9 @@ function NetworkTunnelsSection({
             <MetricsCharts data={metricsData} />
           )}
           <DialogFooter>
-            <Button type="button" onClick={() => setMetricsOpen(false)}>Close</Button>
+            <Button type="button" onClick={() => setMetricsOpen(false)}>
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1160,8 +1520,8 @@ function NetworkTunnelsSection({
           <DialogHeader>
             <DialogTitle>Edit Tunnel — {editTunnel?.name}</DialogTitle>
             <DialogDescription>
-              Update the customer LAN or notes. Name and keys are immutable;
-              revoke and recreate the tunnel if those need to change.
+              Update the customer LAN or notes. Name and keys are immutable; revoke and recreate the
+              tunnel if those need to change.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1176,10 +1536,10 @@ function NetworkTunnelsSection({
                 aria-invalid={!!editErrors.customer_lan_cidr}
               />
               <p className="text-[11px] text-muted-foreground">
-                Customer&apos;s internal LAN subnet. Required if devices on the
-                customer LAN (phones, PBX) need to reach Astradial through the
-                tunnel directly. RFC 1918 only, /16-/30, no overlap with reserved
-                infra or other customers. Leave blank to clear (re-applies wg1.conf).
+                Customer&apos;s internal LAN subnet. Required if devices on the customer LAN
+                (phones, PBX) need to reach Astradial through the tunnel directly. RFC 1918 only,
+                /16-/30, no overlap with reserved infra or other customers. Leave blank to clear
+                (re-applies wg1.conf).
               </p>
               {editErrors.customer_lan_cidr && (
                 <p className="text-xs text-destructive">{editErrors.customer_lan_cidr}</p>
@@ -1196,9 +1556,7 @@ function NetworkTunnelsSection({
                 className="min-h-[60px]"
                 aria-invalid={!!editErrors.notes}
               />
-              {editErrors.notes && (
-                <p className="text-xs text-destructive">{editErrors.notes}</p>
-              )}
+              {editErrors.notes && <p className="text-xs text-destructive">{editErrors.notes}</p>}
             </div>
           </div>
           <DialogFooter>
@@ -1238,7 +1596,11 @@ function MetricsCharts({ data }: { data: PbxCustomerTunnelMetric[] }) {
       const prev = i > 0 ? data[i - 1] : null;
       const rxDelta = prev ? Math.max(0, m.bytes_received - prev.bytes_received) : 0;
       const txDelta = prev ? Math.max(0, m.bytes_sent - prev.bytes_sent) : 0;
-      const label = new Date(m.snapshot_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+      const label = new Date(m.snapshot_at).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
       return { ts, label, handshakeAgeSec, rxDelta, txDelta };
     });
   }, [data]);
@@ -1270,7 +1632,9 @@ function MetricsCharts({ data }: { data: PbxCustomerTunnelMetric[] }) {
                 axisLine={false}
                 width={40}
                 className="text-[10px]"
-                tickFormatter={(v: number) => (v >= 60 ? `${Math.round(v / 60)}m` : `${Math.round(v)}s`)}
+                tickFormatter={(v: number) =>
+                  v >= 60 ? `${Math.round(v / 60)}m` : `${Math.round(v)}s`
+                }
               />
               <Tooltip
                 cursor={{ stroke: "hsl(221, 83%, 53%)", strokeOpacity: 0.2 }}
@@ -1292,7 +1656,9 @@ function MetricsCharts({ data }: { data: PbxCustomerTunnelMetric[] }) {
       </div>
 
       <div className="space-y-1">
-        <div className="text-xs font-medium text-muted-foreground">Bytes per snapshot (Rx / Tx)</div>
+        <div className="text-xs font-medium text-muted-foreground">
+          Bytes per snapshot (Rx / Tx)
+        </div>
         <div className="h-56 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={points} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>

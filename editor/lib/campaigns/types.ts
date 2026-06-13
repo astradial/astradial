@@ -134,7 +134,7 @@ export interface TranscriptPayload {
   signals?: string[];
   messages?: TranscriptMessage[];
   summary?: string;
-  message?: string;  // when ready=false
+  message?: string; // when ready=false
 }
 
 export interface CampaignLead {
@@ -159,12 +159,20 @@ export interface CampaignLead {
 
 export type EventKind =
   | "enrolled"
-  | "whatsapp_sent" | "whatsapp_delivered" | "whatsapp_replied"
-  | "call_started" | "call_completed" | "call_failed"
-  | "call_interested" | "call_engaged"
+  | "whatsapp_sent"
+  | "whatsapp_delivered"
+  | "whatsapp_replied"
+  | "call_started"
+  | "call_completed"
+  | "call_failed"
+  | "call_interested"
+  | "call_engaged"
   | "status_changed"
-  | "qualified" | "disqualified" | "halted"
-  | "approval_created" | "approval_decided";
+  | "qualified"
+  | "disqualified"
+  | "halted"
+  | "approval_created"
+  | "approval_decided";
 
 export interface CampaignEvent {
   id: string;
@@ -199,8 +207,18 @@ export interface CampaignApproval {
 }
 
 export type LeadFieldType =
-  | "text" | "number" | "select" | "multi" | "date" | "datetime"
-  | "phone" | "email" | "url" | "boolean" | "currency" | "identifier";
+  | "text"
+  | "number"
+  | "select"
+  | "multi"
+  | "date"
+  | "datetime"
+  | "phone"
+  | "email"
+  | "url"
+  | "boolean"
+  | "currency"
+  | "identifier";
 
 export interface CampaignLeadField {
   id: string;

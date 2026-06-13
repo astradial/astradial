@@ -45,12 +45,15 @@ async function adminRequest<T>(path: string, opts: RequestInit = {}): Promise<T>
 }
 
 // Industry compliance presets
-export const INDUSTRY_PRESETS: Record<string, {
-  recording_consent: string;
-  retention_cdr_days: number;
-  retention_recording_days: number;
-  pii_masking: boolean;
-}> = {
+export const INDUSTRY_PRESETS: Record<
+  string,
+  {
+    recording_consent: string;
+    retention_cdr_days: number;
+    retention_recording_days: number;
+    pii_masking: boolean;
+  }
+> = {
   hotel: {
     recording_consent: "announcement",
     retention_cdr_days: 365,
@@ -124,7 +127,9 @@ export const adminOrgs = {
     }),
 
   getCredentials: (id: string) =>
-    adminRequest<{ api_key: string; api_secret_plaintext: string }>(`/admin/organizations/${id}/credentials`),
+    adminRequest<{ api_key: string; api_secret_plaintext: string }>(
+      `/admin/organizations/${id}/credentials`
+    ),
 };
 
 // Admin global settings
@@ -135,6 +140,5 @@ export const adminSettings = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
-  deploy: () =>
-    adminRequest<Record<string, unknown>>("/admin/settings/deploy", { method: "POST" }),
+  deploy: () => adminRequest<Record<string, unknown>>("/admin/settings/deploy", { method: "POST" }),
 };

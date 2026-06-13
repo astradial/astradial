@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
+
 import {
-  handleUnauthorized,
-  handleAdminSessionExpiry,
-  getJwtExpiryMs,
   getAdminSessionExpiryMs,
+  getJwtExpiryMs,
+  handleAdminSessionExpiry,
+  handleUnauthorized,
 } from "@/lib/auth/authStore";
 
 /**
@@ -73,16 +74,20 @@ export function AuthExpiryWatcher() {
           handleUnauthorized("token-exp (already past)");
           return;
         }
-        jwtTimeoutId = window.setTimeout(() => {
-          handleUnauthorized("token-exp");
-        }, Math.min(msUntil, MAX_SETTIMEOUT_MS));
+        jwtTimeoutId = window.setTimeout(
+          () => {
+            handleUnauthorized("token-exp");
+          },
+          Math.min(msUntil, MAX_SETTIMEOUT_MS)
+        );
       }
 
       // Admin session watcher (24h client-side policy). Back-fill
       // `admin_session_start` for admin sessions that predate this
       // feature so they get a fresh 24h window from first observation
       // rather than being kicked out immediately.
-      const hasAdminKey = !!localStorage.getItem("gateway_admin_key") || !!localStorage.getItem("admin_key");
+      const hasAdminKey =
+        !!localStorage.getItem("gateway_admin_key") || !!localStorage.getItem("admin_key");
       if (hasAdminKey) {
         if (!localStorage.getItem("admin_session_start")) {
           localStorage.setItem("admin_session_start", String(Date.now()));
@@ -94,9 +99,12 @@ export function AuthExpiryWatcher() {
             handleAdminSessionExpiry("admin-session-exp (already past)");
             return;
           }
-          adminTimeoutId = window.setTimeout(() => {
-            handleAdminSessionExpiry("admin-session-exp");
-          }, Math.min(msUntil, MAX_SETTIMEOUT_MS));
+          adminTimeoutId = window.setTimeout(
+            () => {
+              handleAdminSessionExpiry("admin-session-exp");
+            },
+            Math.min(msUntil, MAX_SETTIMEOUT_MS)
+          );
         }
       }
     }

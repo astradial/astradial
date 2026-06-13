@@ -23,7 +23,10 @@ function guard(req: NextRequest) {
     return NextResponse.json({ error: "Admin auth required" }, { status: 401 });
   }
   if (!INTERNAL_API_KEY) {
-    return NextResponse.json({ error: "Server misconfigured: INTERNAL_API_KEY missing" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Server misconfigured: INTERNAL_API_KEY missing" },
+      { status: 500 }
+    );
   }
   return null;
 }
@@ -36,9 +39,15 @@ export async function GET(req: NextRequest) {
       headers: { Authorization: `Bearer ${INTERNAL_API_KEY}` },
     });
     const body = await res.text();
-    return new NextResponse(body, { status: res.status, headers: { "Content-Type": "application/json" } });
+    return new NextResponse(body, {
+      status: res.status,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "PBX unreachable" }, { status: 502 });
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "PBX unreachable" },
+      { status: 502 }
+    );
   }
 }
 
@@ -53,8 +62,14 @@ export async function PATCH(req: NextRequest) {
       body: incoming,
     });
     const body = await res.text();
-    return new NextResponse(body, { status: res.status, headers: { "Content-Type": "application/json" } });
+    return new NextResponse(body, {
+      status: res.status,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "PBX unreachable" }, { status: 502 });
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "PBX unreachable" },
+      { status: 502 }
+    );
   }
 }

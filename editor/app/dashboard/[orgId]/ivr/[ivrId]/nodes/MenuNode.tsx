@@ -1,16 +1,16 @@
 "use client";
 
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, type NodeProps, Position } from "@xyflow/react";
 import {
-  PhoneCall,
-  Users,
-  ListOrdered,
-  Voicemail,
-  PhoneOff,
-  Sparkles,
-  ArrowRight,
-  RotateCcw,
   AlertCircle,
+  ArrowRight,
+  ListOrdered,
+  PhoneCall,
+  PhoneOff,
+  RotateCcw,
+  Sparkles,
+  Users,
+  Voicemail,
 } from "lucide-react";
 
 import type { IvrActionType } from "@/lib/pbx/client";
@@ -23,18 +23,16 @@ export interface MenuNodeData extends Record<string, unknown> {
   isValid: boolean;
 }
 
-const ACTION_META: Record<
-  IvrActionType,
-  { label: string; icon: typeof PhoneCall; color: string }
-> = {
-  extension: { label: "Extension", icon: PhoneCall, color: "text-blue-600" },
-  queue: { label: "Queue", icon: ListOrdered, color: "text-purple-600" },
-  ivr: { label: "IVR", icon: ArrowRight, color: "text-amber-600" },
-  ai_agent: { label: "AI Agent", icon: Sparkles, color: "text-pink-600" },
-  voicemail: { label: "Voicemail", icon: Voicemail, color: "text-slate-600" },
-  callback: { label: "Callback", icon: RotateCcw, color: "text-teal-600" },
-  hangup: { label: "Hang up", icon: PhoneOff, color: "text-red-600" },
-};
+const ACTION_META: Record<IvrActionType, { label: string; icon: typeof PhoneCall; color: string }> =
+  {
+    extension: { label: "Extension", icon: PhoneCall, color: "text-blue-600" },
+    queue: { label: "Queue", icon: ListOrdered, color: "text-purple-600" },
+    ivr: { label: "IVR", icon: ArrowRight, color: "text-amber-600" },
+    ai_agent: { label: "AI Agent", icon: Sparkles, color: "text-pink-600" },
+    voicemail: { label: "Voicemail", icon: Voicemail, color: "text-slate-600" },
+    callback: { label: "Callback", icon: RotateCcw, color: "text-teal-600" },
+    hangup: { label: "Hang up", icon: PhoneOff, color: "text-red-600" },
+  };
 
 export default function MenuNode({ data, selected }: NodeProps) {
   const d = data as MenuNodeData;
@@ -67,15 +65,11 @@ export default function MenuNode({ data, selected }: NodeProps) {
       <div className="px-3 py-2">
         <div className="text-sm truncate">
           {d.destinationLabel || (
-            <span className="italic text-muted-foreground">
-              Pick a destination
-            </span>
+            <span className="italic text-muted-foreground">Pick a destination</span>
           )}
         </div>
         {d.description && (
-          <div className="text-[10px] text-muted-foreground truncate mt-1">
-            {d.description}
-          </div>
+          <div className="text-[10px] text-muted-foreground truncate mt-1">{d.description}</div>
         )}
       </div>
       <Handle type="source" position={Position.Right} className="bg-neutral-400!" />

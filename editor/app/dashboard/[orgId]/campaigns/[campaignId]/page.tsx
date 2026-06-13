@@ -11,10 +11,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Pause, Play, RotateCw, Upload, WifiOff } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { lazy, Suspense, useEffect, useDeferredValue, useState, useTransition } from "react";
+import { lazy, Suspense, useDeferredValue, useEffect, useState, useTransition } from "react";
 
 import { CampaignStatusPill } from "@/components/campaigns/CampaignStatusPill";
-import { FunnelView, FunnelLiveTag } from "@/components/campaigns/FunnelView";
+import { FunnelLiveTag, FunnelView } from "@/components/campaigns/FunnelView";
 import { LeadsToolbar } from "@/components/campaigns/LeadsToolbar";
 import { showToast } from "@/components/ui/Toast";
 import { campaigns, dashboard } from "@/lib/campaigns/client";
@@ -195,8 +195,25 @@ export default function CampaignDetailPage() {
           <div className="cmp-funnel">
             {[0, 1, 2, 3, 4].map((i) => (
               <div key={`skel-${i}`} className="cmp-funnel-step">
-                <div style={{ height: 12, width: 100, background: 'var(--muted)', borderRadius: 4, opacity: 0.5 }} />
-                <div style={{ height: 20, width: 60, background: 'var(--muted)', borderRadius: 4, marginTop: 8, opacity: 0.5 }} />
+                <div
+                  style={{
+                    height: 12,
+                    width: 100,
+                    background: "var(--muted)",
+                    borderRadius: 4,
+                    opacity: 0.5,
+                  }}
+                />
+                <div
+                  style={{
+                    height: 20,
+                    width: 60,
+                    background: "var(--muted)",
+                    borderRadius: 4,
+                    marginTop: 8,
+                    opacity: 0.5,
+                  }}
+                />
               </div>
             ))}
           </div>

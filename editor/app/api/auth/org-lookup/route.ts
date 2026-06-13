@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 // Server-side org mapping — maps Firebase email to org credentials
 // Add new orgs here as they onboard
-const ORG_MAPPINGS: Record<string, { org_id: string; org_name: string; api_key: string; role: string }> = {
+const ORG_MAPPINGS: Record<
+  string,
+  { org_id: string; org_name: string; api_key: string; role: string }
+> = {
   "systems@grandestancia.com": {
     org_id: "00000000-0000-0000-0000-000000000002",
     org_name: "GrandEstancia",

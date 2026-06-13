@@ -8,25 +8,25 @@ import {
   closestCorners,
   DndContext,
   type DragEndEvent,
-  PointerSensor,
+  DragOverlay,
+  type DragStartEvent,
+  type DropAnimation,
   KeyboardSensor,
+  PointerSensor,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
-import { memo, useState, useRef, useEffect } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
-import { CampaignStatusPill } from "./CampaignStatusPill";
 import { showToast } from "@/components/ui/Toast";
 import { leads as leadsApi, type OverviewLeadsResponse } from "@/lib/campaigns/client";
 import type { CampaignLead, LeadStatus, Paginated } from "@/lib/campaigns/types";
+
+import { CampaignStatusPill } from "./CampaignStatusPill";
 
 const numberFmt = new Intl.NumberFormat("en-US");
 
@@ -54,10 +54,19 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
 
   // PATCH lead status. Optimistic: remove from source-column's first page,
   // prepend to target column, rollback on error.
-  type MoveVars = { leadId: string; status: LeadStatus; fromStatus: LeadStatus; lead: CampaignLead & { campaign_id?: string } };
+  type MoveVars = {
+    leadId: string;
+    status: LeadStatus;
+    fromStatus: LeadStatus;
+    lead: CampaignLead & { campaign_id?: string };
+  };
   const move = useMutation({
     mutationFn: ({ leadId, status, lead }: MoveVars) =>
-      leadsApi.update(campaignId === "overview" && lead.campaign_id ? lead.campaign_id : campaignId, leadId, { status }),
+      leadsApi.update(
+        campaignId === "overview" && lead.campaign_id ? lead.campaign_id : campaignId,
+        leadId,
+        { status }
+      ),
     onMutate: async ({ leadId, status, fromStatus, lead }: MoveVars) => {
       const allKeys = [
         ["campaigns", campaignId, "kanban", fromStatus, { q: query }],
@@ -120,7 +129,8 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
       showToast("Move failed", "error");
     },
     onSuccess: (_data, { fromStatus, status, lead }) => {
-      const activeCid = campaignId === "overview" && lead.campaign_id ? lead.campaign_id : campaignId;
+      const activeCid =
+        campaignId === "overview" && lead.campaign_id ? lead.campaign_id : campaignId;
       qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "kanban", fromStatus] });
       qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "kanban", status] });
       qc.invalidateQueries({ queryKey: ["campaigns", activeCid, "dashboard"] });
@@ -136,6 +146,10 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
   );
 
   const [isScrolling, setIsScrolling] = useState(false);
+  const [activeLead, setActiveLead] = useState<
+    (CampaignLead & { campaign_name?: string | null; campaign_id?: string }) | null
+  >(null);
+  const [dropAnimation, setDropAnimation] = useState<DropAnimation | null | undefined>(undefined);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleScroll = () => {
@@ -156,15 +170,33 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
     };
   }, []);
 
+  function onDragStart(e: DragStartEvent) {
+    const lead = e.active.data.current as
+      | (CampaignLead & { campaign_name?: string | null; campaign_id?: string })
+      | undefined;
+    setDropAnimation(undefined);
+    setActiveLead(lead ?? null);
+  }
+
   function onDragEnd(e: DragEndEvent) {
     const active = e.active;
     const over = e.over;
-    if (!over) return;
+    if (!over) {
+      setDropAnimation(undefined);
+      setActiveLead(null);
+      return;
+    }
     const lead = active.data.current as CampaignLead | undefined;
-    if (!lead) return;
+    if (!lead) {
+      setDropAnimation(undefined);
+      setActiveLead(null);
+      return;
+    }
     const target = over.id as LeadStatus;
-    if (target === lead.status) return;
-    if (!COLUMNS.find((c) => c.id === target)) return;
+    const isSuccessfulDrop = target !== lead.status && !!COLUMNS.find((c) => c.id === target);
+    setDropAnimation(isSuccessfulDrop ? null : undefined);
+    setActiveLead(null);
+    if (!isSuccessfulDrop) return;
     move.mutate({
       leadId: lead.id,
       status: target,
@@ -174,8 +206,17 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
   }
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={onDragEnd}>
-      <div 
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={onDragStart}
+      onDragCancel={() => {
+        setDropAnimation(undefined);
+        setActiveLead(null);
+      }}
+      onDragEnd={onDragEnd}
+    >
+      <div
         className={`cmp-kanban-wrap ${isScrolling ? "is-scrolling" : ""}`}
         onScroll={handleScroll}
         style={{ overflowX: "auto" }}
@@ -192,6 +233,9 @@ export function LeadsKanbanView({ campaignId, query, onOpenLead }: Props) {
           ))}
         </div>
       </div>
+      <DragOverlay dropAnimation={dropAnimation}>
+        {activeLead ? <KanbanCardPreview lead={activeLead} floating /> : null}
+      </DragOverlay>
     </DndContext>
   );
 }
@@ -246,16 +290,15 @@ function KanbanColumn({ campaignId, column, query, onOpenLead }: KanbanColumnPro
   const fetchingMore = q.isFetchingNextPage;
 
   const { isOver, setNodeRef } = useDroppable({ id: column.id });
-  const cls = `cmp-kanban-col ${isOver ? "cmp-kanban-col-target" : ""}`;
+  const isEmpty = !loading && !q.isError && rows.length === 0;
+  const cls = `cmp-kanban-col ${isEmpty ? "cmp-kanban-col-empty" : ""} ${isOver ? "cmp-kanban-col-target" : ""}`;
 
   return (
     <div ref={setNodeRef} className={cls}>
       <div className="cmp-kanban-col-head">
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
           <CampaignStatusPill status={column.id} />
-          <span className="cmp-kanban-col-count cmp-tabular">
-            {numberFmt.format(filtered)}
-          </span>
+          <span className="cmp-kanban-col-count cmp-tabular">{numberFmt.format(filtered)}</span>
         </div>
         <button className="cmp-toolbar-icon-btn" aria-label="Column actions">
           <MoreHorizontal size={14} />
@@ -298,9 +341,7 @@ function KanbanColumn({ campaignId, column, query, onOpenLead }: KanbanColumnPro
             disabled={fetchingMore}
             onClick={() => q.fetchNextPage()}
           >
-            {fetchingMore
-              ? "Loading…"
-              : `Load next ${Math.min(PAGE_SIZE, filtered - rows.length)}`}
+            {fetchingMore ? "Loading…" : `Load next ${Math.min(PAGE_SIZE, filtered - rows.length)}`}
           </button>
         )}
       </div>
@@ -325,7 +366,6 @@ const KanbanCard = memo(
     // captures wall-clock without state. Static snapshot per render is fine.
     function relTime(iso: string | null | undefined): string {
       if (!iso) return "No activity";
-      // eslint-disable-next-line react-hooks/purity
       const d = Date.now() - new Date(iso).getTime();
       const m = Math.round(d / 60000);
       if (m < 60) return `${m}m ago`;
@@ -344,14 +384,7 @@ const KanbanCard = memo(
           e.stopPropagation();
         }}
       >
-        <div className="cmp-kanban-card-name">{lead.name}</div>
-        {lead.campaign_name && (
-          <div className="text-[11px] text-muted-foreground mb-1 font-medium">{lead.campaign_name}</div>
-        )}
-        <div className="cmp-kanban-card-phone">{lead.phone}</div>
-        <div className="cmp-kanban-card-foot">
-          <span className="cmp-kanban-card-time">{relTime(lead.last_touch_at)}</span>
-        </div>
+        <KanbanCardPreview lead={lead} relTime={relTime} />
       </div>
     );
   },
@@ -363,3 +396,35 @@ const KanbanCard = memo(
     prev.lead.campaign_name === next.lead.campaign_name &&
     prev.onClick === next.onClick
 );
+
+function KanbanCardPreview({
+  lead,
+  floating = false,
+  relTime,
+}: {
+  lead: CampaignLead & { campaign_name?: string | null; campaign_id?: string };
+  floating?: boolean;
+  relTime?: (iso: string | null | undefined) => string;
+}) {
+  const content = (
+    <>
+      <div className="cmp-kanban-card-name">{lead.name}</div>
+      {lead.campaign_name && (
+        <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+          {lead.campaign_name}
+        </div>
+      )}
+      <div className="cmp-kanban-card-phone">{lead.phone}</div>
+      <div className="cmp-kanban-card-foot">
+        <span className="cmp-kanban-card-time">
+          {relTime ? relTime(lead.last_touch_at) : "Moving lead"}
+        </span>
+      </div>
+    </>
+  );
+  return floating ? (
+    <div className="cmp-kanban-card cmp-kanban-card-overlay">{content}</div>
+  ) : (
+    content
+  );
+}

@@ -125,12 +125,12 @@ export interface TicketsPageOpts {
   source?: string;
   date?: string;
   pageSize?: number;
-  cursor?: unknown;  // unused in API mode — offset is server-side
+  cursor?: unknown; // unused in API mode — offset is server-side
 }
 
 export interface PaginatedResult<T> {
   items: T[];
-  lastDoc: number | null;  // next-offset; kept named lastDoc for caller compat
+  lastDoc: number | null; // next-offset; kept named lastDoc for caller compat
   hasMore: boolean;
   /**
    * Org-scoped status counts surfaced for the header strip on the
@@ -215,11 +215,13 @@ export async function getTicketsPage(
     items,
     lastDoc: nextOffset < total ? nextOffset : null,
     hasMore: nextOffset < total,
-    statusCounts: sc ? {
-      open:         Number(sc.open || 0),
-      in_progress:  Number(sc.in_progress || 0),
-      closed:       Number(sc.closed || 0),
-    } : undefined,
+    statusCounts: sc
+      ? {
+          open: Number(sc.open || 0),
+          in_progress: Number(sc.in_progress || 0),
+          closed: Number(sc.closed || 0),
+        }
+      : undefined,
   };
 }
 
@@ -228,10 +230,7 @@ export async function getTicketsPage(
  * expandable timeline panel — UI fires this on row expand so the
  * list view itself stays slim.
  */
-export async function getTicketEvents(
-  orgId: string,
-  ticketId: string,
-): Promise<TicketCallEvent[]> {
+export async function getTicketEvents(orgId: string, ticketId: string): Promise<TicketCallEvent[]> {
   void orgId;
   const res = await fetch(`${BASE}/tickets/${encodeURIComponent(ticketId)}/events`, {
     headers: authHeaders(),
@@ -264,7 +263,16 @@ export async function createTicket(orgId: string, data: CreateTicketInput): Prom
   // hotel-specific fields ride along.
   const richNotes: Record<string, unknown> = {};
   const asRecord = data as unknown as Record<string, unknown>;
-  for (const k of ["channel_id", "category", "summary", "details", "guest_name", "room_number", "recording_url", "created_by"] as const) {
+  for (const k of [
+    "channel_id",
+    "category",
+    "summary",
+    "details",
+    "guest_name",
+    "room_number",
+    "recording_url",
+    "created_by",
+  ] as const) {
     const v = asRecord[k];
     if (v !== undefined && v !== "") richNotes[k] = v;
   }
@@ -272,7 +280,7 @@ export async function createTicket(orgId: string, data: CreateTicketInput): Prom
     caller_number: data.caller_number,
     caller_name: data.guest_name || undefined,
     priority: data.priority || "normal",
-    notes: Object.keys(richNotes).length > 0 ? JSON.stringify(richNotes) : (data.notes || null),
+    notes: Object.keys(richNotes).length > 0 ? JSON.stringify(richNotes) : data.notes || null,
   };
   const res = await fetch(`${BASE}/tickets`, {
     method: "POST",
@@ -341,10 +349,7 @@ export async function restoreTicket(orgId: string, ticketId: string): Promise<vo
  * authenticates via the `?token=` query param fallback (same
  * pattern the recording playback URLs already use).
  */
-export function subscribeToTickets(
-  orgId: string,
-  onRefresh: () => void
-): () => void {
+export function subscribeToTickets(orgId: string, onRefresh: () => void): () => void {
   if (typeof window === "undefined") return () => {};
   const token = getOrgToken();
   if (!token) return () => {};
@@ -352,7 +357,13 @@ export function subscribeToTickets(
   const es = new EventSource(url, { withCredentials: false });
   es.addEventListener("refresh", () => onRefresh());
   // Server also emits a one-time 'open' event on connect; ignore it.
-  return () => { try { es.close(); } catch { /* */ } };
+  return () => {
+    try {
+      es.close();
+    } catch {
+      /* */
+    }
+  };
 }
 
 // ─── Compatibility no-ops ───
@@ -372,8 +383,10 @@ export async function triggerAutoArchive(orgId: string): Promise<void> {
  * `subscribeToTickets` if you want it kept live.
  */
 export async function getOpenTicketCount(orgId: string): Promise<number> {
-  void orgId;  // server resolves org from auth
-  const res = await fetch(`${BASE}/tickets?status=open&limit=1&offset=0`, { headers: authHeaders() });
+  void orgId; // server resolves org from auth
+  const res = await fetch(`${BASE}/tickets?status=open&limit=1&offset=0`, {
+    headers: authHeaders(),
+  });
   if (!res.ok) return 0;
   const body = await res.json();
   return Number(body.total || 0);
@@ -399,9 +412,16 @@ export function subscribeToOpenTicketCount(
     try {
       const n = await getOpenTicketCount(orgId);
       if (!cancelled) onChange(n);
-    } catch { /* leave previous value on transient errors */ }
+    } catch {
+      /* leave previous value on transient errors */
+    }
   }
   refetch();
-  const unsubscribe = subscribeToTickets(orgId, () => { refetch(); });
-  return () => { cancelled = true; unsubscribe(); };
+  const unsubscribe = subscribeToTickets(orgId, () => {
+    refetch();
+  });
+  return () => {
+    cancelled = true;
+    unsubscribe();
+  };
 }

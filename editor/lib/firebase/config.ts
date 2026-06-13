@@ -9,17 +9,11 @@
  * Firebase directly.
  */
 
-import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
-import {
-  getAuth,
-  signInWithEmailAndPassword,
-  onAuthStateChanged,
-  type Auth,
-} from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import { type FirebaseApp, getApps, initializeApp } from "firebase/app";
+import { type Auth, getAuth, onAuthStateChanged, signInWithEmailAndPassword } from "firebase/auth";
+import { type Firestore, getFirestore } from "firebase/firestore";
 
-export const USE_FIREBASE =
-  (process.env.NEXT_PUBLIC_USE_FIREBASE || "").toLowerCase() === "true";
+export const USE_FIREBASE = (process.env.NEXT_PUBLIC_USE_FIREBASE || "").toLowerCase() === "true";
 
 let _app: FirebaseApp | null = null;
 let _auth: Auth | null = null;
@@ -58,7 +52,7 @@ if (USE_FIREBASE) {
     }
   } else if (typeof window !== "undefined") {
     console.warn(
-      "[firebase/config] USE_FIREBASE=true but NEXT_PUBLIC_FIREBASE_API_KEY / PROJECT_ID missing — Firebase disabled.",
+      "[firebase/config] USE_FIREBASE=true but NEXT_PUBLIC_FIREBASE_API_KEY / PROJECT_ID missing — Firebase disabled."
     );
   }
 }

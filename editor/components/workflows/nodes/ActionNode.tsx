@@ -1,7 +1,7 @@
 "use client";
 
-import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Globe, MessageSquare, Phone, Ticket, Mail, Clock, FileText } from "lucide-react";
+import { Handle, type NodeProps, Position } from "@xyflow/react";
+import { Clock, FileText, Globe, Mail, MessageSquare, Phone, Ticket } from "lucide-react";
 
 const actionIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   http_request: Globe,
@@ -47,17 +47,27 @@ export function ActionNode({ data, type }: NodeProps) {
 
   return (
     <div className={`rounded-lg border-2 ${borderColor} bg-card shadow-sm px-4 py-3 min-w-[180px]`}>
-      <Handle type="target" position={Position.Top} className="!bg-foreground !w-3 !h-3 !border-2 !border-background" />
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!bg-foreground !w-3 !h-3 !border-2 !border-background"
+      />
       <div className="flex items-center gap-2">
         <div className={`h-7 w-7 rounded-full ${iconBg} flex items-center justify-center`}>
           <Icon className="h-4 w-4" />
         </div>
         <div>
           <div className="text-xs font-medium text-foreground">{String(data.label)}</div>
-          <div className="text-[10px] text-muted-foreground capitalize">{nodeType.replace(/_/g, " ")}</div>
+          <div className="text-[10px] text-muted-foreground capitalize">
+            {nodeType.replace(/_/g, " ")}
+          </div>
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!bg-foreground !w-3 !h-3 !border-2 !border-background" />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!bg-foreground !w-3 !h-3 !border-2 !border-background"
+      />
     </div>
   );
 }

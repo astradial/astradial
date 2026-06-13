@@ -1,21 +1,22 @@
 import {
-  collection,
-  query,
-  orderBy,
-  limit as firestoreLimit,
-  startAfter,
-  doc,
   addDoc,
-  getDocs,
-  onSnapshot,
-  updateDoc,
-  where,
-  Timestamp,
+  collection,
+  doc,
   type DocumentData,
+  getDocs,
+  limit as firestoreLimit,
+  onSnapshot,
+  orderBy,
+  query,
   type QueryConstraint,
   type QueryDocumentSnapshot,
+  startAfter,
+  Timestamp,
   type Unsubscribe,
+  updateDoc,
+  where,
 } from "firebase/firestore";
+
 import { db } from "./config";
 
 // Root Firestore collection for all AstraPBX tenant data.
@@ -106,7 +107,7 @@ export async function getCallLogs(
   const docs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
 
   return {
-    items: docs.map((d) => ({ id: d.id, ...d.data() } as CallLog)),
+    items: docs.map((d) => ({ id: d.id, ...d.data() }) as CallLog),
     lastDoc: docs.length > 0 ? docs[docs.length - 1] : null,
     hasMore,
   };
@@ -120,7 +121,7 @@ export function subscribeToCallLogs(
   const ref = collection(db!, ASTRAPBX_ROOT, orgId, "call_logs");
   const q = query(ref, orderBy("logged_at", "desc"), firestoreLimit(pageSize));
   return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CallLog)));
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as CallLog));
   });
 }
 
@@ -155,14 +156,17 @@ export async function getWeeklyCallStats(
   snap.docs.forEach((doc) => {
     const data = doc.data();
     try {
-      const loggedAt = data.logged_at?.toDate?.() || (data.timestamp ? new Date(data.timestamp) : null);
+      const loggedAt =
+        data.logged_at?.toDate?.() || (data.timestamp ? new Date(data.timestamp) : null);
       if (!loggedAt) return;
       const key = loggedAt.toISOString().split("T")[0];
       if (days[key]) {
         if (data.direction === "inbound") days[key].inbound++;
         else days[key].outbound++;
       }
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   });
 
   return Object.entries(days).map(([date, counts]) => ({ date, ...counts }));
@@ -193,7 +197,7 @@ export async function getTickets(
   const docs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
 
   return {
-    items: docs.map((d) => ({ id: d.id, ...d.data() } as Ticket)),
+    items: docs.map((d) => ({ id: d.id, ...d.data() }) as Ticket),
     lastDoc: docs.length > 0 ? docs[docs.length - 1] : null,
     hasMore,
   };
@@ -207,7 +211,7 @@ export function subscribeToTickets(
   const ref = collection(db!, ASTRAPBX_ROOT, orgId, "tickets");
   const q = query(ref, orderBy("created_at", "desc"), firestoreLimit(pageSize));
   return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ticket)));
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Ticket));
   });
 }
 
@@ -233,12 +237,12 @@ export async function updateTicketStatus(
 // ─── Paginated ticket reads (replaces real-time onSnapshot for the table) ───
 
 export interface TicketsPageOpts {
-  archived?: boolean;             // default false (active tickets)
-  status?: string;                // open / in_progress / closed
-  source?: string;                // missed_call / bot / etc.
-  date?: string;                  // YYYY-MM-DD (IST), filters created_at
-  pageSize?: number;              // default 25
-  cursor?: QueryDocumentSnapshot<DocumentData> | null;  // for next-page navigation
+  archived?: boolean; // default false (active tickets)
+  status?: string; // open / in_progress / closed
+  source?: string; // missed_call / bot / etc.
+  date?: string; // YYYY-MM-DD (IST), filters created_at
+  pageSize?: number; // default 25
+  cursor?: QueryDocumentSnapshot<DocumentData> | null; // for next-page navigation
 }
 
 /**
@@ -294,10 +298,10 @@ export async function getTicketsPage(
     // Skipped on Archived tab because it would conflict with the
     // archived_at inequality (Firestore allows only one inequality field).
     const start = new Date(`${opts.date}T00:00:00+05:30`);
-    const end   = new Date(`${opts.date}T00:00:00+05:30`);
+    const end = new Date(`${opts.date}T00:00:00+05:30`);
     end.setDate(end.getDate() + 1);
     constraints.push(where("created_at", ">=", Timestamp.fromDate(start)));
-    constraints.push(where("created_at", "<",  Timestamp.fromDate(end)));
+    constraints.push(where("created_at", "<", Timestamp.fromDate(end)));
   }
 
   if (opts.cursor) constraints.push(startAfter(opts.cursor));
@@ -309,7 +313,7 @@ export async function getTicketsPage(
   const hasMore = docs.length > pageSize;
   if (hasMore) docs = docs.slice(0, pageSize);
 
-  let items = docs.map((d) => ({ id: d.id, ...d.data() } as Ticket));
+  let items = docs.map((d) => ({ id: d.id, ...d.data() }) as Ticket);
   // Active-tab post-filter to hide any docs that ARE archived.
   if (opts.archived !== true) {
     items = items.filter((t) => (t as Ticket & { archived?: boolean }).archived !== true);
@@ -408,7 +412,11 @@ export function watchMissedCalls(orgId: string): Unsubscribe {
         if (isBotCall) {
           const channelId = log.unique_id || log.channel || change.doc.id;
           const ticketRef = collection(db!, ASTRAPBX_ROOT, orgId, "tickets");
-          const botTicketCheck = query(ticketRef, where("channel_id", "==", channelId), firestoreLimit(1));
+          const botTicketCheck = query(
+            ticketRef,
+            where("channel_id", "==", channelId),
+            firestoreLimit(1)
+          );
           // Wait for bot webhook to finish creating ticket (if it does)
           await new Promise((r) => setTimeout(r, 8000));
           const botTicketSnap = await getDocs(botTicketCheck);
@@ -427,7 +435,12 @@ export function watchMissedCalls(orgId: string): Unsubscribe {
       try {
         // Dedup: check if open ticket exists for this phone
         const ticketRef = collection(db!, ASTRAPBX_ROOT, orgId, "tickets");
-        const dupeCheck = query(ticketRef, where("caller_number", "==", phone), where("status", "==", "open"), firestoreLimit(1));
+        const dupeCheck = query(
+          ticketRef,
+          where("caller_number", "==", phone),
+          where("status", "==", "open"),
+          firestoreLimit(1)
+        );
         const dupeSnap = await getDocs(dupeCheck);
 
         if (!dupeSnap.empty) {
@@ -466,10 +479,7 @@ export function watchMissedCalls(orgId: string): Unsubscribe {
 
 // ─── Create Ticket ───
 
-export async function createTicket(
-  orgId: string,
-  ticket: Partial<Ticket>
-): Promise<string> {
+export async function createTicket(orgId: string, ticket: Partial<Ticket>): Promise<string> {
   const ref = collection(db!, ASTRAPBX_ROOT, orgId, "tickets");
   const docRef = await addDoc(ref, {
     caller_number: ticket.caller_number || "",

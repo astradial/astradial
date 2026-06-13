@@ -1,23 +1,20 @@
 import {
   BellIcon,
+  CheckIcon,
   CreditCardIcon,
   LogOutIcon,
+  MonitorIcon,
   MoonIcon,
   MoreVerticalIcon,
-  SunIcon,
-  MonitorIcon,
-  UserCircleIcon,
   SettingsIcon,
-  CheckIcon
-} from "lucide-react"
-import Link from "next/link"
-import { useTheme } from "next-themes"
+  SunIcon,
+  UserCircleIcon,
+} from "lucide-react";
+import { EllipsisIcon } from "lucide-react";
+import Link from "next/link";
+import { useTheme } from "next-themes";
 
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,14 +23,13 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@/components/ui/dropdown-menu";
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
-} from "@/components/ui/sidebar"
-import { EllipsisIcon } from "lucide-react"
+} from "@/components/ui/sidebar";
 
 function handleLogout() {
   if (typeof window !== "undefined") {
@@ -50,18 +46,18 @@ function handleLogout() {
 export function NavUser({
   user,
   orgName,
-  orgId
+  orgId,
 }: {
   user: {
-    name: string
-    email: string
-    avatar: string
-  }
-  orgName: string
-  orgId: string
+    name: string;
+    email: string;
+    avatar: string;
+  };
+  orgName: string;
+  orgId: string;
 }) {
-  const { isMobile } = useSidebar()
-  const { theme, setTheme } = useTheme()
+  const { isMobile } = useSidebar();
+  const { theme, setTheme } = useTheme();
   const basePath = `/dashboard/${orgId}`;
 
   return (
@@ -75,20 +71,19 @@ export function NavUser({
             >
               <Avatar className="h-8 w-8 rounded-lg grayscale">
                 <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="rounded-lg">{orgName.substring(0, 2).toUpperCase()}</AvatarFallback>
+                <AvatarFallback className="rounded-lg">
+                  {orgName.substring(0, 2).toUpperCase()}
+                </AvatarFallback>
               </Avatar>
               <div className="block flex flex-1 text-left text-sm leading-tight w-full min-w-0 overflow-hidden">
                 <div className="">
                   <div className="truncate font-medium w-35">{orgName}</div>
-                  <div className="truncate text-xs text-muted-foreground w-35">
-                    {user.email}
-                  </div>
+                  <div className="truncate text-xs text-muted-foreground w-35">{user.email}</div>
                 </div>
                 <div className="flex justify-end items-center w-full">
                   <EllipsisIcon className="h-4 w-4 rotate-90" />
                 </div>
               </div>
-
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -105,9 +100,7 @@ export function NavUser({
                 </Avatar>
                 <div className="block flex-1 text-left text-sm leading-tight w-full min-w-0 overflow-hidden">
                   <div className="truncate font-medium">{user.name}</div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {user.email}
-                  </div>
+                  <div className="truncate text-xs text-muted-foreground">{user.email}</div>
                 </div>
               </div>
             </DropdownMenuLabel>
@@ -118,8 +111,8 @@ export function NavUser({
               </DropdownMenuLabel>
               <DropdownMenuItem
                 onSelect={(e) => {
-                  e.preventDefault()
-                  setTheme("light")
+                  e.preventDefault();
+                  setTheme("light");
                 }}
               >
                 <SunIcon className="mr-2 h-4 w-4" />
@@ -128,8 +121,8 @@ export function NavUser({
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={(e) => {
-                  e.preventDefault()
-                  setTheme("dark")
+                  e.preventDefault();
+                  setTheme("dark");
                 }}
               >
                 <MoonIcon className="mr-2 h-4 w-4" />
@@ -138,8 +131,8 @@ export function NavUser({
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={(e) => {
-                  e.preventDefault()
-                  setTheme("system")
+                  e.preventDefault();
+                  setTheme("system");
                 }}
               >
                 <MonitorIcon className="mr-2 h-4 w-4" />
@@ -150,9 +143,7 @@ export function NavUser({
               <DropdownMenuItem>
                 {/* <IconNotification /> */}
                 <SettingsIcon className="mr-2 h-4 w-4" />
-                <Link href={`${basePath}/settings`}>
-                  Settings
-                </Link>
+                <Link href={`${basePath}/settings`}>Settings</Link>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
@@ -164,5 +155,5 @@ export function NavUser({
         </DropdownMenu>
       </SidebarMenuItem>
     </SidebarMenu>
-  )
+  );
 }

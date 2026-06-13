@@ -467,7 +467,8 @@ export const FunctionItem = React.forwardRef<HTMLDivElement, FunctionItemProps>(
                     </div>
                   ))}
                   <p className="text-[10px] text-muted-foreground">
-                    Templates: {"{args.x}"}, {"{state.x}"}, {"{call.x}"}, {"{value_map.name.{args.x}}"}
+                    Templates: {"{args.x}"}, {"{state.x}"}, {"{call.x}"},{" "}
+                    {"{value_map.name.{args.x}}"}
                   </p>
                 </div>
               )}

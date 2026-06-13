@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "fs/promises";
 import { existsSync } from "fs";
+import { readFile } from "fs/promises";
+import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 
 const MOH_DIR = "/var/lib/asterisk/moh";
@@ -15,7 +15,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
   if (type === "moh-list") {
     const { readdirSync } = require("fs");
     try {
-      const files = readdirSync(MOH_DIR).filter((f: string) => f.endsWith(".wav") || f.endsWith(".mp3") || f.endsWith(".ogg"));
+      const files = readdirSync(MOH_DIR).filter(
+        (f: string) => f.endsWith(".wav") || f.endsWith(".mp3") || f.endsWith(".ogg")
+      );
       return NextResponse.json({ files });
     } catch {
       return NextResponse.json({ files: [] });

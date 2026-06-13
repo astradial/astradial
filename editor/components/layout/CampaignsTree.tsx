@@ -1,24 +1,18 @@
 "use client";
 
-import {
-  Activity,
-  ChevronRight,
-  Target,
-  Workflow,
-  Zap,
-} from "lucide-react";
+import { Activity, ChevronRight, Target, Workflow, Zap } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
 
-import { cn } from "@/lib/utils";
 import {
-  SidebarMenuItem,
   SidebarMenuButton,
+  SidebarMenuItem,
   SidebarMenuSub,
-  SidebarMenuSubItem,
   SidebarMenuSubButton,
+  SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 
 const CHILDREN = [
   { id: "dashboard", label: "Dashboard", url: "/campaigns/dashboard", icon: Activity },
@@ -57,7 +51,13 @@ interface CollapsibleTriggerProps {
   [key: string]: any;
 }
 
-function CollapsibleTrigger({ asChild, children, open, onOpenChange, ...props }: CollapsibleTriggerProps) {
+function CollapsibleTrigger({
+  asChild,
+  children,
+  open,
+  onOpenChange,
+  ...props
+}: CollapsibleTriggerProps) {
   if (asChild && React.isValidElement(children)) {
     const child = children as React.ReactElement<any>;
     const childProps = {
@@ -150,10 +150,7 @@ export function CampaignsTree({ orgId }: { orgId: string }) {
               const href = basePath + c.url;
               return (
                 <SidebarMenuSubItem key={c.id}>
-                  <SidebarMenuSubButton
-                    asChild
-                    isActive={active}
-                  >
+                  <SidebarMenuSubButton asChild isActive={active}>
                     <Link href={href}>
                       <Icon className="size-4 shrink-0" />
                       <span>{c.label}</span>

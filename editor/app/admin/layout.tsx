@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+
 import AstradialLogo from "@/components/icons/AstradialLogo";
+import { Button } from "@/components/ui/button";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -16,7 +17,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <span className="text-xs text-muted-foreground ml-1">Admin</span>
           </div>
           <Link href="/dashboard">
-            <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4 mr-1" />Back to Dashboard</Button>
+            <Button variant="ghost" size="sm">
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Back to Dashboard
+            </Button>
           </Link>
         </div>
       </header>

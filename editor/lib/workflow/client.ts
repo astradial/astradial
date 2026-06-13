@@ -58,11 +58,16 @@ export interface WorkflowExecution {
 export const workflows = {
   list: (orgId: string) => request<Workflow[]>(`/workflows?org_id=${orgId}`),
   get: (id: string) => request<Workflow>(`/workflows/${id}`),
-  create: (data: Partial<Workflow>) => request<Workflow>(`/workflows`, { method: "POST", body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<Workflow>) => request<Workflow>(`/workflows/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  create: (data: Partial<Workflow>) =>
+    request<Workflow>(`/workflows`, { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<Workflow>) =>
+    request<Workflow>(`/workflows/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) => request(`/workflows/${id}`, { method: "DELETE" }),
   execute: (id: string, triggerData: Record<string, unknown>) =>
-    request<{ execution_id: string; status: string }>(`/workflows/${id}/execute`, { method: "POST", body: JSON.stringify({ trigger_data: triggerData }) }),
+    request<{ execution_id: string; status: string }>(`/workflows/${id}/execute`, {
+      method: "POST",
+      body: JSON.stringify({ trigger_data: triggerData }),
+    }),
   executions: (id: string) => request<WorkflowExecution[]>(`/workflows/${id}/executions`),
 };
 
@@ -78,8 +83,10 @@ export interface ApiKey {
 
 export const apiKeys = {
   list: (orgId: string) => request<ApiKey[]>(`/api-keys?org_id=${orgId}`),
-  create: (orgId: string, name: string) => request<ApiKey>(`/api-keys`, { method: "POST", body: JSON.stringify({ org_id: orgId, name }) }),
-  update: (id: string, data: { name?: string; is_active?: boolean }) => request<ApiKey>(`/api-keys/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  create: (orgId: string, name: string) =>
+    request<ApiKey>(`/api-keys`, { method: "POST", body: JSON.stringify({ org_id: orgId, name }) }),
+  update: (id: string, data: { name?: string; is_active?: boolean }) =>
+    request<ApiKey>(`/api-keys/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) => request(`/api-keys/${id}`, { method: "DELETE" }),
 };
 
@@ -107,7 +114,7 @@ export interface ScheduledJobsPage {
 
 export interface ScheduledJobsListOpts {
   status?: string;
-  date?: string;   // YYYY-MM-DD, matched in IST
+  date?: string; // YYYY-MM-DD, matched in IST
   page?: number;
   limit?: number;
 }
@@ -116,9 +123,9 @@ export const scheduledJobs = {
   list: (orgId: string, opts: ScheduledJobsListOpts = {}) => {
     const params = new URLSearchParams();
     if (opts.status) params.set("status", opts.status);
-    if (opts.date)   params.set("date",   opts.date);
-    if (opts.page)   params.set("page",   String(opts.page));
-    if (opts.limit)  params.set("limit",  String(opts.limit));
+    if (opts.date) params.set("date", opts.date);
+    if (opts.page) params.set("page", String(opts.page));
+    if (opts.limit) params.set("limit", String(opts.limit));
     const qs = params.toString();
     return request<ScheduledJobsPage>(`/orgs/${orgId}/scheduled-jobs${qs ? `?${qs}` : ""}`);
   },
@@ -127,6 +134,13 @@ export const scheduledJobs = {
 };
 
 export const automationConfig = {
-  get: (orgId: string) => request<{ automation_channel_limit: number; current_automation_calls: number }>(`/orgs/${orgId}/automation-config`),
-  update: (orgId: string, limit: number) => request(`/orgs/${orgId}/automation-config`, { method: "PUT", body: JSON.stringify({ automation_channel_limit: limit }) }),
+  get: (orgId: string) =>
+    request<{ automation_channel_limit: number; current_automation_calls: number }>(
+      `/orgs/${orgId}/automation-config`
+    ),
+  update: (orgId: string, limit: number) =>
+    request(`/orgs/${orgId}/automation-config`, {
+      method: "PUT",
+      body: JSON.stringify({ automation_channel_limit: limit }),
+    }),
 };

@@ -412,11 +412,7 @@ export function CreateCampaignDialog({ open, onOpenChange, onCreated }: Props) {
                 <label className="cmp-label" htmlFor="c-owner">
                   Owner
                 </label>
-                <Select
-                  value={owner}
-                  onValueChange={setOwner}
-                  disabled={orgUsers.length === 0}
-                >
+                <Select value={owner} onValueChange={setOwner} disabled={orgUsers.length === 0}>
                   <SelectTrigger id="c-owner" className="h-9 w-full text-[13px]">
                     <SelectValue placeholder="Loading…" />
                   </SelectTrigger>

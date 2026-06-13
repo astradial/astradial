@@ -1,14 +1,14 @@
 "use client";
 
+import { Menu } from "lucide-react";
 import { useParams, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Menu } from "lucide-react";
 
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import { orgs, getAdminKey } from "@/lib/gateway/client";
-import { setApiKey, setOrgToken, getOrgToken } from "@/lib/pbx/client";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { getAdminKey, orgs } from "@/lib/gateway/client";
+import { getOrgToken, setApiKey, setOrgToken } from "@/lib/pbx/client";
 
 export default function OrgLayout({ children }: { children: React.ReactNode }) {
   const { orgId } = useParams<{ orgId: string }>();
@@ -31,7 +31,10 @@ export default function OrgLayout({ children }: { children: React.ReactNode }) {
         } catch {}
       }
 
-      if (!getAdminKey()) { setReady(true); return; }
+      if (!getAdminKey()) {
+        setReady(true);
+        return;
+      }
       try {
         // Admin impersonation: mint a user-shaped JWT for the org owner so
         // the sidebar shows the real user's email and PBX calls run as that user.
@@ -94,9 +97,7 @@ export default function OrgLayout({ children }: { children: React.ReactNode }) {
       <AppSidebar orgId={orgId} orgName={orgName} variant="inset" />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex flex-1 flex-col">
-          {children}
-        </div>
+        <div className="flex flex-1 flex-col">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   );

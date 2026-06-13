@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Check, Copy } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { Copy, Check } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -29,12 +29,15 @@ export function SipQrDialog({ user, onClose }: SipQrDialogProps) {
   // Fetch SIP password from PBX API
   useEffect(() => {
     if (!sipPassword && user.id) {
-      const token = typeof window !== "undefined" ? localStorage.getItem("pbx_org_token") || "" : "";
+      const token =
+        typeof window !== "undefined" ? localStorage.getItem("pbx_org_token") || "" : "";
       fetch(`/api/pbx/users/${user.id}/sip-credentials`, {
         headers: { Authorization: `Bearer ${token}` },
       })
         .then((r) => r.json())
-        .then((d) => { if (d.sip_password) setSipPassword(d.sip_password); })
+        .then((d) => {
+          if (d.sip_password) setSipPassword(d.sip_password);
+        })
         .catch(() => {});
     }
   }, [user.id, user.org_id, sipPassword]);

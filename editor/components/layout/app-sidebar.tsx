@@ -1,44 +1,38 @@
-"use client"
+"use client";
 
-import * as React from "react"
 import {
-  Briefcase,
-  Phone,
-  Server,
-  Workflow,
-  MessageCircle,
-  Webhook,
-  Target,
-  HandshakeIcon,
-  SlidersHorizontal,
-  PhoneCall,
-  Ticket,
-  ListOrdered,
-  Sparkles,
-  LayoutDashboard,
-  Users,
-  ShieldCheck,
-  Lightbulb,
-  CircleAlert,
-  BookOpen,
   ArrowLeft,
-} from "lucide-react"
+  BookOpen,
+  Briefcase,
+  CircleAlert,
+  HandshakeIcon,
+  LayoutDashboard,
+  Lightbulb,
+  ListOrdered,
+  MessageCircle,
+  Phone,
+  PhoneCall,
+  Server,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Target,
+  Ticket,
+  Users,
+  Webhook,
+  Workflow,
+} from "lucide-react";
+import Link from "next/link";
+import * as React from "react";
+import { FaRoute, FaWhatsapp } from "react-icons/fa";
 
-import { CampaignsTree } from "@/components/layout/CampaignsTree"
-
-import { FaWhatsapp, FaRoute } from "react-icons/fa";
-
-import Link from "next/link"
 import AstradialLogo from "@/components/icons/AstradialLogo";
-import { NavDocuments } from "@/components/nav-documents"
-import { NavMain } from "@/components/nav-main"
-import { NavSecondary } from "@/components/nav-secondary"
-import { NavUser } from "@/components/nav-user"
-import { NavHelp } from "@/components/nav-help"
-// MariaDB-backed open-ticket count subscription (Phase B+).
-// Internally: fetch /api/pbx/tickets?status=open&limit=1 → reads `total`,
-// then refetches on every SSE `refresh` event.
-import { subscribeToOpenTicketCount } from "@/lib/tickets/api"
+import { CampaignsTree } from "@/components/layout/CampaignsTree";
+import { NavDocuments } from "@/components/nav-documents";
+import { NavHelp } from "@/components/nav-help";
+import { NavMain } from "@/components/nav-main";
+import { NavSecondary } from "@/components/nav-secondary";
+import { NavUser } from "@/components/nav-user";
 import {
   Sidebar,
   SidebarContent,
@@ -47,7 +41,11 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@/components/ui/sidebar"
+} from "@/components/ui/sidebar";
+// MariaDB-backed open-ticket count subscription (Phase B+).
+// Internally: fetch /api/pbx/tickets?status=open&limit=1 → reads `total`,
+// then refetches on every SSE `refresh` event.
+import { subscribeToOpenTicketCount } from "@/lib/tickets/api";
 
 function readIsAdmin(): boolean {
   if (typeof window === "undefined") return false;
@@ -63,7 +61,7 @@ function readUserEmail(admin: boolean): string {
   try {
     const orgAccess = localStorage.getItem("org_access");
     if (orgAccess) return JSON.parse(orgAccess).email || "";
-  } catch { }
+  } catch {}
   return admin ? "admin@example.com" : "";
 }
 
@@ -166,11 +164,15 @@ const data = {
       name: "Trunks",
       url: "/trunks",
       icon: Server,
-    }
+    },
   ],
-}
+};
 
-export function AppSidebar({ orgId, orgName, ...props }: { orgId: string, orgName: string } & React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({
+  orgId,
+  orgName,
+  ...props
+}: { orgId: string; orgName: string } & React.ComponentProps<typeof Sidebar>) {
   const basePath = `/dashboard/${orgId}`;
   const [isAdmin, setIsAdmin] = React.useState(false);
   const [userEmail, setUserEmail] = React.useState("");
@@ -203,14 +205,11 @@ export function AppSidebar({ orgId, orgName, ...props }: { orgId: string, orgNam
   );
 
   return (
-    <Sidebar collapsible="offcanvas" {...props} className="w-60" >
+    <Sidebar collapsible="offcanvas" {...props} className="w-60">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              className="data-[slot=sidebar-menu-button]:!p-1.5"
-            >
+            <SidebarMenuButton asChild className="data-[slot=sidebar-menu-button]:!p-1.5">
               <a href="#">
                 <div className="flex items-center justify-center">
                   <AstradialLogo height={24} color="currentColor" />
@@ -219,7 +218,10 @@ export function AppSidebar({ orgId, orgName, ...props }: { orgId: string, orgNam
               </a>
             </SidebarMenuButton>
             {isAdmin && (
-              <Link href="/dashboard" className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+              <Link
+                href="/dashboard"
+                className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              >
                 <ArrowLeft className="h-3 w-3" />
                 Switch Organisation
               </Link>
@@ -241,5 +243,5 @@ export function AppSidebar({ orgId, orgName, ...props }: { orgId: string, orgNam
         <NavUser user={user} orgName={orgName} orgId={orgId} />
       </SidebarFooter>
     </Sidebar>
-  )
+  );
 }

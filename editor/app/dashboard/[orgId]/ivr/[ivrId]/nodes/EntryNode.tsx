@@ -1,6 +1,6 @@
 "use client";
 
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, type NodeProps, Position } from "@xyflow/react";
 import { Phone } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -18,9 +18,7 @@ export default function EntryNode({ data, selected }: NodeProps) {
   return (
     <div
       className={`rounded-lg border-2 bg-white dark:bg-neutral-800 shadow-sm min-w-[200px] ${
-        selected
-          ? "border-blue-500"
-          : "border-neutral-300 dark:border-neutral-600"
+        selected ? "border-blue-500" : "border-neutral-300 dark:border-neutral-600"
       }`}
     >
       <div className="border-b border-neutral-200 dark:border-neutral-700 px-3 py-2 flex items-center gap-2">
@@ -38,9 +36,7 @@ export default function EntryNode({ data, selected }: NodeProps) {
           <span>·</span>
           <span>{d.maxRetries} retries</span>
         </div>
-        {d.directDial && (
-          <div className="text-[10px] text-muted-foreground">Direct dial ON</div>
-        )}
+        {d.directDial && <div className="text-[10px] text-muted-foreground">Direct dial ON</div>}
       </div>
       <Handle type="source" position={Position.Right} className="bg-neutral-400!" />
     </div>

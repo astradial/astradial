@@ -1,26 +1,48 @@
 "use client";
 
+import {
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signOut,
+} from "firebase/auth";
+import { Eye, EyeOff, MessageCircle, Send } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, MessageCircle, Send } from "lucide-react";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut } from "firebase/auth";
 
+import { OssLoginForm } from "@/components/auth/OssLoginForm";
+import AstradialLogo from "@/components/icons/AstradialLogo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showToast } from "@/components/ui/Toast";
-import { getAdminKey, orgs, setAdminKey, type Org } from "@/lib/gateway/client";
-import { setOrgToken, adminWhatsapp, type AdminWhatsappConfig, type Msg91Template } from "@/lib/pbx/client";
-import { auth } from "@/lib/firebase/config";
 import { USE_FIREBASE } from "@/lib/auth";
 import { markAdminSessionStart } from "@/lib/auth/authStore";
-import { OssLoginForm } from "@/components/auth/OssLoginForm";
-import AstradialLogo from "@/components/icons/AstradialLogo";
+import { auth } from "@/lib/firebase/config";
+import { getAdminKey, type Org, orgs, setAdminKey } from "@/lib/gateway/client";
+import {
+  adminWhatsapp,
+  type AdminWhatsappConfig,
+  type Msg91Template,
+  setOrgToken,
+} from "@/lib/pbx/client";
 
 interface OrgAccess {
   org_id: string;
@@ -66,7 +88,15 @@ export default function DashboardPage() {
   const [showOrgRequest, setShowOrgRequest] = useState(false);
   const [orgRequestToken, setOrgRequestToken] = useState("");
   const [orgRequestEmail, setOrgRequestEmail] = useState("");
-  const [orgReq, setOrgReq] = useState({ name: "", phone: "", address: "", industry: "", company_size: "", expected_users: "", description: "" });
+  const [orgReq, setOrgReq] = useState({
+    name: "",
+    phone: "",
+    address: "",
+    industry: "",
+    company_size: "",
+    expected_users: "",
+    description: "",
+  });
 
   // Admin MSG91 WhatsApp config (Astradial-side, sends to customer orgs)
   const [waAdminOpen, setWaAdminOpen] = useState(false);
@@ -156,11 +186,17 @@ export default function DashboardPage() {
       const key = getAdminKey();
       const res = await fetch(`/api/pbx/admin/approve-org/${orgId}`, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${key}` },
+        headers: { Authorization: `Bearer ${key}` },
       });
-      if (!res.ok) { const d = await res.json(); setError(d.error || "Approve failed"); return; }
+      if (!res.ok) {
+        const d = await res.json();
+        setError(d.error || "Approve failed");
+        return;
+      }
       loadOrgs();
-    } catch (e) { setError(e instanceof Error ? e.message : "Failed"); }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    }
   }
 
   // Admin MSG91 WhatsApp config — opens the side panel and loads current
@@ -272,18 +308,26 @@ export default function DashboardPage() {
     setSuccess("");
     setLoading(true);
     try {
-      if (password.length < 6) { setError("Password must be at least 6 characters"); setLoading(false); return; }
+      if (password.length < 6) {
+        setError("Password must be at least 6 characters");
+        setLoading(false);
+        return;
+      }
       const cred = await createUserWithEmailAndPassword(auth!, email, password);
       await sendEmailVerification(cred.user);
       setSuccess("Account created! Check your email to verify, then sign in.");
       setIsSignUp(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Sign up failed";
-      if (msg.includes("email-already-in-use")) setError("An account with this email already exists. Try signing in.");
-      else if (msg.includes("weak-password")) setError("Password is too weak. Use at least 6 characters.");
+      if (msg.includes("email-already-in-use"))
+        setError("An account with this email already exists. Try signing in.");
+      else if (msg.includes("weak-password"))
+        setError("Password is too weak. Use at least 6 characters.");
       else if (msg.includes("invalid-email")) setError("Invalid email address.");
       else setError(msg);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   // Sign in — Firebase auth → get ID token → call user-login for role JWT
@@ -315,7 +359,9 @@ export default function DashboardPage() {
       if (res.status === 202) {
         // Org exists but pending approval
         const d = await res.json();
-        setSuccess(`Your organisation "${d.org_name}" is awaiting admin approval. You'll be able to log in once approved.`);
+        setSuccess(
+          `Your organisation "${d.org_name}" is awaiting admin approval. You'll be able to log in once approved.`
+        );
         setLoading(false);
         return;
       }
@@ -367,9 +413,18 @@ export default function DashboardPage() {
 
   // Submit org request
   async function handleOrgRequest() {
-    if (!orgReq.name.trim()) { setError("Organisation name is required"); return; }
-    if (!orgReq.phone.trim()) { setError("Phone number is required"); return; }
-    if (!orgReq.industry) { setError("Please select your industry"); return; }
+    if (!orgReq.name.trim()) {
+      setError("Organisation name is required");
+      return;
+    }
+    if (!orgReq.phone.trim()) {
+      setError("Phone number is required");
+      return;
+    }
+    if (!orgReq.industry) {
+      setError("Please select your industry");
+      return;
+    }
     setError("");
     setLoading(true);
     try {
@@ -389,11 +444,20 @@ export default function DashboardPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || "Request failed"); setLoading(false); return; }
-      setSuccess("Organisation requested! Admin will review and approve shortly. You'll be able to log in once approved.");
+      if (!res.ok) {
+        setError(data.error || "Request failed");
+        setLoading(false);
+        return;
+      }
+      setSuccess(
+        "Organisation requested! Admin will review and approve shortly. You'll be able to log in once approved."
+      );
       setShowOrgRequest(false);
-    } catch (e) { setError(e instanceof Error ? e.message : "Request failed"); }
-    finally { setLoading(false); }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Request failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
   // Org request form (shown after sign-in when no org exists)
@@ -404,7 +468,9 @@ export default function DashboardPage() {
           <div className="text-center space-y-2">
             <AstradialLogo height={32} color="currentColor" className="mx-auto" />
             <h1 className="text-2xl font-semibold">Set Up Your Organisation</h1>
-            <p className="text-sm text-muted-foreground">Tell us about your business to get started</p>
+            <p className="text-sm text-muted-foreground">
+              Tell us about your business to get started
+            </p>
           </div>
           {error && <p className="text-sm text-destructive text-center">{error}</p>}
           {success && <p className="text-sm text-green-600 text-center">{success}</p>}
@@ -412,11 +478,19 @@ export default function DashboardPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Organisation Name *</Label>
-                <Input value={orgReq.name} onChange={e => setOrgReq({ ...orgReq, name: e.target.value })} placeholder="Acme Corp" />
+                <Input
+                  value={orgReq.name}
+                  onChange={(e) => setOrgReq({ ...orgReq, name: e.target.value })}
+                  placeholder="Acme Corp"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Phone *</Label>
-                <Input value={orgReq.phone} onChange={e => setOrgReq({ ...orgReq, phone: e.target.value })} placeholder="+91 98765 43210" />
+                <Input
+                  value={orgReq.phone}
+                  onChange={(e) => setOrgReq({ ...orgReq, phone: e.target.value })}
+                  placeholder="+91 98765 43210"
+                />
               </div>
             </div>
             <div className="space-y-1.5">
@@ -425,12 +499,20 @@ export default function DashboardPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Address</Label>
-              <Input value={orgReq.address} onChange={e => setOrgReq({ ...orgReq, address: e.target.value })} placeholder="City, State" />
+              <Input
+                value={orgReq.address}
+                onChange={(e) => setOrgReq({ ...orgReq, address: e.target.value })}
+                placeholder="City, State"
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Industry *</Label>
-                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={orgReq.industry} onChange={e => setOrgReq({ ...orgReq, industry: e.target.value })}>
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={orgReq.industry}
+                  onChange={(e) => setOrgReq({ ...orgReq, industry: e.target.value })}
+                >
                   <option value="">Select industry</option>
                   <option value="Healthcare">Healthcare</option>
                   <option value="Hospitality">Hospitality</option>
@@ -445,7 +527,11 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>Company Size</Label>
-                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={orgReq.company_size} onChange={e => setOrgReq({ ...orgReq, company_size: e.target.value })}>
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={orgReq.company_size}
+                  onChange={(e) => setOrgReq({ ...orgReq, company_size: e.target.value })}
+                >
                   <option value="">Select size</option>
                   <option value="1-10">1-10 employees</option>
                   <option value="11-50">11-50 employees</option>
@@ -457,16 +543,34 @@ export default function DashboardPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Expected Users (how many people will use the phone system)</Label>
-              <Input value={orgReq.expected_users} onChange={e => setOrgReq({ ...orgReq, expected_users: e.target.value })} placeholder="e.g. 5, 20, 50" />
+              <Input
+                value={orgReq.expected_users}
+                onChange={(e) => setOrgReq({ ...orgReq, expected_users: e.target.value })}
+                placeholder="e.g. 5, 20, 50"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Tell us what you need</Label>
-              <textarea className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" value={orgReq.description} onChange={e => setOrgReq({ ...orgReq, description: e.target.value })} placeholder="e.g. We need a phone system for our hotel front desk with 3 lines and call recording..." />
+              <textarea
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground"
+                value={orgReq.description}
+                onChange={(e) => setOrgReq({ ...orgReq, description: e.target.value })}
+                placeholder="e.g. We need a phone system for our hotel front desk with 3 lines and call recording..."
+              />
             </div>
             <Button className="w-full" onClick={handleOrgRequest} disabled={loading}>
               {loading ? "Submitting..." : "Submit Application"}
             </Button>
-            <Button variant="ghost" className="w-full" onClick={() => { setShowOrgRequest(false); setError(""); }}>Back to Sign In</Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                setShowOrgRequest(false);
+                setError("");
+              }}
+            >
+              Back to Sign In
+            </Button>
           </div>
         </div>
       </div>
@@ -489,7 +593,9 @@ export default function DashboardPage() {
                 <span className="hidden sm:inline">WhatsApp</span>
               </Button>
               <Link href="/editor">
-                <Button variant="outline" size="sm">Flow Editor</Button>
+                <Button variant="outline" size="sm">
+                  Flow Editor
+                </Button>
               </Link>
               <Button
                 variant="ghost"
@@ -502,7 +608,9 @@ export default function DashboardPage() {
                     localStorage.removeItem("admin_session_start");
                     localStorage.removeItem("org_access");
                   }
-                  signOut(auth!).catch((err) => console.warn("[admin-logout] firebase signOut failed:", err?.code));
+                  signOut(auth!).catch((err) =>
+                    console.warn("[admin-logout] firebase signOut failed:", err?.code)
+                  );
                   setAuthenticated(false);
                 }}
               >
@@ -517,12 +625,20 @@ export default function DashboardPage() {
           {/* Pending Org Approvals */}
           {pendingOrgs.length > 0 && (
             <div className="mb-6">
-              <h2 className="text-lg font-medium mb-2">Pending Approvals <Badge variant="secondary">{pendingOrgs.length}</Badge></h2>
+              <h2 className="text-lg font-medium mb-2">
+                Pending Approvals <Badge variant="secondary">{pendingOrgs.length}</Badge>
+              </h2>
               <div className="space-y-2">
                 {pendingOrgs.map((org) => {
-                  const ci = (org as unknown as Record<string, unknown>).contact_info as Record<string, string> | null;
+                  const ci = (org as unknown as Record<string, unknown>).contact_info as Record<
+                    string,
+                    string
+                  > | null;
                   return (
-                    <div key={org.id} className="rounded-md border border-dashed px-4 py-3 space-y-2">
+                    <div
+                      key={org.id}
+                      className="rounded-md border border-dashed px-4 py-3 space-y-2"
+                    >
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-medium">{org.name}</p>
@@ -530,19 +646,58 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge variant="outline">Pending</Badge>
-                          <Link href={`/admin/organizations/${org.id}`}><Button variant="outline" size="sm">Edit</Button></Link>
-                          <Button size="sm" onClick={() => handleApproveOrg(org.id)}>Approve</Button>
+                          <Link href={`/admin/organizations/${org.id}`}>
+                            <Button variant="outline" size="sm">
+                              Edit
+                            </Button>
+                          </Link>
+                          <Button size="sm" onClick={() => handleApproveOrg(org.id)}>
+                            Approve
+                          </Button>
                         </div>
                       </div>
                       {ci && (
                         <div className="grid grid-cols-4 gap-2 text-xs text-muted-foreground">
-                          {ci.email && <div><span className="font-medium text-foreground">Email:</span> {ci.email}</div>}
-                          {ci.phone && <div><span className="font-medium text-foreground">Phone:</span> {ci.phone}</div>}
-                          {ci.industry && <div><span className="font-medium text-foreground">Industry:</span> {ci.industry}</div>}
-                          {ci.company_size && <div><span className="font-medium text-foreground">Size:</span> {ci.company_size}</div>}
-                          {ci.address && <div><span className="font-medium text-foreground">Address:</span> {ci.address}</div>}
-                          {ci.expected_users && <div><span className="font-medium text-foreground">Users:</span> {ci.expected_users}</div>}
-                          {ci.description && <div className="col-span-4"><span className="font-medium text-foreground">Need:</span> {ci.description}</div>}
+                          {ci.email && (
+                            <div>
+                              <span className="font-medium text-foreground">Email:</span> {ci.email}
+                            </div>
+                          )}
+                          {ci.phone && (
+                            <div>
+                              <span className="font-medium text-foreground">Phone:</span> {ci.phone}
+                            </div>
+                          )}
+                          {ci.industry && (
+                            <div>
+                              <span className="font-medium text-foreground">Industry:</span>{" "}
+                              {ci.industry}
+                            </div>
+                          )}
+                          {ci.company_size && (
+                            <div>
+                              <span className="font-medium text-foreground">Size:</span>{" "}
+                              {ci.company_size}
+                            </div>
+                          )}
+                          {ci.address && (
+                            <div>
+                              <span className="font-medium text-foreground">Address:</span>{" "}
+                              {ci.address}
+                            </div>
+                          )}
+                          {ci.expected_users && (
+                            <div>
+                              <span className="font-medium text-foreground">Users:</span>{" "}
+                              {ci.expected_users}
+                            </div>
+                          )}
+                          {ci.description && (
+                            <div className="col-span-4">
+                              <span className="font-medium text-foreground">Need:</span>{" "}
+                              {ci.description}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -556,7 +711,9 @@ export default function DashboardPage() {
             <h2 className="text-lg font-medium">Organizations</h2>
             <div className="flex items-center gap-2">
               <Link href="/admin/dids">
-                <Button variant="outline" size="sm">DID Management</Button>
+                <Button variant="outline" size="sm">
+                  DID Management
+                </Button>
               </Link>
               <Link href="/admin/organizations/new">
                 <Button size="sm">+ Create Organisation</Button>
@@ -570,7 +727,10 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-1">
               {orgList.map((org) => (
-                <div key={org.id} className="flex items-center justify-between rounded-md border px-4 py-3 hover:bg-muted/50 transition-colors">
+                <div
+                  key={org.id}
+                  className="flex items-center justify-between rounded-md border px-4 py-3 hover:bg-muted/50 transition-colors"
+                >
                   <button
                     type="button"
                     onClick={() => handleEnterOrg(org.id, org.name)}
@@ -584,7 +744,9 @@ export default function DashboardPage() {
                       {org.is_active ? "Active" : "Inactive"}
                     </Badge>
                     <Link href={`/admin/organizations/${org.id}`}>
-                      <Button variant="outline" size="sm">Edit</Button>
+                      <Button variant="outline" size="sm">
+                        Edit
+                      </Button>
                     </Link>
                   </div>
                 </div>
@@ -615,13 +777,21 @@ export default function DashboardPage() {
                 <div className="rounded-md border p-3 text-xs space-y-1">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Auth key (env)</span>
-                    <span className={waAdminCfg.auth_key_present ? "text-green-600" : "text-destructive"}>
-                      {waAdminCfg.auth_key_present ? "present" : "MSG91_ADMIN_AUTH_KEY missing in env"}
+                    <span
+                      className={
+                        waAdminCfg.auth_key_present ? "text-green-600" : "text-destructive"
+                      }
+                    >
+                      {waAdminCfg.auth_key_present
+                        ? "present"
+                        : "MSG91_ADMIN_AUTH_KEY missing in env"}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Ready to send</span>
-                    <span className={waAdminCfg.is_ready_for_send ? "text-green-600" : "text-amber-600"}>
+                    <span
+                      className={waAdminCfg.is_ready_for_send ? "text-green-600" : "text-amber-600"}
+                    >
                       {waAdminCfg.is_ready_for_send ? "yes" : "complete the fields below"}
                     </span>
                   </div>
@@ -655,7 +825,9 @@ export default function DashboardPage() {
                       value={waAdminCfg.selected_template_name || ""}
                       onValueChange={(v) => patchWaAdminLocal({ selected_template_name: v })}
                     >
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose a template" /></SelectTrigger>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Choose a template" />
+                      </SelectTrigger>
                       <SelectContent>
                         {waAdminTemplates.map((t) => (
                           <SelectItem key={t.name} value={t.name}>
@@ -667,7 +839,9 @@ export default function DashboardPage() {
                   ) : (
                     <Input
                       value={waAdminCfg.selected_template_name || ""}
-                      onChange={(e) => patchWaAdminLocal({ selected_template_name: e.target.value })}
+                      onChange={(e) =>
+                        patchWaAdminLocal({ selected_template_name: e.target.value })
+                      }
                       placeholder="missed_calls_alert"
                       className="h-8 text-xs font-mono"
                     />
@@ -704,7 +878,9 @@ export default function DashboardPage() {
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <Label className="text-[10px] text-muted-foreground">Phone (E.164 no +)</Label>
+                      <Label className="text-[10px] text-muted-foreground">
+                        Phone (E.164 no +)
+                      </Label>
                       <Input
                         value={waTestPhone}
                         onChange={(e) => setWaTestPhone(e.target.value.replace(/\D/g, ""))}
@@ -717,7 +893,9 @@ export default function DashboardPage() {
                       <Label className="text-[10px] text-muted-foreground">Sample Count</Label>
                       <Input
                         value={waTestCount}
-                        onChange={(e) => setWaTestCount(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                        onChange={(e) =>
+                          setWaTestCount(e.target.value.replace(/\D/g, "").slice(0, 4))
+                        }
                         placeholder="3"
                         className="h-8 text-xs"
                         inputMode="numeric"
@@ -744,7 +922,8 @@ export default function DashboardPage() {
                   </Button>
                   {!waAdminCfg.is_ready_for_send && (
                     <p className="text-[10px] text-amber-600">
-                      Complete the config above first — test send requires integrated number, namespace, and template.
+                      Complete the config above first — test send requires integrated number,
+                      namespace, and template.
                     </p>
                   )}
                 </div>
@@ -760,12 +939,17 @@ export default function DashboardPage() {
   return (
     <div className="flex min-h-screen">
       {/* Left panel */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between bg-foreground text-background p-10 bg-cover bg-center" style={{ backgroundImage: "url('/images/image.webp')" }}>
+      <div
+        className="hidden lg:flex lg:w-1/2 flex-col justify-between bg-foreground text-background p-10 bg-cover bg-center"
+        style={{ backgroundImage: "url('/images/image.webp')" }}
+      >
         <div className="flex items-center gap-2 drop-shadow-[0_0_13px_rgba(0,0,0,0.9)]">
           <div className="logo">
             <a href="/" className="logo-link">
               <div className="flex items-end">
-                <span className="font-[600] text-[24px] tracking-[-1.2px] text-[white] whitespace-nowrap overflow-hidden">Astradial</span>
+                <span className="font-[600] text-[24px] tracking-[-1.2px] text-[white] whitespace-nowrap overflow-hidden">
+                  Astradial
+                </span>
                 <div className="ml-[6px] pb-[8px]">
                   <div className="w-[5px] h-[5px] bg-[white]"></div>
                 </div>
@@ -775,9 +959,12 @@ export default function DashboardPage() {
         </div>
         <blockquote className="space-y-2 drop-shadow-2xl">
           <p className="text-lg text-white">
-            &ldquo;Astradial has transformed how we manage our hotel communications. The AI voice bots handle guest calls seamlessly.&rdquo;
+            &ldquo;Astradial has transformed how we manage our hotel communications. The AI voice
+            bots handle guest calls seamlessly.&rdquo;
           </p>
-          <footer className="text-sm opacity-90 text-white font-medium">Operations Manager, Abint Palace</footer>
+          <footer className="text-sm opacity-90 text-white font-medium">
+            Operations Manager, Abint Palace
+          </footer>
         </blockquote>
       </div>
 
@@ -788,8 +975,12 @@ export default function DashboardPage() {
             <div className="lg:hidden flex items-center justify-center gap-2 mb-4">
               <AstradialLogo height={24} color="currentColor" />
             </div>
-            <h1 className="text-2xl font-semibold tracking-tight">{isSignUp ? "Create Account" : "Sign In"}</h1>
-            <p className="text-sm text-muted-foreground">{isSignUp ? "Create your account to get started" : "Access your dashboard"}</p>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {isSignUp ? "Create Account" : "Sign In"}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {isSignUp ? "Create your account to get started" : "Access your dashboard"}
+            </p>
           </div>
 
           <Tabs defaultValue="org" className="w-full">
@@ -808,7 +999,9 @@ export default function DashboardPage() {
                   placeholder="you@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && (isSignUp ? handleOrgSignUp() : handleOrgLogin())}
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && (isSignUp ? handleOrgSignUp() : handleOrgLogin())
+                  }
                 />
               </div>
               <div className="space-y-2">
@@ -821,7 +1014,9 @@ export default function DashboardPage() {
                     placeholder={isSignUp ? "Create a password (min 6 chars)" : "Enter password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && (isSignUp ? handleOrgSignUp() : handleOrgLogin())}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && (isSignUp ? handleOrgSignUp() : handleOrgLogin())
+                    }
                     className="pr-10"
                   />
                   <button
@@ -837,14 +1032,50 @@ export default function DashboardPage() {
               </div>
               {error && <p className="text-sm text-destructive">{error}</p>}
               {success && <p className="text-sm text-green-600 dark:text-green-400">{success}</p>}
-              <Button className="w-full" onClick={isSignUp ? handleOrgSignUp : handleOrgLogin} disabled={loading}>
-                {loading ? (isSignUp ? "Creating account..." : "Signing in...") : (isSignUp ? "Create Account" : "Sign In")}
+              <Button
+                className="w-full"
+                onClick={isSignUp ? handleOrgSignUp : handleOrgLogin}
+                disabled={loading}
+              >
+                {loading
+                  ? isSignUp
+                    ? "Creating account..."
+                    : "Signing in..."
+                  : isSignUp
+                    ? "Create Account"
+                    : "Sign In"}
               </Button>
               <p className="text-center text-sm text-muted-foreground">
                 {isSignUp ? (
-                  <>Already have an account?{" "}<button type="button" className="underline hover:text-foreground" onClick={() => { setIsSignUp(false); setError(""); setSuccess(""); }}>Sign In</button></>
+                  <>
+                    Already have an account?{" "}
+                    <button
+                      type="button"
+                      className="underline hover:text-foreground"
+                      onClick={() => {
+                        setIsSignUp(false);
+                        setError("");
+                        setSuccess("");
+                      }}
+                    >
+                      Sign In
+                    </button>
+                  </>
                 ) : (
-                  <>Don&apos;t have an account?{" "}<button type="button" className="underline hover:text-foreground" onClick={() => { setIsSignUp(true); setError(""); setSuccess(""); }}>Create Account</button></>
+                  <>
+                    Don&apos;t have an account?{" "}
+                    <button
+                      type="button"
+                      className="underline hover:text-foreground"
+                      onClick={() => {
+                        setIsSignUp(true);
+                        setError("");
+                        setSuccess("");
+                      }}
+                    >
+                      Create Account
+                    </button>
+                  </>
                 )}
               </p>
             </TabsContent>

@@ -28,41 +28,57 @@ interface IconDef {
 
 // Per UI.md §11.8 icon table — every EventKind must map.
 const KIND_ICON: Record<EventKind, IconDef> = {
-  enrolled:           { Icon: Play,         variant: "primary" },
-  whatsapp_sent:      { Icon: MessageCircleMore, variant: "" },
+  enrolled: { Icon: Play, variant: "primary" },
+  whatsapp_sent: { Icon: MessageCircleMore, variant: "" },
   whatsapp_delivered: { Icon: MessageCircleMore, variant: "" },
-  whatsapp_replied:   { Icon: MessageCircleMore, variant: "primary" },
-  call_started:       { Icon: PhoneCall,     variant: "info" },
-  call_completed:     { Icon: PhoneCall,     variant: "info" },
-  call_failed:        { Icon: XCircle,       variant: "warning" },
-  call_interested:    { Icon: PhoneCall,     variant: "success" },
-  call_engaged:       { Icon: PhoneCall,     variant: "primary" },
-  status_changed:     { Icon: Clock,        variant: "" },
-  qualified:          { Icon: CheckCircle2, variant: "success" },
-  disqualified:       { Icon: XCircle,      variant: "warning" },
-  halted:             { Icon: Pause,        variant: "warning" },
-  approval_created:   { Icon: AlertCircle,  variant: "warning" },
-  approval_decided:   { Icon: Check,        variant: "success" },
+  whatsapp_replied: { Icon: MessageCircleMore, variant: "primary" },
+  call_started: { Icon: PhoneCall, variant: "info" },
+  call_completed: { Icon: PhoneCall, variant: "info" },
+  call_failed: { Icon: XCircle, variant: "warning" },
+  call_interested: { Icon: PhoneCall, variant: "success" },
+  call_engaged: { Icon: PhoneCall, variant: "primary" },
+  status_changed: { Icon: Clock, variant: "" },
+  qualified: { Icon: CheckCircle2, variant: "success" },
+  disqualified: { Icon: XCircle, variant: "warning" },
+  halted: { Icon: Pause, variant: "warning" },
+  approval_created: { Icon: AlertCircle, variant: "warning" },
+  approval_decided: { Icon: Check, variant: "success" },
 };
 
 function eventTitle(kind: EventKind): string {
   switch (kind) {
-    case "enrolled": return "Lead entered campaign";
-    case "whatsapp_sent": return "WhatsApp sent";
-    case "whatsapp_delivered": return "WhatsApp delivered";
-    case "whatsapp_replied": return "Replied";
-    case "call_started": return "Call started";
-    case "call_completed": return "Call completed";
-    case "call_failed": return "Call failed";
-    case "call_interested": return "Interested (call)";
-    case "call_engaged": return "Engaged (call)";
-    case "status_changed": return "Status changed";
-    case "qualified": return "Qualified by rules";
-    case "disqualified": return "Disqualified";
-    case "halted": return "Workflow halted";
-    case "approval_created": return "Approval requested";
-    case "approval_decided": return "Approval decided";
-    default: return kind;
+    case "enrolled":
+      return "Lead entered campaign";
+    case "whatsapp_sent":
+      return "WhatsApp sent";
+    case "whatsapp_delivered":
+      return "WhatsApp delivered";
+    case "whatsapp_replied":
+      return "Replied";
+    case "call_started":
+      return "Call started";
+    case "call_completed":
+      return "Call completed";
+    case "call_failed":
+      return "Call failed";
+    case "call_interested":
+      return "Interested (call)";
+    case "call_engaged":
+      return "Engaged (call)";
+    case "status_changed":
+      return "Status changed";
+    case "qualified":
+      return "Qualified by rules";
+    case "disqualified":
+      return "Disqualified";
+    case "halted":
+      return "Workflow halted";
+    case "approval_created":
+      return "Approval requested";
+    case "approval_decided":
+      return "Approval decided";
+    default:
+      return kind;
   }
 }
 
@@ -92,7 +108,10 @@ function eventDetail(ev: CampaignEvent): { detail?: string; quote?: boolean } {
   if (ev.kind === "call_completed" && typeof p.duration_label === "string") {
     return { detail: `${p.duration_label} · ${p.direction || "outbound"}` };
   }
-  if ((ev.kind === "call_interested" || ev.kind === "call_engaged") && typeof p.transcript === "string") {
+  if (
+    (ev.kind === "call_interested" || ev.kind === "call_engaged") &&
+    typeof p.transcript === "string"
+  ) {
     const preview = p.transcript.length > 120 ? p.transcript.slice(0, 120) + "…" : p.transcript;
     return { detail: `"${preview}"`, quote: true };
   }

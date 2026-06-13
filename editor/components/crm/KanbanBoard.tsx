@@ -1,21 +1,22 @@
 "use client";
 
-import { useState } from "react";
 import {
-  DndContext,
-  DragOverlay,
   closestCorners,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  useDroppable,
-  type DragStartEvent,
+  DndContext,
   type DragEndEvent,
   type DragOverEvent,
+  DragOverlay,
+  type DragStartEvent,
+  PointerSensor,
+  useDroppable,
+  useSensor,
+  useSensors,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { Card } from "@/components/ui/card";
+import { useState } from "react";
+
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 
 export interface KanbanItem {
   id: string;
@@ -31,27 +32,42 @@ interface KanbanBoardProps<T extends KanbanItem> {
   renderCard: (item: T) => React.ReactNode;
 }
 
-function DraggableCard<T extends KanbanItem>({ item, renderCard }: { item: T; renderCard: (item: T) => React.ReactNode }) {
+function DraggableCard<T extends KanbanItem>({
+  item,
+  renderCard,
+}: {
+  item: T;
+  renderCard: (item: T) => React.ReactNode;
+}) {
   const [isDragging, setIsDragging] = useState(false);
 
   return (
-    <div
-      data-card-id={item.id}
-      style={{ opacity: isDragging ? 0.5 : 1 }}
-    >
+    <div data-card-id={item.id} style={{ opacity: isDragging ? 0.5 : 1 }}>
       {renderCard(item)}
     </div>
   );
 }
 
-function DroppableColumn({ id, label, count, children }: { id: string; label: string; count: number; children: React.ReactNode }) {
+function DroppableColumn({
+  id,
+  label,
+  count,
+  children,
+}: {
+  id: string;
+  label: string;
+  count: number;
+  children: React.ReactNode;
+}) {
   const { isOver, setNodeRef } = useDroppable({ id });
 
   return (
     <div className="flex-shrink-0 w-72">
       <div className="flex items-center justify-between mb-3 px-1">
         <h3 className="text-sm font-medium">{label}</h3>
-        <Badge variant="secondary" className="text-xs">{count}</Badge>
+        <Badge variant="secondary" className="text-xs">
+          {count}
+        </Badge>
       </div>
       <div
         ref={setNodeRef}
@@ -65,11 +81,17 @@ function DroppableColumn({ id, label, count, children }: { id: string; label: st
   );
 }
 
-export function KanbanBoard<T extends KanbanItem>({ stages, stageLabels, items, onStageChange, renderCard }: KanbanBoardProps<T>) {
+export function KanbanBoard<T extends KanbanItem>({
+  stages,
+  stageLabels,
+  items,
+  onStageChange,
+  renderCard,
+}: KanbanBoardProps<T>) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
-  const activeItem = activeId ? items.find(i => i.id === activeId) : null;
+  const activeItem = activeId ? items.find((i) => i.id === activeId) : null;
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(String(event.active.id));
@@ -85,7 +107,7 @@ export function KanbanBoard<T extends KanbanItem>({ stages, stageLabels, items, 
 
     // Dropped on a stage column
     if (stages.includes(overId)) {
-      const item = items.find(i => i.id === itemId);
+      const item = items.find((i) => i.id === itemId);
       if (item && item.stage !== overId) {
         onStageChange(itemId, overId);
       }
@@ -93,9 +115,9 @@ export function KanbanBoard<T extends KanbanItem>({ stages, stageLabels, items, 
     }
 
     // Dropped on another card — move to that card's stage
-    const overItem = items.find(i => i.id === overId);
+    const overItem = items.find((i) => i.id === overId);
     if (overItem) {
-      const item = items.find(i => i.id === itemId);
+      const item = items.find((i) => i.id === itemId);
       if (item && item.stage !== overItem.stage) {
         onStageChange(itemId, overItem.stage);
       }
@@ -110,12 +132,17 @@ export function KanbanBoard<T extends KanbanItem>({ stages, stageLabels, items, 
       onDragEnd={handleDragEnd}
     >
       <div className="flex gap-4 overflow-x-auto pb-4">
-        {stages.map(stage => {
-          const stageItems = items.filter(i => i.stage === stage);
+        {stages.map((stage) => {
+          const stageItems = items.filter((i) => i.stage === stage);
 
           return (
-            <DroppableColumn key={stage} id={stage} label={stageLabels[stage] || stage} count={stageItems.length}>
-              {stageItems.map(item => (
+            <DroppableColumn
+              key={stage}
+              id={stage}
+              label={stageLabels[stage] || stage}
+              count={stageItems.length}
+            >
+              {stageItems.map((item) => (
                 <DraggableItem key={item.id} id={item.id}>
                   {renderCard(item)}
                 </DraggableItem>

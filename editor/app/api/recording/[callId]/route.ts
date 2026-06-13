@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 
 const PBX_URL = process.env.NEXT_PUBLIC_PBX_URL || "http://localhost:8000";
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ callId: string }> }
-) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ callId: string }> }) {
   const { callId } = await params;
 
-  const token = req.nextUrl.searchParams.get("token") || req.headers.get("authorization")?.replace("Bearer ", "") || "";
+  const token =
+    req.nextUrl.searchParams.get("token") ||
+    req.headers.get("authorization")?.replace("Bearer ", "") ||
+    "";
   const apiKey = req.nextUrl.searchParams.get("key") || req.headers.get("x-api-key") || "";
 
   const headers: Record<string, string> = {};
@@ -38,7 +38,8 @@ export async function GET(
     // server memory on long calls and preserves Range semantics.
     const respHeaders = new Headers({
       "Content-Type": upstream.headers.get("content-type") || "audio/wav",
-      "Content-Disposition": upstream.headers.get("content-disposition") || `inline; filename="recording.wav"`,
+      "Content-Disposition":
+        upstream.headers.get("content-disposition") || `inline; filename="recording.wav"`,
       "Accept-Ranges": upstream.headers.get("accept-ranges") || "bytes",
       "Cache-Control": "private, max-age=3600",
     });

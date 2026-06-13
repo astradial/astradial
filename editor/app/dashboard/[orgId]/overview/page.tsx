@@ -1,9 +1,6 @@
 "use client";
 
-import * as React from "react";
-import { useParams } from "next/navigation";
-import { useEffect, useState, useMemo, useId } from "react";
-import { Activity, TrendingUp, TrendingDown, Users } from "lucide-react";
+import * as TabsPrimitive from "@radix-ui/react-tabs";
 import {
   IconChevronDown,
   IconChevronLeft,
@@ -14,13 +11,9 @@ import {
   IconPlus,
   IconTrendingUp,
 } from "@tabler/icons-react";
-import { Area, AreaChart, CartesianGrid, XAxis } from "recharts";
-import { format } from "date-fns";
-import { toast } from "sonner";
-import * as TabsPrimitive from "@radix-ui/react-tabs";
-
-
 import {
+  type ColumnDef,
+  type ColumnFiltersState,
   flexRender,
   getCoreRowModel,
   getFacetedRowModel,
@@ -28,15 +21,29 @@ import {
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  useReactTable,
-  type ColumnDef,
-  type ColumnFiltersState,
   type SortingState,
+  useReactTable,
   type VisibilityState,
 } from "@tanstack/react-table";
+import { format } from "date-fns";
+import { Activity, TrendingDown, TrendingUp, Users } from "lucide-react";
+import { useParams } from "next/navigation";
+import * as React from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { Area, AreaChart, CartesianGrid, XAxis } from "recharts";
+import { toast } from "sonner";
 
+import { OnboardingBanner } from "@/components/onboarding/OnboardingBanner";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   ChartConfig,
   ChartContainer,
@@ -44,26 +51,6 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@/components/ui/toggle-group";
 import {
   Drawer,
   DrawerClose,
@@ -74,14 +61,23 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@/components/ui/drawer";
-import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import {
   Table,
   TableBody,
@@ -90,10 +86,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { users as pbxUsers, calls as pbxCalls, type CallHistoryItem } from "@/lib/pbx/client";
+import { type CallHistoryItem, calls as pbxCalls, users as pbxUsers } from "@/lib/pbx/client";
 import { subscribeToOpenTicketCount } from "@/lib/tickets/api";
-import { OnboardingBanner } from "@/components/onboarding/OnboardingBanner";
 import { cn } from "@/lib/utils";
 
 const chartConfig = {
@@ -108,8 +105,6 @@ function formatDuration(secs: number) {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-
-
 function TableCellViewer({ item }: { item: CallHistoryItem }) {
   const isMobile = useIsMobile();
 
@@ -122,10 +117,10 @@ function TableCellViewer({ item }: { item: CallHistoryItem }) {
       </DrawerTrigger>
       <DrawerContent>
         <DrawerHeader className="gap-1">
-          <DrawerTitle>{item.from_number || "---"} → {item.to_number || "---"}</DrawerTitle>
-          <DrawerDescription>
-            Call details and activity over the last 6 months
-          </DrawerDescription>
+          <DrawerTitle>
+            {item.from_number || "---"} → {item.to_number || "---"}
+          </DrawerTitle>
+          <DrawerDescription>Call details and activity over the last 6 months</DrawerDescription>
         </DrawerHeader>
         <div className="flex flex-col gap-4 overflow-y-auto px-4 text-sm">
           {!isMobile && (
@@ -135,7 +130,8 @@ function TableCellViewer({ item }: { item: CallHistoryItem }) {
                   Steady call performance <IconTrendingUp className="size-4" />
                 </div>
                 <div className="text-muted-foreground">
-                  Viewing a summary of this call. Fields below are editable for visual parity with the product spec and are not persisted in this view.
+                  Viewing a summary of this call. Fields below are editable for visual parity with
+                  the product spec and are not persisted in this view.
                 </div>
               </div>
               <Separator />
@@ -189,7 +185,9 @@ function TableCellViewer({ item }: { item: CallHistoryItem }) {
               <Label htmlFor="started_at">Started At</Label>
               <Input
                 id="started_at"
-                defaultValue={item.started_at ? format(new Date(item.started_at), "MMM d, h:mm a") : ""}
+                defaultValue={
+                  item.started_at ? format(new Date(item.started_at), "MMM d, h:mm a") : ""
+                }
               />
             </div>
           </form>
@@ -251,9 +249,7 @@ const columns: ColumnDef<CallHistoryItem>[] = [
     accessorKey: "duration",
     header: () => <div className="min-w-20 text-left pr-6">Duration</div>,
     cell: ({ row }: any) => (
-      <div className="min-w-20 text-left text-sm pr-6">
-        {formatDuration(row.original.duration)}
-      </div>
+      <div className="min-w-20 text-left text-sm pr-6">{formatDuration(row.original.duration)}</div>
     ),
   },
   {
@@ -273,7 +269,9 @@ const columns: ColumnDef<CallHistoryItem>[] = [
     header: () => <div className="text-right">Time</div>,
     cell: ({ row }: any) => (
       <div className="text-right text-sm text-muted-foreground">
-        {row.original.started_at ? format(new Date(row.original.started_at), "MMM d, h:mm a") : "---"}
+        {row.original.started_at
+          ? format(new Date(row.original.started_at), "MMM d, h:mm a")
+          : "---"}
       </div>
     ),
   },
@@ -310,13 +308,15 @@ function RecentCallsTable({ data: initialData }: { data: CallHistoryItem[] }) {
   });
 
   return (
-    <Tabs defaultValue="outline" className="w-full flex-col justify-start gap-6 rounded-xl text-card-foreground mt-6">
+    <Tabs
+      defaultValue="outline"
+      className="w-full flex-col justify-start gap-6 rounded-xl text-card-foreground mt-6"
+    >
       <div className="flex items-center justify-between px-4 lg:px-6">
-        
         <TabsList className="data-[slot=badge]:size-5 data-[slot=badge]:rounded-full data-[slot=badge]:bg-muted-foreground/30 data-[slot=badge]:px-1 @4xl/main:flex">
           <TabsTrigger value="outline">Recent Calls</TabsTrigger>
         </TabsList>
-        
+
         <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -331,18 +331,14 @@ function RecentCallsTable({ data: initialData }: { data: CallHistoryItem[] }) {
               {table
                 .getAllColumns()
                 .filter(
-                  (column: any) =>
-                    typeof column.accessorFn !== "undefined" &&
-                    column.getCanHide()
+                  (column: any) => typeof column.accessorFn !== "undefined" && column.getCanHide()
                 )
                 .map((column: any) => (
                   <DropdownMenuCheckboxItem
                     key={column.id}
                     className="capitalize"
                     checked={column.getIsVisible()}
-                    onCheckedChange={(value: boolean) =>
-                      column.toggleVisibility(!!value)
-                    }
+                    onCheckedChange={(value: boolean) => column.toggleVisibility(!!value)}
                   >
                     {column.id}
                   </DropdownMenuCheckboxItem>
@@ -363,7 +359,9 @@ function RecentCallsTable({ data: initialData }: { data: CallHistoryItem[] }) {
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header: any) => (
                     <TableHead key={header.id} colSpan={header.colSpan}>
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableHead>
                   ))}
                 </TableRow>
@@ -372,7 +370,7 @@ function RecentCallsTable({ data: initialData }: { data: CallHistoryItem[] }) {
             <TableBody>
               {table.getRowModel().rows?.length ? (
                 table.getRowModel().rows.map((row: any) => (
-                  <TableRow key={row.id} data-state={row.getIsSelected() && "selected"} >
+                  <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                     {row.getVisibleCells().map((cell: any) => (
                       <TableCell key={cell.id}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -382,7 +380,9 @@ function RecentCallsTable({ data: initialData }: { data: CallHistoryItem[] }) {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={columns.length} className="h-24 text-center">No results.</TableCell>
+                  <TableCell colSpan={columns.length} className="h-24 text-center">
+                    No results.
+                  </TableCell>
                 </TableRow>
               )}
             </TableBody>
@@ -395,14 +395,21 @@ function RecentCallsTable({ data: initialData }: { data: CallHistoryItem[] }) {
           </div>
           <div className="flex w-full items-center gap-8 lg:w-fit">
             <div className="hidden items-center gap-2 lg:flex">
-              <Label htmlFor="rows-per-page" className="text-sm font-medium">Rows per page</Label>
-              <Select value={`${table.getState().pagination.pageSize}`} onValueChange={(value) => table.setPageSize(Number(value))}>
+              <Label htmlFor="rows-per-page" className="text-sm font-medium">
+                Rows per page
+              </Label>
+              <Select
+                value={`${table.getState().pagination.pageSize}`}
+                onValueChange={(value) => table.setPageSize(Number(value))}
+              >
                 <SelectTrigger className="w-20" id="rows-per-page">
                   <SelectValue placeholder={table.getState().pagination.pageSize} />
                 </SelectTrigger>
                 <SelectContent side="top">
                   {[10, 20, 30, 40, 50].map((pageSize) => (
-                    <SelectItem key={pageSize} value={`${pageSize}`}>{pageSize}</SelectItem>
+                    <SelectItem key={pageSize} value={`${pageSize}`}>
+                      {pageSize}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -411,19 +418,42 @@ function RecentCallsTable({ data: initialData }: { data: CallHistoryItem[] }) {
               Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount() || 1}
             </div>
             <div className="ml-auto flex items-center gap-2 lg:ml-0">
-              <Button variant="outline" className="hidden h-8 w-8 p-0 lg:flex" onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>
+              <Button
+                variant="outline"
+                className="hidden h-8 w-8 p-0 lg:flex"
+                onClick={() => table.setPageIndex(0)}
+                disabled={!table.getCanPreviousPage()}
+              >
                 <span className="sr-only">Go to first page</span>
                 <IconChevronsLeft className="size-4" />
               </Button>
-              <Button variant="outline" className="size-8" size="icon" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+              <Button
+                variant="outline"
+                className="size-8"
+                size="icon"
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
+              >
                 <span className="sr-only">Go to previous page</span>
                 <IconChevronLeft className="size-4" />
               </Button>
-              <Button variant="outline" className="size-8" size="icon" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+              <Button
+                variant="outline"
+                className="size-8"
+                size="icon"
+                onClick={() => table.nextPage()}
+                disabled={!table.getCanNextPage()}
+              >
                 <span className="sr-only">Go to next page</span>
                 <IconChevronRight className="size-4" />
               </Button>
-              <Button variant="outline" className="hidden size-8 lg:flex" size="icon" onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()}>
+              <Button
+                variant="outline"
+                className="hidden size-8 lg:flex"
+                size="icon"
+                onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+                disabled={!table.getCanNextPage()}
+              >
                 <span className="sr-only">Go to last page</span>
                 <IconChevronsRight className="size-4" />
               </Button>
@@ -432,13 +462,19 @@ function RecentCallsTable({ data: initialData }: { data: CallHistoryItem[] }) {
         </div>
       </TabsContent>
       <TabsContent value="past-performance" className="flex flex-col px-4 lg:px-6">
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed flex items-center justify-center text-muted-foreground">Past Performance Area</div>
+        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed flex items-center justify-center text-muted-foreground">
+          Past Performance Area
+        </div>
       </TabsContent>
       <TabsContent value="key-personnel" className="flex flex-col px-4 lg:px-6">
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed flex items-center justify-center text-muted-foreground">Key Personnel Area</div>
+        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed flex items-center justify-center text-muted-foreground">
+          Key Personnel Area
+        </div>
       </TabsContent>
       <TabsContent value="focus-documents" className="flex flex-col px-4 lg:px-6">
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed flex items-center justify-center text-muted-foreground">Focus Documents Area</div>
+        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed flex items-center justify-center text-muted-foreground">
+          Focus Documents Area
+        </div>
       </TabsContent>
     </Tabs>
   );
@@ -452,8 +488,17 @@ export default function OverviewPage() {
   const [activeCalls, setActiveCalls] = useState(0);
   const [recentLogs, setRecentLogs] = useState<CallHistoryItem[]>([]);
   const [openTickets, setOpenTickets] = useState<number | null>(null);
-  const [chartData, setChartData] = useState<{ date: string; inbound: number; outbound: number }[]>([]);
-  const [totals, setTotals] = useState({ total_calls: 0, inbound: 0, outbound: 0, answered: 0, missed: 0, avg_duration: 0 });
+  const [chartData, setChartData] = useState<{ date: string; inbound: number; outbound: number }[]>(
+    []
+  );
+  const [totals, setTotals] = useState({
+    total_calls: 0,
+    inbound: 0,
+    outbound: 0,
+    answered: 0,
+    missed: 0,
+    avg_duration: 0,
+  });
   const [timeRange, setTimeRange] = useState("90d");
   const isMobile = useIsMobile();
 
@@ -465,50 +510,71 @@ export default function OverviewPage() {
 
   // Fetch stats from PBX API
   useEffect(() => {
-    pbxUsers.list().then((u) => setTotalUsers(u.length)).catch(() => {});
-    pbxCalls.count().then((c) => setActiveCalls(c.count)).catch(() => {});
+    pbxUsers
+      .list()
+      .then((u) => setTotalUsers(u.length))
+      .catch(() => {});
+    pbxCalls
+      .count()
+      .then((c) => setActiveCalls(c.count))
+      .catch(() => {});
 
-    pbxCalls.stats().then((s) => {
-      if (s?.totals) setTotals(s.totals);
-      if (Array.isArray(s?.weekly) && s.weekly.length > 0) {
-        setChartData(s.weekly.map((w) => ({
-          date: w.date + "T00:00:00",
-          inbound: w.inbound,
-          outbound: w.outbound,
-        })));
-      }
-    }).catch((e) => {
-      console.error("[overview] /calls/stats failed:", e);
-    });
+    pbxCalls
+      .stats()
+      .then((s) => {
+        if (s?.totals) setTotals(s.totals);
+        if (Array.isArray(s?.weekly) && s.weekly.length > 0) {
+          setChartData(
+            s.weekly.map((w) => ({
+              date: w.date + "T00:00:00",
+              inbound: w.inbound,
+              outbound: w.outbound,
+            }))
+          );
+        }
+      })
+      .catch((e) => {
+        console.error("[overview] /calls/stats failed:", e);
+      });
 
     // Recent calls for the table (last 10)
-    pbxCalls.history({ limit: 10 }).then((r) => setRecentLogs(r.items)).catch((e) => {
-      console.error("[overview] /calls history (table) failed:", e);
-    });
+    pbxCalls
+      .history({ limit: 10 })
+      .then((r) => setRecentLogs(r.items))
+      .catch((e) => {
+        console.error("[overview] /calls history (table) failed:", e);
+      });
 
     // Wider history to back the chart when /calls/stats is empty/unavailable.
     // Aggregates calls per day + direction so the chart always matches the
     // data we know is reachable via the history endpoint.
-    pbxCalls.history({ limit: 500 }).then((r) => {
-      const buckets = new Map<string, { inbound: number; outbound: number }>();
-      for (const item of r.items) {
-        if (!item.started_at) continue;
-        const d = new Date(item.started_at);
-        if (Number.isNaN(d.getTime())) continue;
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-        const bucket = buckets.get(key) ?? { inbound: 0, outbound: 0 };
-        if (item.direction === "outbound") bucket.outbound += 1;
-        else if (item.direction === "inbound") bucket.inbound += 1;
-        else continue;
-        buckets.set(key, bucket);
-      }
-      const aggregated = Array.from(buckets.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, v]) => ({ date: date + "T00:00:00", inbound: v.inbound, outbound: v.outbound }));
-      setChartData((prev) => (prev.length > 0 ? prev : aggregated));
-    }).catch((e) => {
-      console.error("[overview] /calls history (chart) failed:", e);
-    });
+    pbxCalls
+      .history({ limit: 500 })
+      .then((r) => {
+        const buckets = new Map<string, { inbound: number; outbound: number }>();
+        for (const item of r.items) {
+          if (!item.started_at) continue;
+          const d = new Date(item.started_at);
+          if (Number.isNaN(d.getTime())) continue;
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          const bucket = buckets.get(key) ?? { inbound: 0, outbound: 0 };
+          if (item.direction === "outbound") bucket.outbound += 1;
+          else if (item.direction === "inbound") bucket.inbound += 1;
+          else continue;
+          buckets.set(key, bucket);
+        }
+        const aggregated = Array.from(buckets.entries())
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([date, v]) => ({
+            date: date + "T00:00:00",
+            inbound: v.inbound,
+            outbound: v.outbound,
+          }));
+        setChartData((prev) => (prev.length > 0 ? prev : aggregated));
+      })
+      .catch((e) => {
+        console.error("[overview] /calls history (chart) failed:", e);
+      });
   }, [orgId]);
 
   // Live open-ticket count from MariaDB (Phase B+). Refetches via
@@ -520,7 +586,8 @@ export default function OverviewPage() {
   }, [orgId]);
 
   // Compute stats
-  const totalCalls = totals.total_calls || chartData.reduce((sum, d) => sum + d.inbound + d.outbound, 0);
+  const totalCalls =
+    totals.total_calls || chartData.reduce((sum, d) => sum + d.inbound + d.outbound, 0);
   const avgDuration = totals.avg_duration || 0;
 
   // Build a continuous day range for the selected time window so the X-axis
@@ -569,8 +636,7 @@ export default function OverviewPage() {
             </CardTitle>
             <div className="absolute right-6 top-6">
               <Badge variant="outline">
-                <TrendingUp className="mr-1 h-3 w-3" />
-                +{totalCalls}
+                <TrendingUp className="mr-1 h-3 w-3" />+{totalCalls}
               </Badge>
             </div>
           </CardHeader>
@@ -578,9 +644,7 @@ export default function OverviewPage() {
             <div className="line-clamp-1 flex gap-2 font-medium">
               Trending up this week <TrendingUp className="size-4" />
             </div>
-            <div className="text-muted-foreground">
-              Total incoming and outgoing calls
-            </div>
+            <div className="text-muted-foreground">Total incoming and outgoing calls</div>
           </CardFooter>
         </Card>
 
@@ -599,11 +663,9 @@ export default function OverviewPage() {
           </CardHeader>
           <CardFooter className="flex-col items-start gap-1.5 text-sm">
             <div className="line-clamp-1 flex gap-2 font-medium">
-              {(totalUsers ?? 0)} registered extensions <TrendingUp className="size-4" />
+              {totalUsers ?? 0} registered extensions <TrendingUp className="size-4" />
             </div>
-            <div className="text-muted-foreground">
-              SIP endpoints configured
-            </div>
+            <div className="text-muted-foreground">SIP endpoints configured</div>
           </CardFooter>
         </Card>
 
@@ -615,7 +677,11 @@ export default function OverviewPage() {
             </CardTitle>
             <div className="absolute right-6 top-6">
               <Badge variant="outline">
-                {(openTickets ?? 0) > 0 ? <TrendingDown className="mr-1 h-3 w-3" /> : <TrendingUp className="mr-1 h-3 w-3" />}
+                {(openTickets ?? 0) > 0 ? (
+                  <TrendingDown className="mr-1 h-3 w-3" />
+                ) : (
+                  <TrendingUp className="mr-1 h-3 w-3" />
+                )}
                 {openTickets ?? 0}
               </Badge>
             </div>
@@ -623,11 +689,13 @@ export default function OverviewPage() {
           <CardFooter className="flex-col items-start gap-1.5 text-sm">
             <div className="line-clamp-1 flex gap-2 font-medium">
               {(openTickets ?? 0) > 0 ? "Needs attention" : "All clear"}
-              {(openTickets ?? 0) > 0 ? <TrendingDown className="size-4" /> : <TrendingUp className="size-4" />}
+              {(openTickets ?? 0) > 0 ? (
+                <TrendingDown className="size-4" />
+              ) : (
+                <TrendingUp className="size-4" />
+              )}
             </div>
-            <div className="text-muted-foreground">
-              Tickets awaiting resolution
-            </div>
+            <div className="text-muted-foreground">Tickets awaiting resolution</div>
           </CardFooter>
         </Card>
 
@@ -648,9 +716,7 @@ export default function OverviewPage() {
             <div className="line-clamp-1 flex gap-2 font-medium">
               Steady call performance <TrendingUp className="size-4" />
             </div>
-            <div className="text-muted-foreground">
-              Across all answered calls
-            </div>
+            <div className="text-muted-foreground">Across all answered calls</div>
           </CardFooter>
         </Card>
       </div>
@@ -660,9 +726,7 @@ export default function OverviewPage() {
           <div className="flex flex-col space-y-1.5">
             <CardTitle>Call Volume</CardTitle>
             <CardDescription>
-              <span className="hidden @[540px]/card:block">
-                Inbound and outbound calls
-              </span>
+              <span className="hidden @[540px]/card:block">Inbound and outbound calls</span>
               <span className="@[540px]/card:hidden">Call Volume</span>
             </CardDescription>
           </div>
@@ -700,35 +764,16 @@ export default function OverviewPage() {
           </div>
         </CardHeader>
         <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-          <ChartContainer
-            config={chartConfig}
-            className="aspect-auto h-[250px] w-full"
-          >
+          <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
             <AreaChart data={filteredChartData}>
               <defs>
                 <linearGradient id="fillInbound" x1="0" y1="0" x2="0" y2="1">
-                  <stop
-                    offset="5%"
-                    stopColor="hsl(221, 83%, 53%)"
-                    stopOpacity={0.8}
-                  />
-                  <stop
-                    offset="95%"
-                    stopColor="hsl(221, 83%, 53%)"
-                    stopOpacity={0.1}
-                  />
+                  <stop offset="5%" stopColor="hsl(221, 83%, 53%)" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="hsl(221, 83%, 53%)" stopOpacity={0.1} />
                 </linearGradient>
                 <linearGradient id="fillOutbound" x1="0" y1="0" x2="0" y2="1">
-                  <stop
-                    offset="5%"
-                    stopColor="hsl(221, 83%, 40%)"
-                    stopOpacity={0.8}
-                  />
-                  <stop
-                    offset="95%"
-                    stopColor="hsl(221, 83%, 40%)"
-                    stopOpacity={0.1}
-                  />
+                  <stop offset="5%" stopColor="hsl(221, 83%, 40%)" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="hsl(221, 83%, 40%)" stopOpacity={0.1} />
                 </linearGradient>
               </defs>
               <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -781,7 +826,6 @@ export default function OverviewPage() {
       </Card>
 
       <RecentCallsTable data={recentLogs} />
-
     </div>
   );
 }

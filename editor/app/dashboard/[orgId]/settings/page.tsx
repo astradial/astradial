@@ -1,17 +1,15 @@
 "use client";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ExternalLink, LogOut, RefreshCw, Upload } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LogOut, RefreshCw, Upload } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { CampaignSettingsPanel } from "@/components/campaigns/CampaignSettingsPanel";
 import { showToast } from "@/components/ui/Toast";
 import { auth as authProvider } from "@/lib/auth";
-import { useAuthStore, isImpersonatingAdmin } from "@/lib/auth/authStore";
-import { orgs as gwOrgs, type Org } from "@/lib/gateway/client";
+import { isImpersonatingAdmin, useAuthStore } from "@/lib/auth/authStore";
+import { type Org, orgs as gwOrgs } from "@/lib/gateway/client";
 import { config as pbxConfig, orgs as pbxOrgs, type PbxOrg } from "@/lib/pbx/client";
 
 export default function SettingsPage() {
@@ -20,12 +18,46 @@ export default function SettingsPage() {
   const [org, setOrg] = useState<Org | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [campaignQueryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 30_000,
+            gcTime: 5 * 60_000,
+            refetchOnWindowFocus: false,
+            retry: (failureCount, err: unknown) => {
+              const status = (err as { status?: number } | null)?.status ?? 0;
+              if (status >= 400 && status < 500) return false;
+              return failureCount < 2;
+            },
+          },
+          mutations: {
+            retry: 0,
+          },
+        },
+      })
+  );
 
   useEffect(() => {
     // Try PBX API first (works with JWT), then gateway, then session fallback
-    pbxOrgs.get(orgId)
-      .then((o: PbxOrg) => setOrg({ id: o.id, name: o.name, is_active: o.status === "active", created_at: o.createdAt || "", updated_at: "" }))
-      .catch(() => gwOrgs.get(orgId).then(setOrg).catch(() => {}));
+    pbxOrgs
+      .get(orgId)
+      .then((o: PbxOrg) =>
+        setOrg({
+          id: o.id,
+          name: o.name,
+          is_active: o.status === "active",
+          created_at: o.createdAt || "",
+          updated_at: "",
+        })
+      )
+      .catch(() =>
+        gwOrgs
+          .get(orgId)
+          .then(setOrg)
+          .catch(() => {})
+      );
   }, [orgId]);
 
   async function handleDeploy() {
@@ -68,88 +100,158 @@ export default function SettingsPage() {
       return;
     }
     useAuthStore.getState().logout();
-    authProvider.signOut().catch((err) => console.warn("[settings] signOut failed:", err?.code || err));
+    authProvider
+      .signOut()
+      .catch((err) => console.warn("[settings] signOut failed:", err?.code || err));
     router.push("/dashboard");
   }
 
   return (
-    <div className="p-3 md:p-6 space-y-6 max-w-3xl">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">Organization settings and configuration</p>
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+      {/* Breadcrumb Header */}
+      <div className="cmp-breadcrumb">
+        <span className="text-muted-foreground">App</span>
+        <span className="cmp-breadcrumb-sep">/</span>
+        <span className="cmp-breadcrumb-active">Settings</span>
+        <div style={{ marginLeft: "auto" }}>
+          <a
+            className="cmp-btn cmp-btn-ghost cmp-btn-sm"
+            href="https://github.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <ExternalLink size={13} /> GitHub
+          </a>
+        </div>
       </div>
 
-      {/* Org Info */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Organization</CardTitle>
-          <CardDescription>Your organization details</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {org ? (
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Name</span>
-                <span className="font-medium">{org.name}</span>
-              </div>
-              <Separator />
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Organization ID</span>
-                <span className="font-mono text-xs">{org.id}</span>
-              </div>
-              <Separator />
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Status</span>
-                <Badge variant={org.is_active ? "default" : "destructive"}>{org.is_active ? "Active" : "Inactive"}</Badge>
-              </div>
-              <Separator />
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Created</span>
-                <span>{org.created_at ? new Date(org.created_at).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" }) : "—"}</span>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">Loading...</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Asterisk Config */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Asterisk Configuration</CardTitle>
-          <CardDescription>Deploy and reload PBX configuration</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handleDeploy} disabled={deploying}>
-              <Upload className="h-4 w-4 mr-1.5" />
-              {deploying ? "Deploying..." : "Deploy Config"}
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleReload} disabled={reloading}>
-              <RefreshCw className={`h-4 w-4 mr-1.5 ${reloading ? "animate-spin" : ""}`} />
-              {reloading ? "Reloading..." : "Reload Asterisk"}
-            </Button>
+      <div className="cmp-page-pad scroll-area">
+        <div className="cmp-page-actions-row">
+          <div>
+            <h1 className="cmp-page-heading">Settings</h1>
+            <p className="cmp-page-subheading">Organization settings and configuration</p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Deploy generates PJSIP and dialplan config files. Reload applies changes without dropping active calls.
-          </p>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Logout */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Session</CardTitle>
-          <CardDescription>Manage your admin session</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="destructive" size="sm" onClick={handleLogout}>
-            <LogOut className="h-4 w-4 mr-1.5" />
-            Logout
-          </Button>
-        </CardContent>
-      </Card>
+        <div className="cmp-settings-grid">
+          {/* Organization Details Card */}
+          <div className="cmp-card-static">
+            <div className="cmp-card-static-header">
+              <span className="cmp-card-static-title">Organization</span>
+              <span className="cmp-card-static-description">Your organization details</span>
+            </div>
+            <div className="cmp-card-static-content">
+              {org ? (
+                <>
+                  <div className="cmp-kv-row">
+                    <span className="cmp-kv-label">Name</span>
+                    <span className="cmp-kv-value">{org.name}</span>
+                  </div>
+                  <div className="cmp-kv-row">
+                    <span className="cmp-kv-label">Organization ID</span>
+                    <span className="cmp-kv-value cmp-mono text-13">{org.id}</span>
+                  </div>
+                  <div className="cmp-kv-row">
+                    <span className="cmp-kv-label">Status</span>
+                    <span
+                      className="cmp-chip"
+                      style={{
+                        background: org.is_active ? "oklch(0.965 0.04 150)" : "var(--secondary)",
+                        color: org.is_active ? "oklch(0.4 0.13 150)" : "var(--muted-foreground)",
+                        fontWeight: 600,
+                        border: "1px solid transparent",
+                      }}
+                    >
+                      {org.is_active ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+                  <div className="cmp-kv-row">
+                    <span className="cmp-kv-label">Created</span>
+                    <span className="cmp-kv-value">
+                      {org.created_at
+                        ? new Date(org.created_at).toLocaleDateString("en-IN", {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                          })
+                        : "—"}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">Loading...</p>
+              )}
+            </div>
+          </div>
+
+          {/* Lead Fields Configurator Card */}
+          <QueryClientProvider client={campaignQueryClient}>
+            <CampaignSettingsPanel orgId={orgId} showBackLink={false} embedded />
+          </QueryClientProvider>
+
+          {/* Asterisk Configuration Card */}
+          <div className="cmp-card-static">
+            <div className="cmp-card-static-header">
+              <span className="cmp-card-static-title">Asterisk Configuration</span>
+              <span className="cmp-card-static-description">
+                Deploy and reload PBX configuration
+              </span>
+            </div>
+            <div className="cmp-card-static-content">
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className="cmp-btn cmp-btn-ghost cmp-btn-sm"
+                  style={{ border: "1px solid var(--border)" }}
+                  onClick={handleDeploy}
+                  disabled={deploying}
+                >
+                  <Upload size={14} style={{ marginRight: 6 }} /> Deploy Config
+                </button>
+                <button
+                  className="cmp-btn cmp-btn-ghost cmp-btn-sm"
+                  style={{ border: "1px solid var(--border)" }}
+                  onClick={handleReload}
+                  disabled={reloading}
+                >
+                  <RefreshCw
+                    size={14}
+                    className={reloading ? "animate-spin" : ""}
+                    style={{ marginRight: 6 }}
+                  />{" "}
+                  Reload Asterisk
+                </button>
+              </div>
+              <p className="text-13 fg-muted" style={{ marginTop: 12, marginBottom: 0 }}>
+                Deploy generates PJSIP and dialplan config files. Reload applies changes without
+                dropping active calls.
+              </p>
+            </div>
+          </div>
+
+          {/* Session Card */}
+          <div className="cmp-card-static">
+            <div className="cmp-card-static-header">
+              <span className="cmp-card-static-title">Session</span>
+              <span className="cmp-card-static-description">Manage your admin session</span>
+            </div>
+            <div className="cmp-card-static-content">
+              <button
+                className="cmp-btn cmp-btn-sm"
+                style={{
+                  background: "oklch(0.7 0.18 27)",
+                  color: "white",
+                  display: "inline-flex",
+                  alignItems: "center",
+                }}
+                onClick={handleLogout}
+              >
+                <LogOut size={14} style={{ marginRight: 6 }} /> Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -36,19 +36,34 @@ function label(s: LeadStatus | "all", counts: Props["counts"]): string {
   const n = counts?.[s];
   const nLabel = typeof n === "number" ? ` (${numberFmt.format(n)})` : "";
   switch (s) {
-    case "all": return `All statuses${nLabel}`;
-    case "qualified": return `Qualified${nLabel}`;
-    case "interested": return `Interested${nLabel}`;
-    case "engaged": return `Engaged${nLabel}`;
-    case "contacted": return `Contacted${nLabel}`;
-    case "disqualified": return `Disqualified${nLabel}`;
-    case "dnc": return `Do not contact${nLabel}`;
-    case "raw": return `Raw${nLabel}`;
+    case "all":
+      return `All statuses${nLabel}`;
+    case "qualified":
+      return `Qualified${nLabel}`;
+    case "interested":
+      return `Interested${nLabel}`;
+    case "engaged":
+      return `Engaged${nLabel}`;
+    case "contacted":
+      return `Contacted${nLabel}`;
+    case "disqualified":
+      return `Disqualified${nLabel}`;
+    case "dnc":
+      return `Do not contact${nLabel}`;
+    case "raw":
+      return `Raw${nLabel}`;
   }
 }
 
 const STATUS_ORDER: StatusFilter[] = [
-  "all", "qualified", "interested", "engaged", "contacted", "disqualified", "dnc", "raw",
+  "all",
+  "qualified",
+  "interested",
+  "engaged",
+  "contacted",
+  "disqualified",
+  "dnc",
+  "raw",
 ];
 
 export function LeadsToolbar({
@@ -101,7 +116,7 @@ export function LeadsToolbar({
           type="button"
           role="tab"
           aria-selected={view === "kanban"}
-          className={view === "kanban" ? "cmp-active" : ""}
+          className={view === "kanban" ? "cmp-active" : "" + ""}
           onClick={() => onViewChange("kanban")}
         >
           <SquareKanban size={14} /> Kanban

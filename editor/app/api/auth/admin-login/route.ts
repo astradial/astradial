@@ -18,7 +18,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (!GATEWAY_ADMIN_KEY) {
-    return NextResponse.json({ error: "Gateway admin key not configured on server" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Gateway admin key not configured on server" },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ admin_key: GATEWAY_ADMIN_KEY });

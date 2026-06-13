@@ -1,42 +1,43 @@
 "use client";
 
+import "@xyflow/react/dist/style.css";
+
+import {
+  addEdge,
+  Background,
+  BackgroundVariant,
+  type Connection,
+  Controls,
+  type Edge,
+  MiniMap,
+  type Node,
+  type NodeTypes,
+  type OnConnect,
+  ReactFlow,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
+} from "@xyflow/react";
+import {
+  ArrowLeft,
+  Play,
+  Plus,
+  Save,
+  Sparkles,
+  Trash2,
+  UploadCloud,
+  Volume2,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ArrowLeft,
-  Plus,
-  Trash2,
-  Play,
-  Volume2,
-  Sparkles,
-  Save,
-  UploadCloud,
-  X,
-} from "lucide-react";
-import {
-  ReactFlow,
-  ReactFlowProvider,
-  Background,
-  BackgroundVariant,
-  Controls,
-  MiniMap,
-  addEdge,
-  useEdgesState,
-  useNodesState,
-  type Node,
-  type Edge,
-  type Connection,
-  type NodeTypes,
-  type OnConnect,
-} from "@xyflow/react";
-
-import "@xyflow/react/dist/style.css";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Select,
   SelectContent,
@@ -48,19 +49,18 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { showToast } from "@/components/ui/Toast";
 import {
-  ivrs,
-  queues,
-  tts,
-  users as pbxUsers,
   type Ivr,
   type IvrActionType,
   type IvrMenuOption,
+  ivrs,
   type PbxQueue,
   type PbxUser,
+  queues,
+  tts,
   type TtsModel,
   type TtsVoiceGroup,
+  users as pbxUsers,
 } from "@/lib/pbx/client";
-import { SearchableSelect } from "@/components/ui/searchable-select";
 
 import EntryNode, { type EntryNodeData } from "./nodes/EntryNode";
 import GreetingNode, { type GreetingNodeData } from "./nodes/GreetingNode";
@@ -117,7 +117,7 @@ export default function IvrBuilderPage() {
 // This is the authoritative source of truth that we translate to
 // IvrMenuOption[] when saving.
 interface MenuDraft {
-  id: string;                 // local uuid used as React Flow node id
+  id: string; // local uuid used as React Flow node id
   digit: string;
   action_type: IvrActionType;
   action_destination: string; // extension number or uuid depending on type
@@ -149,7 +149,9 @@ function IvrBuilderInner() {
   // timeoutDestination immediately so a customer whose default flow
   // is "drop straight into queue 5002 if they don't press anything"
   // doesn't burn N × greeting cycles on every silent call.
-  const [timeoutAction, setTimeoutAction] = useState<"retry" | "queue" | "extension" | "hangup">("retry");
+  const [timeoutAction, setTimeoutAction] = useState<"retry" | "queue" | "extension" | "hangup">(
+    "retry"
+  );
   const [timeoutDestination, setTimeoutDestination] = useState("");
   const [directDial, setDirectDial] = useState(false);
   const [language, setLanguage] = useState("en-IN");
@@ -206,7 +208,9 @@ function IvrBuilderInner() {
       setDescription(full.description ?? "");
       setTimeoutS(full.timeout);
       setMaxRetries(full.max_retries);
-      setTimeoutAction((full.timeout_action as "retry" | "queue" | "extension" | "hangup") || "retry");
+      setTimeoutAction(
+        (full.timeout_action as "retry" | "queue" | "extension" | "hangup") || "retry"
+      );
       setTimeoutDestination(full.timeout_destination || "");
       setDirectDial(full.enable_direct_dial);
       setLanguage(full.greeting_language);
@@ -268,8 +272,7 @@ function IvrBuilderInner() {
     [allUsers, allQueues, allIvrs]
   );
 
-  const isMenuValid = (action: IvrActionType, dest: string) =>
-    action === "hangup" || !!dest;
+  const isMenuValid = (action: IvrActionType, dest: string) => action === "hangup" || !!dest;
 
   // ─── Rebuild nodes + edges whenever menus / metadata / catalogs change ───
   useEffect(() => {
@@ -374,9 +377,7 @@ function IvrBuilderInner() {
   }
 
   function updateMenu(id: string, patch: Partial<MenuDraft>) {
-    setMenus((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, ...patch } : m))
-    );
+    setMenus((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
     setDirtyMenu(true);
   }
 
@@ -405,16 +406,16 @@ function IvrBuilderInner() {
         // with the saved choice. Without these here the form silently
         // dropped them on Save, surfacing as data loss on page reload.
         tts_model: ttsModel,
-        style_instructions: supportsStyle && styleInstructions.trim()
-          ? styleInstructions.trim()
-          : null,
+        style_instructions:
+          supportsStyle && styleInstructions.trim() ? styleInstructions.trim() : null,
         // Send the destination only when the chosen action actually
         // uses it — otherwise null it out so stale values from a
         // previously-saved 'queue' setting don't leak into 'hangup'.
         timeout_action: timeoutAction,
-        timeout_destination: (timeoutAction === "queue" || timeoutAction === "extension")
-          ? (timeoutDestination.trim() || null)
-          : null,
+        timeout_destination:
+          timeoutAction === "queue" || timeoutAction === "extension"
+            ? timeoutDestination.trim() || null
+            : null,
       });
       showToast("Settings saved", "success");
     } catch (e) {
@@ -492,7 +493,8 @@ function IvrBuilderInner() {
         // Only send the style prompt when the model actually supports
         // it — server rejects with 400 otherwise, but no point round-
         // tripping a known-invalid combo.
-        style_instructions: supportsStyle && styleInstructions.trim() ? styleInstructions.trim() : null,
+        style_instructions:
+          supportsStyle && styleInstructions.trim() ? styleInstructions.trim() : null,
       });
       setGreetingFile(res.greeting_prompt);
       showToast(`Greeting generated in ${res.language}`, "success");
@@ -508,9 +510,7 @@ function IvrBuilderInner() {
     setPlayingSaved(true);
     try {
       const token =
-        typeof window !== "undefined"
-          ? localStorage.getItem("pbx_org_token") || ""
-          : "";
+        typeof window !== "undefined" ? localStorage.getItem("pbx_org_token") || "" : "";
       const src = `/api/pbx/ivrs/${ivrId}/greeting-audio?token=${encodeURIComponent(token)}&_t=${Date.now()}`;
       const audio = new Audio(src);
       audio.onended = () => setPlayingSaved(false);
@@ -528,16 +528,14 @@ function IvrBuilderInner() {
   async function handlePreviewVoice() {
     setPreviewing(true);
     try {
-      const text =
-        greetingText.trim() ||
-        PREVIEW_SAMPLES[language] ||
-        PREVIEW_SAMPLES["en-IN"];
+      const text = greetingText.trim() || PREVIEW_SAMPLES[language] || PREVIEW_SAMPLES["en-IN"];
       const blob = await tts.preview({
         text,
         language,
         voice,
         model: ttsModel,
-        style_instructions: supportsStyle && styleInstructions.trim() ? styleInstructions.trim() : undefined,
+        style_instructions:
+          supportsStyle && styleInstructions.trim() ? styleInstructions.trim() : undefined,
       });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
@@ -610,10 +608,7 @@ function IvrBuilderInner() {
     return (
       <div className="p-6">
         <p>IVR not found.</p>
-        <Link
-          href={`/dashboard/${orgId}/ivr`}
-          className="text-primary hover:underline"
-        >
+        <Link href={`/dashboard/${orgId}/ivr`} className="text-primary hover:underline">
           ← Back
         </Link>
       </div>
@@ -625,7 +620,11 @@ function IvrBuilderInner() {
       {/* Top bar */}
       <div className="flex items-center justify-between gap-4 border-b px-4 py-2">
         <div className="flex items-center gap-2 min-w-0">
-          <Button variant="ghost" size="icon" onClick={() => router.push(`/dashboard/${orgId}/ivr`)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.push(`/dashboard/${orgId}/ivr`)}
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="min-w-0">
@@ -708,10 +707,7 @@ function IvrBuilderInner() {
                   </div>
                   <div className="grid gap-2">
                     <Label>Extension</Label>
-                    <Input
-                      value={extension}
-                      onChange={(e) => setExtension(e.target.value)}
-                    />
+                    <Input value={extension} onChange={(e) => setExtension(e.target.value)} />
                   </div>
                   <div className="grid gap-2">
                     <Label>Description</Label>
@@ -770,7 +766,9 @@ function IvrBuilderInner() {
                       <Label>On no-keypress</Label>
                       <Select
                         value={timeoutAction}
-                        onValueChange={(v) => setTimeoutAction(v as "retry" | "queue" | "extension" | "hangup")}
+                        onValueChange={(v) =>
+                          setTimeoutAction(v as "retry" | "queue" | "extension" | "hangup")
+                        }
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -788,15 +786,15 @@ function IvrBuilderInner() {
                     </div>
                     {(timeoutAction === "queue" || timeoutAction === "extension") && (
                       <div className="grid gap-2">
-                        <Label>
-                          {timeoutAction === "queue" ? "Queue number" : "Extension"}
-                        </Label>
+                        <Label>{timeoutAction === "queue" ? "Queue number" : "Extension"}</Label>
                         <Input
                           type="text"
                           inputMode="numeric"
                           pattern="[0-9]*"
                           value={timeoutDestination}
-                          onChange={(e) => setTimeoutDestination(e.target.value.replace(/[^0-9]/g, ""))}
+                          onChange={(e) =>
+                            setTimeoutDestination(e.target.value.replace(/[^0-9]/g, ""))
+                          }
                           placeholder={timeoutAction === "queue" ? "5002" : "1004"}
                         />
                         <p className="text-[10px] text-muted-foreground">
@@ -815,12 +813,14 @@ function IvrBuilderInner() {
                         Allow 4-digit dial to skip menu
                       </p>
                     </div>
-                    <Switch
-                      checked={directDial}
-                      onCheckedChange={setDirectDial}
-                    />
+                    <Switch checked={directDial} onCheckedChange={setDirectDial} />
                   </div>
-                  <Button className="w-full" variant="outline" onClick={handleSaveMetadata} disabled={saving}>
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    onClick={handleSaveMetadata}
+                    disabled={saving}
+                  >
                     Save settings
                   </Button>
                 </>
@@ -844,15 +844,21 @@ function IvrBuilderInner() {
                         if (first) setVoice(first);
                       }}
                     >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
                         {ttsModels.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.label}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     {selectedModelDef?.description && (
-                      <p className="text-xs text-muted-foreground">{selectedModelDef.description}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {selectedModelDef.description}
+                      </p>
                     )}
                   </div>
                   <div className="grid gap-2">
@@ -863,8 +869,9 @@ function IvrBuilderInner() {
                         setLanguage(v);
                         // Snap voice to the first one in the new
                         // language under the current model.
-                        const first = selectedModelDef?.voicesByLanguage[v]?.[0]
-                          ?? voices.find((x) => x.language === v)?.voices[0];
+                        const first =
+                          selectedModelDef?.voicesByLanguage[v]?.[0] ??
+                          voices.find((x) => x.language === v)?.voices[0];
                         if (first) setVoice(first);
                       }}
                     >
@@ -895,7 +902,10 @@ function IvrBuilderInner() {
                           value: v,
                           // Strip lang prefix + family for a readable label;
                           // falls through for bare Gemini names like "Kore".
-                          label: v.replace(/^[a-z]{2}-[A-Z]{2}-(?:Chirp3-HD-|Chirp3-|Wavenet-|Neural2-|Studio-|Standard-)/, ""),
+                          label: v.replace(
+                            /^[a-z]{2}-[A-Z]{2}-(?:Chirp3-HD-|Chirp3-|Wavenet-|Neural2-|Studio-|Standard-)/,
+                            ""
+                          ),
                         }))}
                         value={voice}
                         onChange={setVoice}
@@ -920,7 +930,10 @@ function IvrBuilderInner() {
                       for models that don't support a prompt. */}
                   {supportsStyle && (
                     <div className="grid gap-2">
-                      <Label>Style instructions <span className="text-xs text-muted-foreground">(optional)</span></Label>
+                      <Label>
+                        Style instructions{" "}
+                        <span className="text-xs text-muted-foreground">(optional)</span>
+                      </Label>
                       <Textarea
                         rows={2}
                         value={styleInstructions}
@@ -928,7 +941,9 @@ function IvrBuilderInner() {
                         placeholder='e.g. "Speak in a warm hotel-reception tone." or "Sound urgent and clear."'
                         maxLength={500}
                       />
-                      <p className="text-xs text-muted-foreground">A short natural-language nudge for how the bot should sound. Max 500 chars.</p>
+                      <p className="text-xs text-muted-foreground">
+                        A short natural-language nudge for how the bot should sound. Max 500 chars.
+                      </p>
                     </div>
                   )}
                   <div className="grid gap-2">
@@ -958,11 +973,7 @@ function IvrBuilderInner() {
                     )}
                     <Button onClick={handleGenerateGreeting} disabled={generating}>
                       <Sparkles className="h-4 w-4 mr-2" />
-                      {generating
-                        ? "Generating…"
-                        : greetingFile
-                          ? "Regenerate"
-                          : "Generate"}
+                      {generating ? "Generating…" : greetingFile ? "Regenerate" : "Generate"}
                     </Button>
                   </div>
                 </>

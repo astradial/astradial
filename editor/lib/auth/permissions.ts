@@ -33,8 +33,5 @@ export function canManageOrgInfrastructure(): boolean {
   }
 
   const role = readRole();
-  return (
-    !!localStorage.getItem("pbx_org_token") &&
-    (role === "owner" || role === "admin")
-  );
+  return !!localStorage.getItem("pbx_org_token") && (role === "owner" || role === "admin");
 }

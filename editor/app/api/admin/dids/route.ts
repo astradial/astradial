@@ -47,7 +47,7 @@ export async function GET() {
         });
         if (didRes.ok) {
           const dids = await didRes.json();
-          for (const d of (Array.isArray(dids) ? dids : [])) {
+          for (const d of Array.isArray(dids) ? dids : []) {
             allDids.push({ ...d, organization: { id: org.id, name: org.name } });
           }
         }
@@ -56,7 +56,8 @@ export async function GET() {
 
     const counts = {
       total: allDids.length,
-      available: allDids.filter((d: Record<string, unknown>) => d.pool_status === "available").length,
+      available: allDids.filter((d: Record<string, unknown>) => d.pool_status === "available")
+        .length,
       pending: allDids.filter((d: Record<string, unknown>) => d.pool_status === "pending").length,
       assigned: allDids.filter((d: Record<string, unknown>) => d.pool_status === "assigned").length,
       reserved: allDids.filter((d: Record<string, unknown>) => d.pool_status === "reserved").length,

@@ -1,45 +1,43 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { useTheme } from "next-themes";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { signOut } from "firebase/auth";
-import { auth, db as firestoreDb, USE_FIREBASE } from "@/lib/firebase/config";
-import { ASTRAPBX_ROOT } from "@/lib/firebase/firestore";
-import { useAuthStore, isImpersonatingAdmin } from "@/lib/auth/authStore";
-import { auth as authProvider } from "@/lib/auth";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import {
-  LayoutDashboard,
-  Users,
-  Phone,
-  Server,
-  ListOrdered,
-  PhoneCall,
-  Contact,
+  ArrowLeft,
+  BookOpen,
   Briefcase,
+  CircleAlert,
+  Contact,
   HandshakeIcon,
-  Target,
-  SlidersHorizontal,
-  Ticket,
-  Sparkles,
+  LayoutDashboard,
+  Lightbulb,
+  ListOrdered,
+  LogOut,
+  MessageCircle,
+  Moon,
+  MoreVertical,
+  Phone,
+  PhoneCall,
   Route,
+  Server,
   Settings,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Sun,
+  Target,
+  Ticket,
+  Users,
   Webhook,
   Workflow,
-  MessageCircle,
-  ArrowLeft,
-  Sun,
-  Moon,
-  LogOut,
-  MoreVertical,
-  Lightbulb,
-  CircleAlert,
-  BookOpen,
-  ShieldCheck,
 } from "lucide-react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 import { FaWhatsapp } from "react-icons/fa";
+
+import AstradialLogo from "@/components/icons/AstradialLogo";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,7 +45,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import AstradialLogo from "@/components/icons/AstradialLogo";
+import { auth as authProvider } from "@/lib/auth";
+import { isImpersonatingAdmin, useAuthStore } from "@/lib/auth/authStore";
+import { auth, db as firestoreDb, USE_FIREBASE } from "@/lib/firebase/config";
+import { ASTRAPBX_ROOT } from "@/lib/firebase/firestore";
 
 interface SidebarProps {
   orgId: string;
@@ -91,9 +92,7 @@ const navSections = [
   },
   {
     label: "Deploy",
-    items: [
-      { label: "Phone Numbers", icon: Phone, href: "/dids" },
-    ],
+    items: [{ label: "Phone Numbers", icon: Phone, href: "/dids" }],
   },
 ];
 
@@ -114,7 +113,9 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
       const ref = collection(firestoreDb!, ASTRAPBX_ROOT, orgId, "tickets");
       const q = query(ref, where("status", "==", "open"));
       return onSnapshot(q, (snap) => setOpenTickets(snap.size));
-    } catch { return () => {}; }
+    } catch {
+      return () => {};
+    }
   }, [orgId]);
 
   // Get user info from session — prefer org_access.email (set by user-login or
@@ -197,7 +198,9 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
     // the unified auth provider (signs out of Firebase if active, clears
     // local JWT storage if local-mode).
     useAuthStore.getState().logout();
-    authProvider.signOut().catch((err) => console.warn("[sidebar] signOut failed:", err?.code || err));
+    authProvider
+      .signOut()
+      .catch((err) => console.warn("[sidebar] signOut failed:", err?.code || err));
     router.push("/dashboard");
   }
 
@@ -224,7 +227,11 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
           </span>
         )}
         {isAdmin && (
-          <a href="/dashboard" onClick={handleSwitchOrg} className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+          <a
+            href="/dashboard"
+            onClick={handleSwitchOrg}
+            className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
             <ArrowLeft className="h-3 w-3" />
             Switch Organisation
           </a>
@@ -250,7 +257,9 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
                   <item.icon className="h-4 w-4 shrink-0" />
                   <span className="flex-1">{item.label}</span>
                   {item.label === "Tickets" && openTickets > 0 && (
-                    <span className="ml-auto flex h-5 min-w-5 px-1 items-center justify-center rounded-full bg-red-500/80 text-[10px] text-white font-medium">{openTickets}</span>
+                    <span className="ml-auto flex h-5 min-w-5 px-1 items-center justify-center rounded-full bg-red-500/80 text-[10px] text-white font-medium">
+                      {openTickets}
+                    </span>
                   )}
                 </div>
               </Link>
@@ -261,19 +270,36 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
 
       {/* Bottom — Help + Profile */}
       <div className="px-3 pb-1 space-y-0.5">
-        <Link href={`/dashboard/${orgId}/roles`} className="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors">
+        <Link
+          href={`/dashboard/${orgId}/roles`}
+          className="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+        >
           <ShieldCheck className="h-4 w-4 shrink-0" />
           <span>Role Permissions</span>
         </Link>
-        <a href="mailto:admin@example.com?subject=Feature%20Request" className="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors">
+        <a
+          href="mailto:admin@example.com?subject=Feature%20Request"
+          className="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+        >
           <Lightbulb className="h-4 w-4 shrink-0" />
           <span>Request Feature</span>
         </a>
-        <button onClick={() => { if (typeof window !== "undefined") window.alert("For urgent issues, call: +91 99444 21125"); }} className="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors w-full text-left">
+        <button
+          onClick={() => {
+            if (typeof window !== "undefined")
+              window.alert("For urgent issues, call: +91 99444 21125");
+          }}
+          className="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors w-full text-left"
+        >
           <CircleAlert className="h-4 w-4 shrink-0" />
           <span>Raise Issue</span>
         </button>
-        <a href="https://docs.example.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors">
+        <a
+          href="https://docs.example.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+        >
           <BookOpen className="h-4 w-4 shrink-0" />
           <span>Guide</span>
         </a>
@@ -287,7 +313,9 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-medium truncate">{orgName}</p>
-                {userEmail && <p className="text-[11px] text-muted-foreground truncate">{userEmail}</p>}
+                {userEmail && (
+                  <p className="text-[11px] text-muted-foreground truncate">{userEmail}</p>
+                )}
               </div>
               <MoreVertical className="h-4 w-4 text-muted-foreground shrink-0" />
             </button>
@@ -308,7 +336,10 @@ export function Sidebar({ orgId, orgName }: SidebarProps) {
               <Settings className="h-4 w-4" />
               Settings
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className="gap-2">
+            <DropdownMenuItem
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              className="gap-2"
+            >
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               {theme === "dark" ? "Light Mode" : "Dark Mode"}
             </DropdownMenuItem>

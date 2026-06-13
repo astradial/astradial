@@ -15,12 +15,13 @@
  *      until you rotate them via the editor admin or API.
  */
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { auth as authProvider } from "@/lib/auth";
 import { markAdminSessionStart } from "@/lib/auth/authStore";
 
@@ -59,7 +60,7 @@ export function OssLoginForm() {
               org_name: result.user.orgName || "",
               role: result.user.role || "admin",
               source: "oss-local",
-            }),
+            })
           );
         }
         markAdminSessionStart();
@@ -83,9 +84,9 @@ export function OssLoginForm() {
         <CardHeader>
           <CardTitle>Astradial — OSS Login</CardTitle>
           <CardDescription>
-            Sign in with your organisation&apos;s API key and secret. New to
-            this instance? Run <code className="text-xs">setup.sh</code> to
-            provision a default org and print its credentials.
+            Sign in with your organisation&apos;s API key and secret. New to this instance? Run{" "}
+            <code className="text-xs">setup.sh</code> to provision a default org and print its
+            credentials.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -113,16 +114,13 @@ export function OssLoginForm() {
                 disabled={loading}
               />
             </div>
-            {error ? (
-              <p className="text-sm text-destructive">{error}</p>
-            ) : null}
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}
             </Button>
             <p className="text-xs text-muted-foreground pt-2 border-t">
-              Want Firebase / Google sign-in instead? Set{" "}
-              <code>NEXT_PUBLIC_USE_FIREBASE=true</code> and provide the
-              firebase env vars in <code>.env</code>.
+              Want Firebase / Google sign-in instead? Set <code>NEXT_PUBLIC_USE_FIREBASE=true</code>{" "}
+              and provide the firebase env vars in <code>.env</code>.
             </p>
           </form>
         </CardContent>

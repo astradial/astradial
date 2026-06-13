@@ -14,8 +14,14 @@ function headers(): HeadersInit {
 
 async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { ...opts, headers: headers() });
-  if (res.status === 401) { handleUnauthorized("did-pool 401"); throw new Error("Session expired"); }
-  if (!res.ok) { const b = await res.json().catch(() => ({ error: res.statusText })); throw new Error(b.error || b.message || res.statusText); }
+  if (res.status === 401) {
+    handleUnauthorized("did-pool 401");
+    throw new Error("Session expired");
+  }
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(b.error || b.message || res.statusText);
+  }
   if (res.status === 204) return undefined as unknown as T;
   return res.json();
 }
@@ -25,9 +31,15 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
 async function adminReq<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(`${ADMIN_BASE}${path}`, {
     ...opts,
-    headers: { "Content-Type": "application/json", ...((opts.headers as Record<string, string>) || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...((opts.headers as Record<string, string>) || {}),
+    },
   });
-  if (!res.ok) { const b = await res.json().catch(() => ({ error: res.statusText })); throw new Error(b.error || b.message || res.statusText); }
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(b.error || b.message || res.statusText);
+  }
   if (res.status === 204) return undefined as unknown as T;
   return res.json();
 }
@@ -69,10 +81,13 @@ export interface AdminDidsResponse {
 
 export const didPool = {
   available: () => req<PoolDid[]>("/available"),
-  request: (id: string) => req<{ message: string; did: PoolDid }>(`/${id}/request`, { method: "POST" }),
-  cancelRequest: (id: string) => req<{ message: string }>(`/${id}/cancel-request`, { method: "POST" }),
+  request: (id: string) =>
+    req<{ message: string; did: PoolDid }>(`/${id}/request`, { method: "POST" }),
+  cancelRequest: (id: string) =>
+    req<{ message: string }>(`/${id}/cancel-request`, { method: "POST" }),
   my: () => req<MyDidsResponse>("/my"),
-  setDefault: (id: string) => req<{ message: string; did: PoolDid }>(`/${id}/set-default`, { method: "POST" }),
+  setDefault: (id: string) =>
+    req<{ message: string; did: PoolDid }>(`/${id}/set-default`, { method: "POST" }),
 };
 
 // ── Admin-facing ──
@@ -85,15 +100,34 @@ export const didAdmin = {
     const qs = p.toString();
     return adminReq<AdminDidsResponse>(`/admin/all${qs ? `?${qs}` : ""}`);
   },
-  bulkAdd: (data: { numbers: string[]; provider?: string; region?: string; monthly_price?: number; trunk_id?: string }) =>
-    adminReq<{ created: number; skipped: number; skipped_numbers: string[] }>("/admin/bulk", { method: "POST", body: JSON.stringify(data) }),
-  approve: (id: string) => adminReq<{ message: string; did: PoolDid }>(`/admin/${id}/approve`, { method: "POST" }),
+  bulkAdd: (data: {
+    numbers: string[];
+    provider?: string;
+    region?: string;
+    monthly_price?: number;
+    trunk_id?: string;
+  }) =>
+    adminReq<{ created: number; skipped: number; skipped_numbers: string[] }>("/admin/bulk", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  approve: (id: string) =>
+    adminReq<{ message: string; did: PoolDid }>(`/admin/${id}/approve`, { method: "POST" }),
   reject: (id: string) => adminReq<{ message: string }>(`/admin/${id}/reject`, { method: "POST" }),
-  assign: (id: string, org_id: string) => adminReq<{ message: string; did: PoolDid }>(`/admin/${id}/assign`, { method: "POST", body: JSON.stringify({ org_id }) }),
-  release: (id: string) => adminReq<{ message: string }>(`/admin/${id}/release`, { method: "POST" }),
-  update: (id: string, data: Partial<PoolDid>) => adminReq<PoolDid>(`/admin/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  assign: (id: string, org_id: string) =>
+    adminReq<{ message: string; did: PoolDid }>(`/admin/${id}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ org_id }),
+    }),
+  release: (id: string) =>
+    adminReq<{ message: string }>(`/admin/${id}/release`, { method: "POST" }),
+  update: (id: string, data: Partial<PoolDid>) =>
+    adminReq<PoolDid>(`/admin/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   setRoutingEnvironment: async (id: string, env: "prod" | "staging" | "oss") => {
-    const did = await adminReq<PoolDid>(`/admin/${id}`, { method: "PUT", body: JSON.stringify({ routing_environment: env }) });
+    const did = await adminReq<PoolDid>(`/admin/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ routing_environment: env }),
+    });
     // Trigger dispatcher regeneration so the change takes effect immediately
     await fetch("/api/admin/regenerate-gateway", { method: "POST" }).catch(() => {});
     return did;

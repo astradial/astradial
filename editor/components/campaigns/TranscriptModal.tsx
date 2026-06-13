@@ -56,8 +56,11 @@ export function TranscriptModal({ open, campaignId, leadId, eventId, leadName, o
   const data = q.data;
   const ready = data?.ready === true;
   const recordingUrl = ready ? getRecordingUrl(data) : null;
-  const agentMsgs: TranscriptMessage[] = ready ? (data?.messages ?? []).filter((m) => m.speaker === "agent") : [];
-  const customerMsgs: TranscriptMessage[] = ready ? (data?.messages ?? []).filter((m) => m.speaker === "customer") : [];
+  // Per USER_REQUEST: show the bot and user transcript table like reference UI has, but show only the user transcript now
+  const agentMsgs: TranscriptMessage[] = [];
+  const customerMsgs: TranscriptMessage[] = ready
+    ? (data?.messages ?? []).filter((m) => m.speaker === "customer")
+    : [];
 
   return createPortal(
     <div
@@ -67,11 +70,7 @@ export function TranscriptModal({ open, campaignId, leadId, eventId, leadName, o
       aria-modal="true"
       style={{ zIndex: 80 }}
     >
-      <div
-        className="cmp-modal cmp-modal-lg"
-        onClick={(e) => e.stopPropagation()}
-        role="document"
-      >
+      <div className="cmp-modal cmp-modal-lg" onClick={(e) => e.stopPropagation()} role="document">
         <div className="cmp-modal-head">
           <div>
             <h2 className="cmp-modal-title">Call transcript · {leadName}</h2>
