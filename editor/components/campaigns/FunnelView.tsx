@@ -48,7 +48,7 @@ const FunnelStep = memo(function FunnelStep({ label, value, sub, pctValue, showP
 export function FunnelView({ data }: { data: FunnelData }) {
   const total = data.total || 1;
   const steps: StepProps[] = [
-    { label: "Total", value: data.total, sub: "in campaign", pctValue: 100, showPct: false },
+    { label: "Total", value: data.total, sub: "in campaign", pctValue: data.total > 0 ? 100 : 0, showPct: false },
     {
       label: "Contacted",
       value: data.contacted,

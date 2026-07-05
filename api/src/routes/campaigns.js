@@ -16,6 +16,7 @@ const {
   CampaignTemplate,
   Campaign,
   CampaignLead,
+  CampaignLeadRun,
   CampaignLeadField,
   CampaignEvent,
   CampaignApproval,
@@ -30,7 +31,7 @@ const {
   throughputUpdate,
 } = require('../middleware/campaign-validators');
 const { importCsv } = require('../services/campaign-csv-importer');
-const { getQueue, IMPORT_QUEUE } = require('../jobs/campaignQueues');
+const { getQueue, IMPORT_QUEUE, WHATSAPP_QUEUE, CALLS_QUEUE } = require('../jobs/campaignQueues');
 
 // Separate multer for the async path — 250 MB cap to handle 5-lakh-row
 // uploads. Sync importer keeps its 5 MB cap below; the dialog routes
@@ -1018,14 +1019,95 @@ router.get('/:id/leads', requirePermission('campaigns.read'), async (req, res) =
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Lead-level pause/resume helpers ─────────────────────────────────
+// A run is "active" (pausable) only in these states. paused → resumable.
+const PAUSABLE_RUN_STATUSES = ['pending', 'queued', 'waiting'];
+
+// Fetch a lead with its run status flattened onto the payload, so the UI
+// can choose Pause vs Resume vs disabled.
+async function serializeLeadWithRun(campaignId, leadId, orgId) {
+  const row = await CampaignLead.findOne({
+    where: { id: leadId, campaign_id: campaignId, org_id: orgId },
+    include: [{
+      model: CampaignLeadRun,
+      as: 'run',
+      attributes: ['status', 'paused_at', 'current_day_index', 'current_action_index', 'next_run_at'],
+    }],
+  });
+  if (!row) return null;
+  const json = row.toJSON();
+  json.run_status = json.run ? json.run.status : null;
+  json.run_paused_at = json.run ? json.run.paused_at : null;
+  return json;
+}
+
+// Resolve the lead's run deterministically (latest, in case of re-enrollment).
+async function findLeadRun(campaignId, leadId, orgId) {
+  const lead = await CampaignLead.findOne({
+    where: { id: leadId, campaign_id: campaignId, org_id: orgId },
+    attributes: ['id'],
+  });
+  if (!lead) return { httpError: 404, message: 'Lead not found' };
+  const run = await CampaignLeadRun.findOne({
+    where: { campaign_lead_id: lead.id, campaign_id: campaignId, org_id: orgId },
+    order: [['created_at', 'DESC']],
+  });
+  if (!run) return { httpError: 404, message: 'No campaign run for this lead' };
+  return { run };
+}
+
+// Remove the BullMQ job for a run's current action from both channel queues.
+// Stable jobIds (`run-<id>-d<day>-a<action>`) are deduped by BullMQ and kept
+// 24h after completion, so without this a pause→resume of a queued WhatsApp
+// action would never re-fire. Best-effort (an active job can't be removed).
+async function removeRunChannelJobs(run) {
+  const jobId = `run-${run.id}-d${run.current_day_index}-a${run.current_action_index}`;
+  for (const qname of [WHATSAPP_QUEUE, CALLS_QUEUE]) {
+    try {
+      const job = await getQueue(qname).getJob(jobId);
+      if (job) await job.remove();
+    } catch (_) { /* best-effort: active/locked jobs can't be removed */ }
+  }
+}
+
 router.get('/:id/leads/:leadId', requirePermission('campaigns.read'), async (req, res) => {
   try {
-    const row = await CampaignLead.findOne({
-      where: { id: req.params.leadId, campaign_id: req.params.id, org_id: req.orgId },
-    });
-    if (!row) return res.status(404).json({ error: 'Lead not found' });
-    res.json(row);
+    const json = await serializeLeadWithRun(req.params.id, req.params.leadId, req.orgId);
+    if (!json) return res.status(404).json({ error: 'Lead not found' });
+    res.json(json);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Pause a single lead's automation run (without pausing the whole campaign).
+router.post('/:id/leads/:leadId/pause', requirePermission('campaigns.write'), async (req, res) => {
+  try {
+    const r = await findLeadRun(req.params.id, req.params.leadId, req.orgId);
+    if (r.httpError) return res.status(r.httpError).json({ error: r.message });
+    const { run } = r;
+    if (!PAUSABLE_RUN_STATUSES.includes(run.status)) {
+      return res.status(409).json({ error: `Cannot pause a run in status "${run.status}"` });
+    }
+    await removeRunChannelJobs(run); // drop the pending job so it can't fire while paused
+    await run.update({ status: 'paused', paused_at: new Date(), locked_at: null, locked_by: null });
+    res.json(await serializeLeadWithRun(req.params.id, req.params.leadId, req.orgId));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Resume a paused lead run — re-enters the scheduler at the saved day/action.
+router.post('/:id/leads/:leadId/resume', requirePermission('campaigns.write'), async (req, res) => {
+  try {
+    const r = await findLeadRun(req.params.id, req.params.leadId, req.orgId);
+    if (r.httpError) return res.status(r.httpError).json({ error: r.message });
+    const { run } = r;
+    if (run.status !== 'paused') {
+      return res.status(409).json({ error: `Cannot resume a run in status "${run.status}"` });
+    }
+    await removeRunChannelJobs(run); // clear any stale completed job so re-enqueue isn't deduped
+    await run.update({
+      status: 'pending', paused_at: null, next_run_at: new Date(), locked_at: null, locked_by: null,
+    });
+    res.json(await serializeLeadWithRun(req.params.id, req.params.leadId, req.orgId));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 router.patch('/:id/leads/:leadId', requirePermission('campaigns.write'), async (req, res) => {

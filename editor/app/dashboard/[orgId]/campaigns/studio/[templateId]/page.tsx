@@ -539,8 +539,9 @@ export default function StudioEditorPage() {
         />
       </div>
 
-      {/* Save-pending indicator */}
-      {dirty && (
+      {/* Save-pending indicator — hidden while the inspector panel is open
+          (the inspector has its own save/done footer). */}
+      {dirty && !selection && (
         <div
           style={{
             position: "fixed",
@@ -1356,6 +1357,18 @@ function Inspector({
   if (!day || !action) return null;
   const def = ACTION_TYPES[action.type];
 
+  // Resolve the saved phone-bot value against the fetched bots. The stored
+  // `script` is normally a bot id (UUID), but legacy/seeded data may hold the
+  // bot *name* — match on either so the dropdown shows the saved bot instead
+  // of rendering blank. `selectedBot` is undefined when nothing is saved or the
+  // saved bot is unknown (deleted, or the list failed to fetch).
+  const savedScript = action.type === "call" ? action.script || "" : "";
+  const selectedBot =
+    voiceBots.find((b) => b.id === savedScript) ||
+    voiceBots.find((b) => b.name === savedScript);
+  const botSelectValue = selectedBot ? selectedBot.id : savedScript || "__none";
+  const savedBotUnknown = Boolean(savedScript) && !selectedBot;
+
   return (
     <aside className="cmp-editor-inspector">
       <div className="cmp-inspector-head-row">
@@ -1595,11 +1608,11 @@ function Inspector({
           <div className="cmp-field">
             <label className="cmp-field-label">Phone bot</label>
             <Select
-              value={action.script || "__none"}
+              value={botSelectValue}
               onValueChange={(value) => {
                 updateAction(day.id, action.id, { script: value === "__none" ? "" : value });
               }}
-              disabled={voiceBotsLoading || voiceBots.length === 0}
+              disabled={voiceBotsLoading || (voiceBots.length === 0 && !savedScript)}
             >
               <SelectTrigger className="h-9 w-full text-[13.5px]">
                 <SelectValue placeholder="Select a bot…" />
@@ -1613,6 +1626,9 @@ function Inspector({
                       {bot.name}
                     </SelectItem>
                   ))}
+                  {savedBotUnknown && (
+                    <SelectItem value={savedScript}>{savedScript} (saved)</SelectItem>
+                  )}
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -1621,11 +1637,13 @@ function Inspector({
                 ? "Loading bots…"
                 : voiceBotsError
                   ? voiceBotsError
-                  : voiceBots.length === 0
+                  : voiceBots.length === 0 && !savedScript
                     ? "Create Astralite bots in the Bots section."
-                    : action.script
-                      ? `Saved bot id: ${action.script}`
-                      : "Campaign Bot ID is saved with the workflow."}
+                    : selectedBot
+                      ? `Saved bot: ${selectedBot.name}`
+                      : savedScript
+                        ? `Saved bot "${savedScript}" was not found — pick one above.`
+                        : "Campaign Bot ID is saved with the workflow."}
             </div>
           </div>
           <div className="cmp-field">

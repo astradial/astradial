@@ -106,8 +106,8 @@ services:
     build: ./api
     restart: unless-stopped
     ports:
-      - "9000:3000"
-      - "127.0.0.1:8765:8765"
+      - "9001:3000"
+      - "127.0.0.1:8766:8765"
     environment:
       - HOST=0.0.0.0
       - PORT=3000
@@ -185,7 +185,7 @@ services:
         NEXT_PUBLIC_USE_FIREBASE: ${NEXT_PUBLIC_USE_FIREBASE:-false}
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "3011:3001"
     environment:
       - NEXT_PUBLIC_ASTRADIAL_MODE=${ASTRADIAL_MODE:-selfhosted}
       - NEXT_PUBLIC_USE_FIREBASE=${NEXT_PUBLIC_USE_FIREBASE:-false}
@@ -215,7 +215,7 @@ services:
     build: ./workflow-engine
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3002:3002"
+      - "127.0.0.1:3012:3002"
     environment:
       - REDIS_URL=redis://redis:6379
       - API_URL=http://api:8000
@@ -241,7 +241,7 @@ services:
     build: ./pipecat-flow
     restart: unless-stopped
     ports:
-      - "127.0.0.1:7860:7860"
+      - "127.0.0.1:7871:7860"
     environment:
       - GATEWAY_HOST=0.0.0.0
       - GATEWAY_PORT=7860

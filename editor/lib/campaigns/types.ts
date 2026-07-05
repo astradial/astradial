@@ -153,9 +153,22 @@ export interface CampaignLead {
   current_node_id: string | null;
   crm_contact_id: string | null;
   enrolled_at: string | null;
+  // Run-level execution state, flattened from the lead's CampaignLeadRun.
+  // Drives the drawer's Pause/Resume button. Null when the lead has no run.
+  run_status?: LeadRunStatus | null;
+  run_paused_at?: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export type LeadRunStatus =
+  | "pending"
+  | "queued"
+  | "waiting"
+  | "halted"
+  | "completed"
+  | "failed"
+  | "paused";
 
 export type EventKind =
   | "enrolled"

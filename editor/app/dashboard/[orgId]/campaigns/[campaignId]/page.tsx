@@ -9,7 +9,7 @@
 // 60-second polling on /campaigns/:id/dashboard.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Pause, Play, RotateCw, Upload, WifiOff } from "lucide-react";
+import { ChevronLeft, Pause, Play, RotateCw, WifiOff } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { lazy, Suspense, useDeferredValue, useEffect, useState, useTransition } from "react";
 
@@ -136,13 +136,6 @@ export default function CampaignDetailPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            type="button"
-            className="cmp-btn cmp-btn-outline cmp-btn-sm"
-            onClick={() => router.push(`/dashboard/${orgId}/campaigns/${campaignId}/imports`)}
-          >
-            <Upload size={14} /> Imports
-          </button>
           {(isDraft || isScheduled) && (
             <button
               type="button"
