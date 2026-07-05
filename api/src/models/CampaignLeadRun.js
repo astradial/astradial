@@ -10,11 +10,12 @@ module.exports = (sequelize) => {
     current_action_index: { type: DataTypes.INTEGER, defaultValue: 0 },
     next_run_at: { type: DataTypes.DATE, allowNull: false },
     status: {
-      type: DataTypes.ENUM('pending', 'queued', 'waiting', 'halted', 'completed', 'failed'),
+      type: DataTypes.ENUM('pending', 'queued', 'waiting', 'halted', 'completed', 'failed', 'paused'),
       defaultValue: 'pending',
     },
     asterisk_channel_id: { type: DataTypes.STRING(64), allowNull: true },
     halted_at: { type: DataTypes.DATE, allowNull: true },
+    paused_at: { type: DataTypes.DATE, allowNull: true },
     locked_at: { type: DataTypes.DATE, allowNull: true },
     locked_by: { type: DataTypes.STRING(64), allowNull: true },
     attempts: { type: DataTypes.TINYINT, defaultValue: 0 },

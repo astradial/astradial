@@ -178,7 +178,16 @@
 }
 
 /* ── Page header (heading + subheading + actions) ────────────────── */
-.cmp-page-pad { padding: 28px 32px; max-width: 1500px; }
+.cmp-page-pad { padding: 28px 32px; max-width: 1500px; min-width: 0; }
+/* Containment: the dashboard layout wraps page content in a flex column
+   (`<div className="flex flex-1 flex-col">` in [orgId]/layout.tsx, inside
+   SidebarInset's `flex w-full flex-1 flex-col`). Flex items default to
+   min-width:auto and refuse to shrink below their content's intrinsic
+   width, so the kanban board's min-content (6 × 260px) would stretch the
+   whole page and force horizontal scroll. min-width:0 on the flex item
+   that holds .cmp-page-pad lets it shrink so .cmp-kanban-wrap can scroll
+   internally instead. The List view is unaffected (its table shrinks). */
+.flex.flex-1.flex-col:has(> .cmp-page-pad) { min-width: 0; }
 .cmp-page-actions-row {
   display: flex;
   align-items: flex-end;
@@ -493,7 +502,13 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
  * section. All names prefixed cmp-.
  * ──────────────────────────────────────────────────────────────── */
 
-.cmp-studio-shell { display: flex; flex-direction: column; height: 100vh; min-height: 0; overflow: hidden; background: var(--background); }
+/* Definite height = viewport minus the SiteHeader (--header-height, 48px) and
+   the inset <main>'s m-2 margins (0.5rem top + 0.5rem bottom = 1rem). The
+   parent flex chain (SidebarProvider) is only `min-h-svh` — a floor, not a
+   cap — so `height:100%` would resolve to auto and the whole page would grow.
+   A definite height here is what lets the inner canvas (and palette/inspector)
+   scroll internally instead of scrolling the window. */
+.cmp-studio-shell { display: flex; flex-direction: column; height: calc(100dvh - var(--header-height, 3rem) - 1rem); min-height: 0; overflow: hidden; background: var(--background); }
 .cmp-editor-body  { display: flex; flex: 1; min-height: 0; overflow: hidden; }
 
 /* Top toolbar */
@@ -532,6 +547,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   background: var(--card);
   display: flex; flex-direction: column; gap: 16px;
   padding: 18px 14px;
+  min-height: 0; overflow-y: auto;
 }
 .cmp-palette-head  { display: flex; flex-direction: column; gap: 2px; padding: 0 4px; }
 .cmp-palette-title { font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
@@ -581,6 +597,11 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
     oklch(0.985 0 0);
   padding: 32px 48px 80px;
   display: flex; justify-content: center;
+}
+.dark .cmp-canvas-wrap {
+  background:
+    radial-gradient(circle, oklch(0.30 0.006 285.885) 0.8px, transparent 0.8px) 0 0 / 20px 20px,
+    var(--background);
 }
 .cmp-canvas-stage {
   display: flex; flex-direction: column; align-items: center;
@@ -897,7 +918,7 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
   border-left: 1px solid var(--border); background: var(--card);
   padding: 20px 20px 16px;
   display: flex; flex-direction: column; gap: 16px;
-  overflow-y: auto;
+  min-height: 0; overflow-y: auto;
   animation: cmp-slide-right .15s ease-out;
 }
 .cmp-inspector-head-row { display: flex; align-items: center; justify-content: space-between; }
@@ -1176,6 +1197,8 @@ textarea.cmp-input { height: auto; padding: 10px 12px; resize: vertical; }
 /* ---------- §11.6 Kanban ---------- */
 .cmp-kanban-wrap {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
   padding-bottom: 8px;
   -ms-overflow-style: none;  /* IE and Edge */

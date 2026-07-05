@@ -4,7 +4,7 @@
 // PATCH /campaigns/:id/leads/:leadId with optimistic rollback (§11.23.4).
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Clock, Pause, X } from "lucide-react";
+import { AlertCircle, Clock, Pause, Play, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -96,6 +96,44 @@ export function LeadDrawer({ open, campaignId, leadId, onClose }: Props) {
     },
   });
 
+  // Lead-level pause/resume. Optimistically flips run_status; the leads-list
+  // invalidation prefix-matches this single-lead query so it re-syncs.
+  function makeRunMut(
+    fn: () => Promise<CampaignLead>,
+    optimistic: CampaignLead["run_status"],
+    failMsg: string
+  ) {
+    return {
+      mutationFn: fn,
+      onMutate: async () => {
+        await qc.cancelQueries({ queryKey: ["campaigns", campaignId, "leads", leadId] });
+        const prev = qc.getQueryData<CampaignLead>(["campaigns", campaignId, "leads", leadId]);
+        if (prev) {
+          qc.setQueryData<CampaignLead>(["campaigns", campaignId, "leads", leadId], {
+            ...prev,
+            run_status: optimistic,
+          });
+        }
+        return { prev };
+      },
+      onError: (_e: unknown, _v: void, ctx: { prev?: CampaignLead } | undefined) => {
+        if (ctx?.prev) qc.setQueryData(["campaigns", campaignId, "leads", leadId], ctx.prev);
+        showToast(failMsg, "error");
+      },
+      onSettled: () => {
+        qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "kanban"] });
+        qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "leads"] });
+        qc.invalidateQueries({ queryKey: ["campaigns", campaignId, "dashboard"] });
+      },
+    };
+  }
+  const pauseMut = useMutation(
+    makeRunMut(() => leadsApi.pause(campaignId, leadId as string), "paused", "Pause failed")
+  );
+  const resumeMut = useMutation(
+    makeRunMut(() => leadsApi.resume(campaignId, leadId as string), "pending", "Resume failed")
+  );
+
   if (!open || typeof window === "undefined") return null;
 
   const lead = leadQ.data;
@@ -152,7 +190,7 @@ export function LeadDrawer({ open, campaignId, leadId, onClose }: Props) {
                   <SelectTrigger className="h-9 w-full text-[13.5px]">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[70]">
                     <SelectGroup>
                       <SelectLabel>Status</SelectLabel>
                       {STATUS_OPTIONS.map((opt) => (
@@ -219,18 +257,60 @@ export function LeadDrawer({ open, campaignId, leadId, onClose }: Props) {
             )}
           </div>
 
-          {lead && (
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                className="cmp-btn cmp-btn-outline cmp-btn-sm"
-                style={{ flex: 1 }}
-                disabled
-                title="Lead-level pause is not available yet"
-              >
-                <Pause size={14} /> Pause unavailable
-              </button>
-            </div>
-          )}
+          {lead && (() => {
+            const rs = lead.run_status;
+            const busy = pauseMut.isPending || resumeMut.isPending;
+            if (rs === "paused") {
+              return (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="cmp-btn cmp-btn-outline cmp-btn-sm"
+                    style={{ flex: 1 }}
+                    disabled={busy}
+                    onClick={() => resumeMut.mutate()}
+                  >
+                    <Play size={14} /> {busy ? "Resuming…" : "Resume lead"}
+                  </button>
+                </div>
+              );
+            }
+            if (rs === "pending" || rs === "queued" || rs === "waiting") {
+              return (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="cmp-btn cmp-btn-outline cmp-btn-sm"
+                    style={{ flex: 1 }}
+                    disabled={busy}
+                    onClick={() => pauseMut.mutate()}
+                  >
+                    <Pause size={14} /> {busy ? "Pausing…" : "Pause lead"}
+                  </button>
+                </div>
+              );
+            }
+            const reason =
+              rs == null
+                ? "No active run"
+                : rs === "halted"
+                  ? "Lead halted"
+                  : rs === "completed"
+                    ? "Run completed"
+                    : rs === "failed"
+                      ? "Run failed"
+                      : "Pause unavailable";
+            return (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className="cmp-btn cmp-btn-outline cmp-btn-sm"
+                  style={{ flex: 1 }}
+                  disabled
+                  title={reason}
+                >
+                  <Pause size={14} /> {reason}
+                </button>
+              </div>
+            );
+          })()}
         </div>
       </div>
 

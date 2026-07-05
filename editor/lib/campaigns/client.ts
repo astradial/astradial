@@ -311,6 +311,11 @@ export const leads = {
     req<TranscriptPayload>(`/${campaignId}/leads/${leadId}/transcript/${eventId}`, {
       signal: opts.signal,
     }),
+  // Lead-level pause/resume — pauses just this lead's run, not the campaign.
+  pause: (campaignId: string, leadId: string) =>
+    req<CampaignLead>(`/${campaignId}/leads/${leadId}/pause`, { method: "POST" }),
+  resume: (campaignId: string, leadId: string) =>
+    req<CampaignLead>(`/${campaignId}/leads/${leadId}/resume`, { method: "POST" }),
 };
 
 // ── PR 4: per-campaign dashboard summary ──
