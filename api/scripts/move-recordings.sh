@@ -13,9 +13,18 @@
 export GOOGLE_APPLICATION_CREDENTIALS=/root/.config/gcloud/application_default_credentials.json
 
 RECORDING_DIR=/var/spool/asterisk/monitor
-BUCKET=misssellerai.firebasestorage.app
-BUCKET_PATH=astra_pbx/recordings
+# Cloud archival is OPT-IN. There is deliberately no default bucket: a default
+# means every self-hosted install writes its customers' call recordings into
+# whichever bucket happens to be baked into the source — and bills its owner for
+# them. Set GCS_BUCKET (and a credential) to enable archival.
+BUCKET="${GCS_BUCKET:-}"
+BUCKET_PATH="${GCS_BUCKET_PATH:-astra_pbx/recordings}"
 LOG=/var/log/rclone-recordings.log
+
+if [ -z "$BUCKET" ]; then
+  echo "[$(date -Iseconds)] GCS_BUCKET unset — cloud archival disabled, recordings stay in $RECORDING_DIR. Set GCS_BUCKET to enable." >> "$LOG"
+  exit 0
+fi
 
 echo "[$(date -Iseconds)] Starting recording sync" >> $LOG
 
@@ -50,7 +59,7 @@ rclone move $RECORDING_DIR firebase:$BUCKET/$BUCKET_PATH/ \
 echo "[$(date -Iseconds)] Sync complete" >> $LOG
 
 # Also sync ARI bridge recordings (bot calls)
-rclone move /var/spool/asterisk/recording firebase:misssellerai.firebasestorage.app/astra_pbx/recordings/ \
+rclone move /var/spool/asterisk/recording "firebase:$BUCKET/$BUCKET_PATH/" \
   --include "*.wav" \
   --min-age 5m \
   --log-file $LOG \

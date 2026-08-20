@@ -6,6 +6,15 @@
  */
 
 const express = require('express');
+
+// Cloud archival of call recordings is OPT-IN and has no default bucket.
+// A default would mean every self-hosted install writes its customers' call
+// audio into whichever bucket was baked into the source, and bills that
+// bucket's owner. Unset = recordings stay on local disk; playback, stitching
+// and deletion all degrade gracefully rather than reaching for someone
+// else's storage.
+const GCS_BUCKET = process.env.GCS_BUCKET || '';
+const GCS_BUCKET_PATH = process.env.GCS_BUCKET_PATH || 'astra_pbx/recordings';
 const cors = require('cors');
 const morgan = require('morgan');
 const bcrypt = require('bcrypt');
@@ -6838,10 +6847,12 @@ app.get('/api/v1/calls/:callId/recording', async (req, res) => {
       if (fs.existsSync(p)) return p;
       p = path.join(ALT_DIR, filename);
       if (fs.existsSync(p)) return p;
-      // Fetch from Firebase via rclone into the dedicated src cache.
-      const rclonePath = `firebase:misssellerai.firebasestorage.app/astra_pbx/recordings/${filename}`;
+      // Fetch from cloud storage via rclone into the dedicated src cache.
+      // Opt-in: no default bucket (see api/scripts/move-recordings.sh).
       const cached = path.join(STITCH_SRC_DIR, filename);
       if (fs.existsSync(cached)) return cached;
+      if (!GCS_BUCKET) return null;
+      const rclonePath = `firebase:${GCS_BUCKET}/${GCS_BUCKET_PATH}/${filename}`;
       const ok = await new Promise((resolve) => {
         execFile("rclone", ["copyto", rclonePath, cached, "--timeout", "20s"], { timeout: 30000 }, (err) => resolve(!err));
       });
@@ -6954,7 +6965,9 @@ app.get('/api/v1/calls/:callId/recording', async (req, res) => {
     const safeLinkedid = String(anchor.linkedid).replace(/[^a-zA-Z0-9._-]/g, '_');
     const stitchedPath = path.join(STITCH_DIR, `${safeLinkedid}.wav`);
     const stitchedName = `call-${safeLinkedid}.wav`;
-    const stitchedRemote = `firebase:misssellerai.firebasestorage.app/astra_pbx/recordings/stitched/${safeLinkedid}.wav`;
+    const stitchedRemote = GCS_BUCKET
+      ? `firebase:${GCS_BUCKET}/${GCS_BUCKET_PATH}/stitched/${safeLinkedid}.wav`
+      : null;
 
     // Fast path: serve local cached stitch if present, with Range support.
     if (fs.existsSync(stitchedPath)) {
@@ -6969,7 +6982,7 @@ app.get('/api/v1/calls/:callId/recording', async (req, res) => {
     // Note: rclone cat doesn't support Range, so seek doesn't work in this
     // path. Acceptable trade-off — the next request after this populates
     // the local cache, and subsequent requests get full Range support.
-    const remoteMeta = await new Promise((resolve) => {
+    const remoteMeta = !stitchedRemote ? null : await new Promise((resolve) => {
       execFile("rclone", ["size", stitchedRemote, "--json"], { timeout: 10000 }, (err, stdout) => {
         if (err) return resolve(null);
         try { return resolve(JSON.parse(stdout)); } catch { return resolve(null); }
@@ -7377,11 +7390,14 @@ app.delete('/api/v1/calls/:callId/recording', authenticateOrg, requirePermission
       deleted.local = true;
     }
 
-    // Delete from Firebase Storage (GCS via rclone)
+    // Delete from cloud storage, if this install archives anywhere.
+    // Skipped entirely when GCS_BUCKET is unset — there is no default bucket to
+    // delete from, and guessing one would mean issuing deletes against someone
+    // else's storage.
     try {
+      if (!GCS_BUCKET) throw new Error('not found: GCS_BUCKET unset, nothing archived remotely');
       const { execSync } = require('child_process');
-      const bucket = process.env.GCS_BUCKET || 'misssellerai.firebasestorage.app';
-      execSync(`rclone deletefile firebase:${bucket}/astra_pbx/recordings/${filename}`, { timeout: 15000 });
+      execSync(`rclone deletefile firebase:${GCS_BUCKET}/${GCS_BUCKET_PATH}/${filename}`, { timeout: 15000 });
       deleted.gcs = true;
     } catch (e) {
       // File may not exist in GCS (not yet moved or already deleted)

@@ -32,6 +32,10 @@ const STITCH_SRC_DIR = '/var/spool/asterisk/stitch-src';
 // to Firebase by a prior cron run. 25h covers a full missed cycle.
 const LOOKBACK_HOURS = 25;
 
+// Cloud archival is opt-in and has no default bucket.
+const GCS_BUCKET = process.env.GCS_BUCKET || '';
+const GCS_BUCKET_PATH = process.env.GCS_BUCKET_PATH || 'astra_pbx/recordings';
+
 const sequelize = new Sequelize(
   process.env.DB_NAME || 'pbx_api_db',
   process.env.DB_USER || 'root',
@@ -51,10 +55,13 @@ async function resolveLocal(filename) {
   if (fs.existsSync(p)) return p;
   p = path.join(ALT_DIR, filename);
   if (fs.existsSync(p)) return p;
-  // Fetch from Firebase
+  // Fetch from cloud storage, if this install has any configured. No default
+  // bucket: see move-recordings.sh. Unset simply means "legs that are no longer
+  // on disk cannot be recovered", which degrades stitching, never recording.
   const cached = path.join(STITCH_SRC_DIR, filename);
   if (fs.existsSync(cached)) return cached;
-  const remote = `firebase:misssellerai.firebasestorage.app/astra_pbx/recordings/${filename}`;
+  if (!GCS_BUCKET) return null;
+  const remote = `firebase:${GCS_BUCKET}/${GCS_BUCKET_PATH}/${filename}`;
   const ok = await new Promise((resolve) => {
     execFile('rclone', ['copyto', remote, cached, '--timeout', '20s'], { timeout: 30000 }, (err) => resolve(!err));
   });
