@@ -153,7 +153,7 @@ export const InitiateCallDialog = forwardRef<InitiateCallDialogHandle>((_props, 
                     ))}</SelectContent>
                   </Select>
                 ) : (
-                  <Input value={form.from} onChange={(e) => setForm({ ...form, from: cleanPhone(e.target.value) })} placeholder="9944421125" maxLength={10} className="h-8 text-xs" />
+                  <Input value={form.from} onChange={(e) => setForm({ ...form, from: cleanPhone(e.target.value) })} placeholder="9876543210" maxLength={10} className="h-8 text-xs" />
                 )}
               </div>
             </div>
@@ -186,7 +186,7 @@ export const InitiateCallDialog = forwardRef<InitiateCallDialogHandle>((_props, 
                     ))}</SelectContent>
                   </Select>
                 ) : (
-                  <Input value={form.to} onChange={(e) => setForm({ ...form, to: cleanPhone(e.target.value) })} placeholder="9944421125" maxLength={10} className="h-8 text-xs" />
+                  <Input value={form.to} onChange={(e) => setForm({ ...form, to: cleanPhone(e.target.value) })} placeholder="9876543210" maxLength={10} className="h-8 text-xs" />
                 )}
               </div>
             </div>

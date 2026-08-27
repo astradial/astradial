@@ -558,7 +558,7 @@ function ActionPopover({
           <div className="p-3 space-y-2">
             <div className="flex gap-2">
               <Input
-                placeholder="e.g. 9944421125"
+                placeholder="e.g. 9876543210"
                 value={external}
                 onChange={(e) => setExternal(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") pick(external.trim(), "external"); }}
