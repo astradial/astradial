@@ -193,7 +193,7 @@ test('D17: timeout_destination_type=queue → Goto(<org>_queue,<num>,1)', () => 
 });
 
 test('D18: timeout_destination_type=phone → Dial via trunk with 10-digit normalisation', () => {
-  const block = gen.generateQueueExtension(makeQueue({ timeout_destination: '+91 99444 21125', timeout_destination_type: 'phone', members: [makeQueueMember(makeSoftphoneUser())] }), org);
+  const block = gen.generateQueueExtension(makeQueue({ timeout_destination: '+91 98765 43210', timeout_destination_type: 'phone', members: [makeQueueMember(makeSoftphoneUser())] }), org);
   assert.match(block, /n\(timeout\),Dial\(PJSIP\/9876543210@org_test_trunk,30,tT\)/);
 });
 

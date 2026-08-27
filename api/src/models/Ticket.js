@@ -16,7 +16,7 @@
 const { DataTypes } = require('sequelize');
 
 // Trailing 10 digits — the canonical key for dedup. "9876543210",
-// "919876543210", "0 99444 21125", "+91-99444-21125" all collapse to
+// "919876543210", "0 98765 43210", "+91-98765-43210" all collapse to
 // "9876543210".
 function normalisePhone(raw) {
   const digits = String(raw || '').replace(/\D/g, '');
