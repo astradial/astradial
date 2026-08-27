@@ -197,7 +197,7 @@ export default function CreateOrgPage() {
             </div>
             <div className="space-y-2">
               <Label>Contact Phone</Label>
-              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 99444 21125" />
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" />
             </div>
           </div>
           <div className="flex justify-end pt-4">

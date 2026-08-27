@@ -189,7 +189,7 @@ async function closeAlertIssue(number, body) {
 // path; AMI Originate of a new call works regardless.
 //
 // Env vars (all required for phone alerts; missing any → silently skipped):
-//   OPS_ALERT_PHONE      — destination mobile (e.g. '9944421125' or '+919944421125')
+//   OPS_ALERT_PHONE      — destination mobile (e.g. '9876543210' or '+919876543210')
 //   OPS_ALERT_CALLER_ID  — what shows on the operator's phone (e.g. '08065080700' = pilot DID)
 //   OPS_ALERT_TRUNK      — Asterisk PJSIP endpoint name of the outbound trunk to dial through
 //   AMI_USER / AMI_SECRET — credentials for AMI socket (already in .env)
